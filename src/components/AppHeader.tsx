@@ -30,7 +30,7 @@ export default function AppHeader({ userName = "", onAvatarPress }: Props) {
   const ini = initials(userName);
 
   return (
-    <View style={[s.wrap, { paddingTop: insets.top > 0 ? insets.top : rs(12) }]}>
+    <View style={[s.wrap, { paddingTop: (insets.top > 0 ? insets.top : rs(14)) + rs(4) }]}>
       <View style={s.left}>
         <AredLogo size={36} />
         <Text style={s.title}>Ndaw Wune</Text>

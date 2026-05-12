@@ -19,7 +19,8 @@
       "package": "sn.aroka.ared.ndawune",
       "minSdkVersion": 24,
       "compileSdkVersion": 35,
-      "targetSdkVersion": 35
+      "targetSdkVersion": 35,
+      "usesCleartextTraffic": true
     },
     "ios": {
       "bundleIdentifier": "sn.aroka.ared.ndawune",
@@ -34,7 +35,15 @@
     "plugins": [
       "expo-router",
       "expo-font",
-      ["expo-sqlite", { "enableFTS": true }]
+      ["expo-sqlite", { "enableFTS": true }],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#1a56db",
+          "sounds": []
+        }
+      ]
     ],
     "scheme": "ared-ndawune",
     "experiments": {

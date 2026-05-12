@@ -60,10 +60,18 @@ export default function LoginScreen() {
         router.replace("/(tabs)/home");
       }
     } catch (e: any) {
-      Alert.alert(
-        "Connexion refusée",
-        e?.response?.data?.detail ?? "Identifiant ou mot de passe incorrect.",
-      );
+      // Pas de réponse = problème réseau (serveur injoignable)
+      if (!e?.response) {
+        Alert.alert(
+          "Serveur introuvable",
+          `Impossible de joindre le serveur.\nVérifiez que vous êtes sur le bon réseau Wi-Fi.\n\n(${e?.message ?? "Network Error"})`,
+        );
+      } else {
+        Alert.alert(
+          "Connexion refusée",
+          e.response.data?.detail ?? "Identifiant ou mot de passe incorrect.",
+        );
+      }
     }
   };
 

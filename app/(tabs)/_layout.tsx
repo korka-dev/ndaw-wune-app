@@ -13,10 +13,10 @@ export default function TabsLayout() {
 
   return (
     <Tabs
+      safeAreaInsets={{ top: 0 }}
       screenOptions={{
         headerShown: false,
-        // Désactive complètement la gestion safe area du navigator
-        // → chaque écran gère son propre inset via AppHeader
+        // Chaque écran gère son propre inset top via AppHeader
         sceneStyle: { backgroundColor: C.bg },
         tabBarActiveTintColor:   C.primary,
         tabBarInactiveTintColor: C.textMuted,
