@@ -12,8 +12,9 @@ import * as SQLite from "expo-sqlite";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type QueueAction =
-  | "FINISH_SEANCE"    // terminer une séance démarrée en ligne
-  | "SUBMIT_RAPPORT";  // envoyer un rapport rédigé hors-ligne
+  | "FINISH_SEANCE"               // terminer une séance démarrée en ligne
+  | "SUBMIT_RAPPORT"              // envoyer un rapport de séance rédigé hors-ligne
+  | "SUBMIT_RAPPORT_JOURNALIER";  // envoyer un rapport journalier rédigé hors-ligne
 
 export interface QueueItem {
   id:         number;
@@ -69,7 +70,7 @@ export function initDB(): void {
     );
   `);
 
-  // Cache des rapports (consultables hors-ligne)
+  // Cache des rapports de séance (consultables hors-ligne)
   db.execSync(`
     CREATE TABLE IF NOT EXISTS rapports_cache (
       id              TEXT PRIMARY KEY,
@@ -82,6 +83,34 @@ export function initDB(): void {
       difficultes     TEXT,
       synced          INTEGER NOT NULL DEFAULT 0,
       created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
+  // Rapports journaliers tuteur — stockés hors-ligne avant sync
+  db.execSync(`
+    CREATE TABLE IF NOT EXISTS rapports_journalier (
+      id                       TEXT PRIMARY KEY,
+      date_rapport             TEXT NOT NULL,
+      ief                      TEXT NOT NULL,
+      commune                  TEXT NOT NULL,
+      ecole                    TEXT NOT NULL,
+      superviseur              TEXT NOT NULL,
+      nom_tuteur               TEXT NOT NULL,
+      nb_absences              INTEGER NOT NULL DEFAULT 0,
+      absents                  TEXT,
+      semaine                  INTEGER NOT NULL,
+      jour_cours               INTEGER NOT NULL,
+      difficultes              TEXT NOT NULL,
+      autres_difficultes       TEXT,
+      description_difficultes  TEXT,
+      directeur_venu           INTEGER NOT NULL,
+      besoin_appui             INTEGER NOT NULL,
+      domaines_appui           TEXT,
+      has_observations         INTEGER NOT NULL,
+      commentaires             TEXT,
+      soumis_en_offline        INTEGER NOT NULL DEFAULT 1,
+      synced                   INTEGER NOT NULL DEFAULT 0,
+      created_at               TEXT    NOT NULL DEFAULT (datetime('now'))
     );
   `);
 }
@@ -190,9 +219,89 @@ export function clearRapportsCache(): void {
   getDB().execSync(`DELETE FROM rapports_cache`);
 }
 
+// ── Rapports Journalier — types ───────────────────────────────────────────────
+
+export interface RapportJournalierLocal {
+  id:                      string;
+  date_rapport:            string;   // ISO date YYYY-MM-DD
+  ief:                     string;
+  commune:                 string;
+  ecole:                   string;
+  superviseur:             string;
+  nom_tuteur:              string;
+  nb_absences:             number;
+  absents:                 string | null;
+  semaine:                 number;
+  jour_cours:              number;
+  difficultes:             string;   // JSON array sérialisé
+  autres_difficultes:      string | null;
+  description_difficultes: string | null;
+  directeur_venu:          number;   // 0/1
+  besoin_appui:            number;   // 0/1
+  domaines_appui:          string | null;
+  has_observations:        number;   // 0/1
+  commentaires:            string | null;
+  soumis_en_offline:       number;   // 0/1
+  synced:                  number;   // 0/1
+  created_at:              string;
+}
+
+// ── Rapports Journalier — écriture ────────────────────────────────────────────
+
+/**
+ * Insère un rapport journalier dans la DB locale.
+ * synced=0 par défaut (en attente de synchronisation).
+ */
+export function insertRapportJournalier(r: Omit<RapportJournalierLocal, "created_at" | "synced">): void {
+  const db = getDB();
+  db.runSync(
+    `INSERT INTO rapports_journalier (
+      id, date_rapport, ief, commune, ecole, superviseur, nom_tuteur,
+      nb_absences, absents, semaine, jour_cours, difficultes,
+      autres_difficultes, description_difficultes,
+      directeur_venu, besoin_appui, domaines_appui,
+      has_observations, commentaires, soumis_en_offline, synced
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
+    [
+      r.id, r.date_rapport, r.ief, r.commune, r.ecole, r.superviseur, r.nom_tuteur,
+      r.nb_absences, r.absents ?? null, r.semaine, r.jour_cours, r.difficultes,
+      r.autres_difficultes ?? null, r.description_difficultes ?? null,
+      r.directeur_venu, r.besoin_appui, r.domaines_appui ?? null,
+      r.has_observations, r.commentaires ?? null, r.soumis_en_offline,
+    ],
+  );
+}
+
+/**
+ * Marque un rapport journalier comme synchronisé avec le serveur.
+ */
+export function markRapportJournalierSynced(id: string): void {
+  getDB().runSync(
+    `UPDATE rapports_journalier SET synced = 1 WHERE id = ?`,
+    [id],
+  );
+}
+
+/**
+ * Retourne tous les rapports journaliers, du plus récent au plus ancien.
+ */
+export function getRapportsJournalier(): RapportJournalierLocal[] {
+  return getDB().getAllSync<RapportJournalierLocal>(
+    `SELECT * FROM rapports_journalier ORDER BY date_rapport DESC, created_at DESC`,
+  );
+}
+
+/**
+ * Vide la table des rapports journaliers (logout).
+ */
+export function clearRapportsJournalier(): void {
+  getDB().execSync(`DELETE FROM rapports_journalier`);
+}
+
 // ── Nettoyage complet (logout) ────────────────────────────────────────────────
 
 export function clearAllLocalData(): void {
   clearQueue();
   clearRapportsCache();
+  clearRapportsJournalier();
 }

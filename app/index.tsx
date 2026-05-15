@@ -5,21 +5,27 @@ import { useEffect, useState } from "react";
 export default function Index() {
   const [ready,    setReady]    = useState(false);
   const [hasToken, setHasToken] = useState(false);
+  const [role,     setRole]     = useState<string | null>(null);
 
   useEffect(() => {
-    AsyncStorage.getItem("access_token").then(t => {
-      setHasToken(!!t);
+    Promise.all([
+      AsyncStorage.getItem("access_token"),
+      AsyncStorage.getItem("user_role"),
+    ]).then(([token, storedRole]) => {
+      setHasToken(!!token);
+      setRole(storedRole);
       setReady(true);
     });
   }, []);
 
   if (!ready) return null;
 
-  // En développement → toujours repartir de l'écran d'accueil (welcome)
-  // pour re-tester le flux de connexion à chaque changement.
   if (__DEV__) return <Redirect href="/welcome" />;
 
-  return hasToken
-    ? <Redirect href="/(tabs)/home" />
-    : <Redirect href="/welcome" />;
+  if (!hasToken) return <Redirect href="/welcome" />;
+
+  // Redirect based on role
+  if (role === "superviseur") return <Redirect href="/(supervisor-tabs)/presences" />;
+
+  return <Redirect href="/(tabs)/home" />;
 }

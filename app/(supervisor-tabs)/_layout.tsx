@@ -1,0 +1,60 @@
+import { Tabs } from "expo-router";
+import { Feather } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Platform } from "react-native";
+import { C } from "../../src/utils/theme";
+import { rf, rs } from "../../src/utils/responsive";
+
+export default function SupervisorTabsLayout() {
+  const insets = useSafeAreaInsets();
+  const TAB_BAR_HEIGHT = rs(52) + insets.bottom;
+
+  return (
+    <Tabs
+      safeAreaInsets={{ top: 0 }}
+      screenOptions={{
+        headerShown: false,
+        sceneStyle: { backgroundColor: C.bg },
+        tabBarActiveTintColor:   C.brand,
+        tabBarInactiveTintColor: C.textMuted,
+        tabBarStyle: {
+          backgroundColor: C.surface,
+          borderTopColor:  C.border,
+          borderTopWidth:  1,
+          height:          TAB_BAR_HEIGHT,
+          paddingBottom:   insets.bottom > 0 ? insets.bottom : rs(6),
+          paddingTop:      rs(6),
+          elevation:       8,
+          shadowColor:     "#000",
+          shadowOpacity:   0.06,
+          shadowRadius:    8,
+          shadowOffset:    { width: 0, height: -2 },
+        },
+        tabBarLabelStyle: {
+          fontSize:     rf(11),
+          fontWeight:   "600",
+          marginBottom: Platform.OS === "ios" ? 0 : rs(2),
+        },
+      }}
+    >
+      <Tabs.Screen
+        name="presences"
+        options={{
+          title: "Accueil",
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="home" size={size ?? 22} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="rapports"
+        options={{
+          title: "Rapports",
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="send" size={size ?? 22} color={color} />
+          ),
+        }}
+      />
+    </Tabs>
+  );
+}

@@ -1,7 +1,7 @@
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const API_URL = "http://192.168.1.203:8000/api/v1"; // IP locale Wi-Fi
+const API_URL = "http://192.168.1.188:8000/api/v1"; // IP locale Wi-Fi
 
 export const api = axios.create({ baseURL: API_URL, timeout: 15000 });
 
@@ -35,9 +35,11 @@ api.interceptors.response.use(
 );
 
 export const authApi = {
-  login:  (identifier: string, password: string) =>
+  login:          (identifier: string, password: string) =>
     api.post("/auth/login", { identifier, password }),
-  me:     () => api.get("/auth/me"),
+  me:             () => api.get("/auth/me"),
+  resetPassword: (identifier: string, new_password: string, confirm_password: string) =>
+    api.post("/auth/reset-password", { identifier, new_password, confirm_password }),
 };
 
 export const syncApi = {
@@ -54,4 +56,14 @@ export const seancesApi = {
 export const rapportsApi = {
   submit: (d: unknown) => api.post("/app/rapports", d),
   list:   () => api.get("/app/rapports"),
+};
+
+export const rapportJournalierApi = {
+  submit: (d: unknown) => api.post("/app/rapports/journalier", d),
+  list:   (page = 0, limit = 20) =>
+    api.get("/app/rapports/journalier", { params: { skip: page * limit, limit } }),
+};
+
+export const superviseurApi = {
+  sync: () => api.get("/app/supervisor/sync"),
 };

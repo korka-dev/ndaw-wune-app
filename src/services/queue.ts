@@ -10,12 +10,13 @@
  *   6. En cas d'erreur métier (4xx) → marquée "échouée" (attempts++) mais conservée
  *      pour investigation (ne bloque pas les autres actions).
  */
-import { seancesApi, rapportsApi } from "./api";
+import { seancesApi, rapportsApi, rapportJournalierApi } from "./api";
 import {
   getPendingActions,
   deleteAction,
   markActionFailed,
   markRapportSynced,
+  markRapportJournalierSynced,
   QueueItem,
 } from "./db";
 
@@ -81,9 +82,17 @@ async function processAction(item: QueueItem): Promise<void> {
     case "SUBMIT_RAPPORT": {
       const { local_rapport_id, ...body } = payload;
       await rapportsApi.submit(body);
-      // Marquer le rapport local comme synchronisé
       if (local_rapport_id) {
         markRapportSynced(local_rapport_id);
+      }
+      break;
+    }
+
+    case "SUBMIT_RAPPORT_JOURNALIER": {
+      const { local_id, ...body } = payload;
+      await rapportJournalierApi.submit(body);
+      if (local_id) {
+        markRapportJournalierSynced(local_id);
       }
       break;
     }

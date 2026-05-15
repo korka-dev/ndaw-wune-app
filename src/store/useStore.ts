@@ -62,7 +62,18 @@ export const useStore = create<AppStore>((set, get) => ({
 
       // Ne pas syncer offline si l'utilisateur doit d'abord changer son mot de passe
       if (!mustChange) {
-        await get().syncOffline(true);
+        // 1. Récupérer le profil pour connaître le rôle (toujours fiable)
+        try {
+          const { data: me } = await authApi.me();
+          set({ user: me });
+          await AsyncStorage.setItem("user_role", me.role);
+        } catch {}
+
+        // 2. Sync offline seulement pour les enseignants
+        const role = get().user?.role;
+        if (role && role !== "superviseur") {
+          await get().syncOffline(true);
+        }
       }
 
       return { mustChangePassword: mustChange };

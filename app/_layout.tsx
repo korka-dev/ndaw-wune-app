@@ -30,8 +30,13 @@ export default function RootLayout() {
           name="login"
           options={{ animation: "slide_from_right" }}
         />
+        <Stack.Screen
+          name="forgot-password"
+          options={{ animation: "slide_from_right" }}
+        />
         <Stack.Screen name="change-password" />
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="(supervisor-tabs)" />
       </Stack>
     </SafeAreaProvider>
   );

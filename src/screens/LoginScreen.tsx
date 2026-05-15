@@ -57,7 +57,12 @@ export default function LoginScreen() {
       if (mustChangePassword) {
         router.replace("/change-password");
       } else {
-        router.replace("/(tabs)/home");
+        const role = useStore.getState().user?.role;
+        if (role === "superviseur") {
+          router.replace("/(supervisor-tabs)/presences");
+        } else {
+          router.replace("/(tabs)/home");
+        }
       }
     } catch (e: any) {
       // Pas de réponse = problème réseau (serveur injoignable)
@@ -155,7 +160,11 @@ export default function LoginScreen() {
           </View>
 
           {/* Mot de passe oublié */}
-          <TouchableOpacity style={s.forgotWrap} activeOpacity={0.7}>
+          <TouchableOpacity
+            style={s.forgotWrap}
+            activeOpacity={0.7}
+            onPress={() => router.push("/forgot-password")}
+          >
             <Text style={s.forgotTxt}>Mot de passe oublié ?</Text>
           </TouchableOpacity>
 
