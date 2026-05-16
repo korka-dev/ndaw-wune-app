@@ -3,7 +3,7 @@
  * Design identique à la maquette Ndaw Wune v2.
  * Adapté à tous les appareils via useSafeAreaInsets.
  */
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
   Alert, Modal, TextInput, ActivityIndicator,
@@ -49,6 +49,27 @@ export default function HomeScreen() {
   const todayPlan = [...planning]
     .filter(p => p.jour === todayIdx)
     .sort((a, b) => a.heure_debut.localeCompare(b.heure_debut));
+
+  /**
+   * Prochain jour avec un planning (si aujourd'hui est vide).
+   * Cherche jusqu'à 7 jours en avant (cycle hebdomadaire).
+   */
+  const nextScheduledDay = useMemo(() => {
+    if (todayPlan.length > 0) return null;
+    for (let offset = 1; offset <= 7; offset++) {
+      const dayIdx = (todayIdx + offset) % 7;
+      const segs   = [...planning]
+        .filter(p => p.jour === dayIdx)
+        .sort((a, b) => a.heure_debut.localeCompare(b.heure_debut));
+      if (segs.length > 0) {
+        const d = new Date();
+        d.setDate(d.getDate() + offset);
+        return { dayIdx, segs, offset, date: d };
+      }
+    }
+    return null;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planning, todayIdx, todayPlan.length]);
 
   /* ── État démarrage explicite de la séance ── */
   const [seanceStarted, setSeanceStarted] = useState(false);
@@ -180,7 +201,8 @@ export default function HomeScreen() {
   };
 
   /* ── Profil ── */
-  const [showProfile, setShowProfile] = useState(false);
+  const [showProfile,   setShowProfile]   = useState(false);
+  const [showNextPlan,  setShowNextPlan]  = useState(false);
 
   /* ── Rapport modal ── */
   const [showRapport, setShowRapport] = useState(false);
@@ -247,6 +269,15 @@ export default function HomeScreen() {
   /* ── Carte segment ── */
   const renderSegCard = () => {
     type FName = React.ComponentProps<typeof Feather>["name"];
+
+    // Aucun cours planifié aujourd'hui → carte centrée simple
+    if (todayPlan.length === 0) return (
+      <View style={[s.segCard, s.segCardEmpty]}>
+        <Feather name="calendar" size={rf(32)} color={C.brand} style={{ marginBottom: rs(12) }} />
+        <Text style={s.segEmptyTitle}>Pas de cours aujourd'hui</Text>
+        <Text style={s.segEmptyMsg}>Profitez de votre journée de repos 🎉</Text>
+      </View>
+    );
 
     // Journée terminée
     if (allDone) return (
@@ -354,6 +385,25 @@ export default function HomeScreen() {
   /* ── Ligne planning ── */
   const doneCount = todayPlan.filter(seg => curMin >= toMin(seg.heure_fin)).length;
 
+  /** Rendu d'une ligne du planning du PROCHAIN jour (pas d'état live/done, tout est à venir) */
+  const renderNextPlanRow = (seg: any, i: number, arr: any[]) => (
+    <View
+      key={seg.id ?? i}
+      style={[s.planRow, i < arr.length - 1 && s.planRowBorder]}
+    >
+      <View style={[s.planDot, { backgroundColor: C.surfaceAlt }]}>
+        <View style={[s.planDotInner, { backgroundColor: C.border }]} />
+      </View>
+      <Text style={s.planHeure}>{seg.heure_debut.slice(0, 5)}</Text>
+      <View style={{ flex: 1 }}>
+        <View style={s.planTitleRow}>
+          <Text style={s.planSegTitle} numberOfLines={1}>{segTitle(seg)}</Text>
+          <Text style={s.planSegDur}>{" · "}{segDurMin(seg.heure_debut, seg.heure_fin)} min</Text>
+        </View>
+      </View>
+    </View>
+  );
+
   const renderPlanRow = (seg: any, i: number) => {
     // Basé uniquement sur l'heure réelle
     const isDone    = curMin >= toMin(seg.heure_fin);
@@ -419,40 +469,92 @@ export default function HomeScreen() {
     <View style={s.screen}>
       <AppHeader userName={greetName} onAvatarPress={() => setShowProfile(true)} />
 
-      <ScrollView
-        style={s.scroll}
-        contentContainerStyle={[
-          s.scrollContent,
-          // padding extra en bas pour ne pas être caché par la tab bar
-          { paddingBottom: rs(24) + insets.bottom },
-        ]}
-        showsVerticalScrollIndicator={false}
-      >
-        <Text style={s.dateLabel}>{dateLabel}</Text>
-        <Text style={s.greeting}>Bonjour, {greetName} 👋</Text>
+      {/* ── Mode "pas de cours" ── */}
+      {todayPlan.length === 0 ? (
+        <ScrollView
+          style={s.scroll}
+          contentContainerStyle={[s.centeredContent, { paddingBottom: rs(32) + insets.bottom }]}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Bloc centré */}
+          <View style={s.centeredTop}>
+            <Text style={s.dateLabelCenter}>{dateLabel}</Text>
+            <Text style={s.greetingCenter}>Bonjour, {greetName} 👋</Text>
 
-        {renderSegCard()}
+            {/* Carte 1 — Pas de cours */}
+            <View style={[s.segCard, s.segCardEmpty]}>
+              <Feather name="calendar" size={rf(32)} color={C.brand} style={{ marginBottom: rs(10) }} />
+              <Text style={s.segEmptyTitle}>Pas de cours aujourd'hui</Text>
+              <Text style={s.segEmptyMsg}>Profitez de votre journée de repos 🎉</Text>
+            </View>
 
-        <View style={s.planCard}>
-          <View style={s.planHeader}>
-            <Text style={s.planTitle}>Planning du jour</Text>
-            {todayPlan.length > 0 && (
-              <Text style={s.planCount}>
-                {doneCount} / {todayPlan.length} faits
-              </Text>
+            {/* Carte 2 — Prochain cours */}
+            {nextScheduledDay && (
+              <>
+                <View style={[s.segCard, s.segCardEmpty, { marginTop: rs(12) }]}>
+                  <Feather name="calendar" size={rf(32)} color={C.brand} style={{ marginBottom: rs(10) }} />
+                  <Text style={s.segEmptyTitle}>Prochain cours</Text>
+                  <Text style={s.segEmptyMsg}>
+                    {JOURS_FR[nextScheduledDay.dayIdx]}{" "}
+                    {nextScheduledDay.date.toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}
+                    {" · "}{nextScheduledDay.segs.length} cours
+                  </Text>
+                </View>
+
+                {/* Bouton Voir Planning */}
+                <TouchableOpacity
+                  style={s.nextCourseBtn}
+                  onPress={() => setShowNextPlan(v => !v)}
+                  activeOpacity={0.8}
+                >
+                  <Feather name="calendar" size={rf(14)} color="#fff" style={{ marginRight: rs(6) }} />
+                  <Text style={s.nextCourseBtnTxt}>Voir Planning</Text>
+                  <Feather
+                    name={showNextPlan ? "chevron-up" : "chevron-down"}
+                    size={rf(14)} color="#fff"
+                    style={{ marginLeft: rs(6) }}
+                  />
+                </TouchableOpacity>
+
+                {/* Planning déplié */}
+                {showNextPlan && (
+                  <View style={s.planCard}>
+                    <View style={s.planHeader}>
+                      <Text style={s.planTitle}>
+                        {JOURS_FR[nextScheduledDay.dayIdx]}{" "}
+                        {nextScheduledDay.date.toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}
+                      </Text>
+                      <Text style={s.planCount}>{nextScheduledDay.segs.length} cours</Text>
+                    </View>
+                    {nextScheduledDay.segs.map((seg, i, arr) => renderNextPlanRow(seg, i, arr))}
+                  </View>
+                )}
+              </>
             )}
           </View>
-          {todayPlan.length > 0
-            ? todayPlan.map(renderPlanRow)
-            : (
-              <View style={s.emptyPlan}>
-                <Text style={s.emptyPlanTxt}>Aucun cours planifié pour aujourd'hui</Text>
-              </View>
-            )
-          }
-        </View>
+        </ScrollView>
 
-      </ScrollView>
+      ) : (
+        /* ── Mode normal : scroll ── */
+        <ScrollView
+          style={s.scroll}
+          contentContainerStyle={[s.scrollContent, { paddingBottom: rs(24) + insets.bottom }]}
+          showsVerticalScrollIndicator={false}
+        >
+          <Text style={s.dateLabel}>{dateLabel}</Text>
+          <Text style={s.greeting}>Bonjour, {greetName} 👋</Text>
+
+          {renderSegCard()}
+
+          <View style={s.planCard}>
+            <View style={s.planHeader}>
+              <Text style={s.planTitle}>Planning du jour</Text>
+              <Text style={s.planCount}>{doneCount} / {todayPlan.length} faits</Text>
+            </View>
+            {todayPlan.map(renderPlanRow)}
+          </View>
+        </ScrollView>
+      )}
 
       <ProfileSheet visible={showProfile} onClose={() => setShowProfile(false)} />
 
@@ -546,6 +648,16 @@ const s = StyleSheet.create({
   scroll:        { flex: 1 },
   scrollContent: { padding: rs(16) },
 
+  /* Layout "pas de cours" */
+  centeredContent:   { flexGrow: 1, paddingHorizontal: rs(16) },
+  centeredTop:       { flex: 1, alignItems: "center", justifyContent: "center", paddingTop: rs(32), paddingBottom: rs(16) },
+  dateLabelCenter:   { fontSize: rf(13), color: C.textMuted, fontWeight: "500", marginBottom: rs(4), textAlign: "center" },
+  greetingCenter:    { fontSize: rf(22), fontWeight: "700", color: C.text, marginBottom: rs(20), textAlign: "center" },
+
+  /* Bouton Voir Planning */
+  nextCourseBtn:     { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: C.brand, paddingVertical: rs(14), borderRadius: rs(14), marginTop: rs(12), width: "100%" },
+  nextCourseBtnTxt:  { fontSize: rf(14), fontWeight: "700", color: "#fff" },
+
   dateLabel:  { fontSize: rf(13), color: C.textMuted, fontWeight: "500", marginBottom: rs(4) },
   greeting:   { fontSize: rf(22), fontWeight: "700", color: C.text, marginBottom: rs(16) },
 
@@ -586,8 +698,15 @@ const s = StyleSheet.create({
   badgeSuivant:     { borderWidth: 1, borderColor: C.border, borderRadius: rs(6), paddingHorizontal: rs(8), paddingVertical: rs(3) },
   badgeSuivantTxt:  { fontSize: rf(10), fontWeight: "600", color: C.textMuted },
 
-  emptyPlan:    { padding: rs(20), alignItems: "center" },
-  emptyPlanTxt: { fontSize: rf(13), color: C.textMuted, fontStyle: "italic" },
+  emptyPlan:    { padding: rs(28), alignItems: "center" },
+  emptyPlanTxt: { fontSize: rf(13), color: C.textMuted, fontStyle: "italic", textAlign: "center" },
+
+  /* Segment card — pas de cours aujourd'hui */
+  segCardEmpty:   { backgroundColor: C.surface, borderWidth: 1.5, borderColor: C.border, alignItems: "center", justifyContent: "center", paddingVertical: rs(32), width: "100%" },
+  segEmptyTitle:  { fontSize: rf(17), fontWeight: "700", color: C.text, marginBottom: rs(6) },
+  segEmptyMsg:    { fontSize: rf(13), color: C.textMuted, marginBottom: rs(20) },
+  segEmptyBtn:    { flexDirection: "row", alignItems: "center", backgroundColor: C.brand, paddingHorizontal: rs(18), paddingVertical: rs(10), borderRadius: rs(20) },
+  segEmptyBtnTxt: { fontSize: rf(13), fontWeight: "700", color: "#fff" },
 
   /* Modal rapport */
   overlay:       { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },

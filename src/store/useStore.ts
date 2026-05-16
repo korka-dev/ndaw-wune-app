@@ -1,8 +1,14 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { authApi } from "../services/api";
+import { authApi, rapportJournalierApi } from "../services/api";
 import { fetchAndCache, getCached, clearCache, SyncPayload } from "../services/cache";
-import { clearAllLocalData } from "../services/db";
+import {
+  clearAllLocalData,
+  getPendingActions,
+  deleteAction,
+  markActionFailed,
+  markRapportJournalierSynced,
+} from "../services/db";
 
 interface ActiveSeance {
   id:         string;
@@ -94,11 +100,39 @@ export const useStore = create<AppStore>((set, get) => ({
       try {
         const payload = await fetchAndCache();
         set({ syncData: payload, user: payload.profile, lastSync: payload.synced_at });
-        return;
       } catch {
         // fallback cache si réseau défaillant
+        const cached = await getCached();
+        if (cached) set({ syncData: cached, user: cached.profile });
+        return;
       }
+
+      // ── Traitement de la queue offline ──────────────────────────────
+      try {
+        const pending = getPendingActions();
+        for (const item of pending) {
+          try {
+            if (item.action === "SUBMIT_RAPPORT_JOURNALIER") {
+              const payload = JSON.parse(item.payload);
+              await rapportJournalierApi.submit(payload);
+              // Marquer comme synchronisé dans SQLite
+              if (payload.local_id) {
+                markRapportJournalierSynced(payload.local_id);
+              }
+              deleteAction(item.id);
+            }
+          } catch (err: any) {
+            const msg = err?.response?.data?.detail ?? err?.message ?? "Erreur inconnue";
+            markActionFailed(item.id, String(msg));
+          }
+        }
+      } catch (e) {
+        console.warn("[Queue] Erreur traitement queue offline :", e);
+      }
+      return;
     }
+
+    // Hors-ligne : charger depuis le cache
     const cached = await getCached();
     if (cached) {
       set({ syncData: cached, user: cached.profile });
