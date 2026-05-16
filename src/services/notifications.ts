@@ -1,67 +1,88 @@
 /**
- * Notifications locales — Ndaw Wune
- * ──────────────────────────────────────────────────────────────
- * Production-ready : fonctionne sur APK signé, IPA App Store,
- * Expo Dev Client et Expo Go.
+ * Notifications vocales — Ndaw Wune
+ * ─────────────────────────────────────────────────────────────────
+ * Deux canaux Android :
+ *   • "ndawwune-planning"  : fin de segment (déjà existant)
+ *   • "ndawwune-alerts"    : alertes 30 min / 5 min (importance MAX)
  *
- * Android 8+ (API 26+) : canal "planning" requis.
- * Android 13+ (API 33) : permission POST_NOTIFICATIONS demandée.
- * iOS : permission via requestPermissionsAsync().
+ * Vocal :
+ *   • App ouverte (foreground)  → expo-speech lit le message à voix haute
+ *   • App en arrière-plan       → notif système + son fort ; tap → TTS
+ *   • Écran verrouillé          → lockscreenVisibility PUBLIC + son + vibration
+ *
+ * API publique :
+ *   setupNotifications()              → init canal + permission
+ *   scheduleSessionAlerts(segments)   → planifie J/30min + J/5min pour aujourd'hui
+ *   cancelAllSessionAlerts()          → annule toutes les alertes planifiées
+ *   speakAlert(message)               → TTS immédiat (French)
+ *   notifySegmentEnd(finished, next?) → notif immédiate fin de segment
  */
 import * as Notifications from "expo-notifications";
+import * as Speech from "expo-speech";
 import { Platform } from "react-native";
 
 /* ════════════════════════════════════════════════════════════════
-   1. Handler global — doit être défini au niveau module, avant
-      tout scheduleNotification. Détermine le comportement quand
-      l'app est au premier plan (foreground).
+   Handler global — foreground
    ════════════════════════════════════════════════════════════════ */
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert:  true,   // afficher la bannière même app ouverte
-    shouldPlaySound:  true,   // son système
+    shouldShowAlert:  true,
+    shouldPlaySound:  true,
     shouldSetBadge:   false,
-    shouldShowBanner: true,   // SDK 54
+    shouldShowBanner: true,
     shouldShowList:   true,
   }),
 });
 
 /* ════════════════════════════════════════════════════════════════
-   2. Canal Android (obligatoire Android 8+ / API 26+)
-      Sans canal → aucune notification n'apparaît sur un vrai APK.
-      Appelé une seule fois au démarrage via setupNotifications().
+   Canaux Android
    ════════════════════════════════════════════════════════════════ */
-const CHANNEL_ID = "ndawwune-planning";
+const CHANNEL_PLANNING = "ndawwune-planning";
+const CHANNEL_ALERTS   = "ndawwune-alerts";
 
-async function ensureAndroidChannel(): Promise<void> {
+async function ensureAndroidChannels(): Promise<void> {
   if (Platform.OS !== "android") return;
-  await Notifications.setNotificationChannelAsync(CHANNEL_ID, {
-    name:              "Planning Ndaw Wune",
-    description:       "Alertes de fin de segment du planning quotidien",
-    importance:        Notifications.AndroidImportance.HIGH,   // bannière + son
-    vibrationPattern:  [0, 200, 100, 200],                     // court · pause · court
-    lightColor:        "#1a56db",
-    sound:             "default",
-    enableVibrate:     true,
-    showBadge:         false,
+
+  // Canal fin de segment
+  await Notifications.setNotificationChannelAsync(CHANNEL_PLANNING, {
+    name:             "Planning Ndaw Wune",
+    description:      "Alertes de fin de segment du planning quotidien",
+    importance:       Notifications.AndroidImportance.HIGH,
+    vibrationPattern: [0, 200, 100, 200],
+    lightColor:       "#1a56db",
+    sound:            "default",
+    enableVibrate:    true,
+    showBadge:        false,
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+  });
+
+  // Canal alertes 30 min / 5 min — importance MAXIMUM + son pré-enregistré
+  // Le canal est créé UNE SEULE FOIS par installation. Si le son change,
+  // il faudra désinstaller/réinstaller l'app (limitation Android).
+  await Notifications.setNotificationChannelAsync(CHANNEL_ALERTS, {
+    name:             "Alertes de séance — Ndaw Wune",
+    description:      "Rappels vocaux 30 min et 5 min avant le début des séances",
+    importance:       Notifications.AndroidImportance.MAX,
+    vibrationPattern: [0, 400, 200, 400, 200, 400],  // vibration longue
+    lightColor:       "#f59e0b",
+    // Son pré-enregistré (copié dans res/raw par le plugin expo-notifications)
+    // Fallback automatique sur "default" si le fichier n'existe pas encore
+    sound:            "alerte_30min",
+    enableVibrate:    true,
+    showBadge:        false,
+    bypassDnd:        false,
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
   });
 }
 
 /* ════════════════════════════════════════════════════════════════
-   3. Point d'entrée unique — à appeler une fois au démarrage de
-      l'app (dans _layout.tsx), avant tout envoi de notification.
+   Init (à appeler une fois au démarrage, dans _layout.tsx)
    ════════════════════════════════════════════════════════════════ */
 export async function setupNotifications(): Promise<boolean> {
-  // a) Créer le canal Android
-  await ensureAndroidChannel();
+  await ensureAndroidChannels();
 
-  // b) Demander la permission
-  //    Android < 13 : implicite (POST_NOTIFICATIONS n'existe pas encore)
-  //    Android 13+  : dialog système obligatoire
-  //    iOS          : dialog APN
-  if (Platform.OS === "android" && Platform.Version < 33) {
-    return true; // pas besoin de demander
+  if (Platform.OS === "android" && Number(Platform.Version) < 33) {
+    return true;
   }
 
   const { status: current } = await Notifications.getPermissionsAsync();
@@ -69,20 +90,156 @@ export async function setupNotifications(): Promise<boolean> {
 
   const { status } = await Notifications.requestPermissionsAsync();
   if (status !== "granted") {
-    console.warn("[Notif] Permission refusée par l'utilisateur.");
+    console.warn("[Notif] Permission refusée.");
     return false;
   }
   return true;
 }
 
 /* ════════════════════════════════════════════════════════════════
-   4. Notification de fin de segment
+   TTS — parle le message à voix haute (français)
    ════════════════════════════════════════════════════════════════ */
+export function speakAlert(message: string): void {
+  // Stoppe toute lecture en cours avant de commencer
+  Speech.stop();
+  Speech.speak(message, {
+    language: "fr-FR",
+    rate:     0.88,   // légèrement plus lent = meilleure compréhension
+    pitch:    1.05,
+  });
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Messages vocaux
+   ════════════════════════════════════════════════════════════════ */
+function msg30(titre: string): string {
+  return `Êtes-vous prêt ? Votre programme commence dans 30 minutes. La séance "${titre}" vous attend. Préparez votre matériel !`;
+}
+
+function msg5(titre: string): string {
+  return `Attention ! Votre cours "${titre}" commence dans 5 minutes. Il est temps de commencer !`;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Planification des alertes du jour
+   ════════════════════════════════════════════════════════════════ */
+export interface PlanningSegment {
+  id:          string;
+  titre?:      string;
+  matiere?:    string;
+  classe?:     string;
+  heure_debut: string;  // "HH:MM" ou "HH:MM:SS"
+  heure_fin:   string;
+  jour:        number;  // 0 = Lundi … 5 = Samedi
+}
+
 /**
- * Envoie une notification immédiate signalant la fin d'un segment.
- * @param finishedTitle  Titre du segment terminé
- * @param nextTitle      Titre du suivant (undefined = fin de journée)
+ * Planifie (ou re-planifie) les alertes 30 min et 5 min
+ * pour les segments d'aujourd'hui.
+ * Annule automatiquement les alertes précédentes avant de replanifier.
  */
+export async function scheduleSessionAlerts(
+  segments: PlanningSegment[],
+): Promise<void> {
+  // Annule les alertes déjà planifiées
+  await cancelAllSessionAlerts();
+
+  const now   = new Date();
+  // Convertit getDay() (0=Dim) → notre index (0=Lun)
+  const jsDay = now.getDay();
+  const today = jsDay === 0 ? 6 : jsDay - 1;
+
+  const todaySegs = segments.filter(s => s.jour === today);
+  if (todaySegs.length === 0) return;
+
+  let scheduled = 0;
+
+  for (const seg of todaySegs) {
+    const rawTitle = seg.titre ?? seg.matiere ?? seg.classe ?? "Séance";
+    const [h, m]  = seg.heure_debut.split(":").map(Number);
+
+    // Heure de début du segment (aujourd'hui)
+    const start = new Date(now);
+    start.setHours(h, m, 0, 0);
+
+    // ── Alerte 30 minutes avant ──────────────────────────────
+    const at30 = new Date(start.getTime() - 30 * 60 * 1000);
+    if (at30 > now) {
+      try {
+        await Notifications.scheduleNotificationAsync({
+          identifier: `alert-30-${seg.id}`,
+          content: {
+            title: "🔔 Votre programme commence bientôt !",
+            body:  `La séance "${rawTitle}" débute à ${h}h${String(m).padStart(2, "0")}. Êtes-vous prêt ?`,
+            // Son pré-enregistré → joue même app fermée (iOS: avec extension, Android: sans)
+            sound: Platform.OS === "ios" ? "alerte_30min.wav" : "alerte_30min",
+            data: {
+              alertType: "30min",
+              seance:    rawTitle,
+              speechMsg: msg30(rawTitle),
+            },
+            ...(Platform.OS === "android" && { channelId: CHANNEL_ALERTS }),
+          },
+          trigger: { date: at30 } as any,
+        });
+        scheduled++;
+      } catch (e) {
+        console.warn("[Notif] Erreur alerte 30min :", e);
+      }
+    }
+
+    // ── Alerte 5 minutes avant ───────────────────────────────
+    const at5 = new Date(start.getTime() - 5 * 60 * 1000);
+    if (at5 > now) {
+      try {
+        await Notifications.scheduleNotificationAsync({
+          identifier: `alert-5-${seg.id}`,
+          content: {
+            title: "⚡ Votre cours commence dans 5 minutes !",
+            body:  `Préparez-vous ! "${rawTitle}" commence très bientôt.`,
+            sound: Platform.OS === "ios" ? "alerte_5min.wav" : "alerte_5min",
+            data: {
+              alertType: "5min",
+              seance:    rawTitle,
+              speechMsg: msg5(rawTitle),
+            },
+            ...(Platform.OS === "android" && { channelId: CHANNEL_ALERTS }),
+          },
+          trigger: { date: at5 } as any,
+        });
+        scheduled++;
+      } catch (e) {
+        console.warn("[Notif] Erreur alerte 5min :", e);
+      }
+    }
+  }
+
+  console.log(`[Notif] ${scheduled} alerte(s) planifiée(s) pour aujourd'hui.`);
+}
+
+/**
+ * Annule toutes les alertes 30min/5min planifiées.
+ * (Pas les notifications de fin de segment.)
+ */
+export async function cancelAllSessionAlerts(): Promise<void> {
+  try {
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    for (const n of scheduled) {
+      if (
+        n.identifier.startsWith("alert-30-") ||
+        n.identifier.startsWith("alert-5-")
+      ) {
+        await Notifications.cancelScheduledNotificationAsync(n.identifier);
+      }
+    }
+  } catch (e) {
+    console.warn("[Notif] Erreur cancelAllSessionAlerts :", e);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Notification immédiate — fin de segment (usage existant)
+   ════════════════════════════════════════════════════════════════ */
 export async function notifySegmentEnd(
   finishedTitle: string,
   nextTitle?: string,
@@ -91,18 +248,16 @@ export async function notifySegmentEnd(
     await Notifications.scheduleNotificationAsync({
       content: {
         title: `${finishedTitle} — terminé ✓`,
-        body: nextTitle
+        body:  nextTitle
           ? `Prochain : ${nextTitle}`
           : "Bonne journée, c'est fini pour aujourd'hui !",
-        sound:   "default",
-        color:   "#1a56db",                   // icône Android tintée
-        // Lie la notif au canal créé ci-dessus
-        ...(Platform.OS === "android" && { channelId: CHANNEL_ID }),
+        sound: "default",
+        color: "#1a56db",
+        ...(Platform.OS === "android" && { channelId: CHANNEL_PLANNING }),
       },
-      trigger: null, // déclenchement immédiat
+      trigger: null,
     });
   } catch (e) {
-    // Ne jamais faire crasher l'app pour une notif
-    console.warn("[Notif] Erreur lors de l'envoi :", e);
+    console.warn("[Notif] Erreur notifySegmentEnd :", e);
   }
 }

@@ -8,11 +8,12 @@
 import React, { useState, useRef, useCallback } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, ActivityIndicator, Alert,
+  ScrollView, ActivityIndicator, Alert, Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { format } from "date-fns";
+import * as ImagePicker from "expo-image-picker";
 
 import { rs, rf } from "../utils/responsive";
 import { C } from "../utils/theme";
@@ -129,12 +130,49 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
   const [hasObservations, setHasObservations] = useState<boolean | null>(null);
   const [commentaires,    setCommentaires]    = useState("");
 
+  // Section 7 — Photo classe (obligatoire)
+  const [photoUri,    setPhotoUri]    = useState<string | null>(null);
+  const [photoBase64, setPhotoBase64] = useState<string | null>(null);
+
   const [loading,   setLoading]   = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
   const scrollRef = useRef<ScrollView>(null);
 
   // ── Helpers ────────────────────────────────────────────────────────────
+
+  // ── Appareil photo ────────────────────────────────────────────────────
+  const openCamera = useCallback(async () => {
+    // Demander la permission si nécessaire
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert(
+        "Permission requise",
+        "L'accès à l'appareil photo est nécessaire pour prendre la photo de la classe.",
+        [{ text: "OK" }],
+      );
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality:    0.55,      // compression raisonnable (≈ 200–400 KB)
+      base64:     true,      // nécessaire pour l'envoi API
+      allowsEditing: false,
+      exif: false,
+    });
+
+    if (!result.canceled && result.assets.length > 0) {
+      const asset = result.assets[0];
+      setPhotoUri(asset.uri);
+      setPhotoBase64(asset.base64 ?? null);
+    }
+  }, []);
+
+  const retakePhoto = useCallback(() => {
+    setPhotoUri(null);
+    setPhotoBase64(null);
+  }, []);
 
   const toggleDiff = useCallback((val: string) => {
     setDifficultes(prev => {
@@ -163,6 +201,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
     if (besoinAppui && !domainesAppui.trim()) return "Veuillez indiquer les domaines d'appui souhaités.";
     if (hasObservations === null)          return "Veuillez indiquer si vous avez des observations.";
     if (hasObservations && !commentaires.trim()) return "Veuillez rédiger vos commentaires.";
+    if (!photoUri)                              return "La photo de la classe est obligatoire.";
     return null;
   };
 
@@ -212,6 +251,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
         has_observations:        hasObservations ? 1 : 0,
         commentaires:            hasObservations ? commentaires.trim() : null,
         soumis_en_offline:       offline ? 1 : 0,
+        photo_classe:            photoUri,
       });
 
       // 2. Payload API
@@ -236,6 +276,8 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
         has_observations:        !!hasObservations,
         commentaires:            hasObservations ? commentaires.trim() : null,
         soumis_en_offline:       offline,
+        // Photo en base64 (data URI préfixé pour le backend)
+        photo_classe:            photoBase64 ? `data:image/jpeg;base64,${photoBase64}` : null,
       };
 
       if (isOnline) {
@@ -281,6 +323,8 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
     setDomainesAppui("");
     setHasObservations(null);
     setCommentaires("");
+    setPhotoUri(null);
+    setPhotoBase64(null);
     setSubmitted(false);
   };
 
@@ -511,8 +555,65 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
           </Card>
         )}
 
+        {/* ─── SECTION 7 : Photo de la classe (obligatoire) ─── */}
+        <SectionHeader title="Photo de la classe" icon="camera" />
+
+        <Card>
+          <Lbl text="PHOTO DE LA CLASSE" req />
+          <Text style={s.photoHint}>
+            Prenez une photo de la classe avant ou pendant la séance. Ce champ est obligatoire.
+          </Text>
+
+          {!photoUri ? (
+            /* Bouton pour ouvrir l'appareil photo */
+            <TouchableOpacity
+              style={s.photoBtn}
+              onPress={openCamera}
+              activeOpacity={0.8}
+            >
+              <View style={s.photoIconWrap}>
+                <Feather name="camera" size={rf(28)} color={C.brand} />
+              </View>
+              <Text style={s.photoBtnTxt}>Prendre la photo de la classe</Text>
+              <Text style={s.photoBtnSub}>Appuyez pour ouvrir l'appareil photo</Text>
+            </TouchableOpacity>
+          ) : (
+            /* Aperçu de la photo prise */
+            <View style={s.photoPreviewWrap}>
+              <Image
+                source={{ uri: photoUri }}
+                style={s.photoPreview}
+                resizeMode="cover"
+              />
+              {/* Badge succès */}
+              <View style={s.photoBadge}>
+                <Feather name="check-circle" size={rf(13)} color={C.success} />
+                <Text style={s.photoBadgeTxt}>Photo prise</Text>
+              </View>
+              {/* Bouton reprendre */}
+              <TouchableOpacity
+                style={s.retakeBtn}
+                onPress={retakePhoto}
+                activeOpacity={0.8}
+              >
+                <Feather name="refresh-cw" size={rf(14)} color={C.brand} />
+                <Text style={s.retakeTxt}>Reprendre la photo</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </Card>
+
         {/* ─── Bouton Soumettre ─── */}
         <View style={s.submitWrap}>
+          {/* Avertissement photo manquante */}
+          {!photoUri && (
+            <View style={s.photoWarn}>
+              <Feather name="camera-off" size={rf(13)} color={C.danger} />
+              <Text style={s.photoWarnTxt}>
+                La photo de la classe est obligatoire pour soumettre le rapport.
+              </Text>
+            </View>
+          )}
           {!isOnline && (
             <View style={s.offInfo}>
               <Feather name="wifi-off" size={rf(13)} color={C.warn} />
@@ -522,9 +623,9 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
             </View>
           )}
           <TouchableOpacity
-            style={[s.submitBtn, loading && s.submitDis]}
+            style={[s.submitBtn, (loading || !photoUri) && s.submitDis]}
             onPress={handleSubmit}
-            disabled={loading}
+            disabled={loading || !photoUri}
             activeOpacity={0.85}
           >
             {loading
@@ -628,6 +729,52 @@ const s = StyleSheet.create({
   jourSel:    { backgroundColor: C.brand, borderColor: C.brand },
   jourTxt:    { fontSize: rf(14), fontWeight: "600", color: C.textMuted },
   jourTxtSel: { color: "#fff" },
+
+  /* Photo */
+  photoHint: {
+    fontSize: rf(12), color: C.textMuted, lineHeight: rf(17),
+    marginBottom: rs(14),
+  },
+  photoBtn: {
+    borderWidth: 2, borderColor: C.brand, borderStyle: "dashed",
+    borderRadius: rs(14), padding: rs(20),
+    alignItems: "center", backgroundColor: C.brandSoft,
+  },
+  photoIconWrap: {
+    width: rs(60), height: rs(60), borderRadius: rs(16),
+    backgroundColor: "#fff", alignItems: "center", justifyContent: "center",
+    marginBottom: rs(12),
+    shadowColor: C.brand, shadowOpacity: 0.15, shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 }, elevation: 2,
+  },
+  photoBtnTxt: {
+    fontSize: rf(14), fontWeight: "700", color: C.brand, marginBottom: rs(4),
+  },
+  photoBtnSub: { fontSize: rf(11), color: C.textMuted },
+
+  photoPreviewWrap: { gap: rs(10) },
+  photoPreview: {
+    width: "100%", height: rs(200), borderRadius: rs(12),
+    backgroundColor: C.surfaceAlt,
+  },
+  photoBadge: {
+    flexDirection: "row", alignItems: "center", gap: rs(6),
+    backgroundColor: C.successSoft, borderRadius: rs(8),
+    paddingHorizontal: rs(10), paddingVertical: rs(6), alignSelf: "flex-start",
+  },
+  photoBadgeTxt: { fontSize: rf(12), fontWeight: "600", color: C.success },
+  retakeBtn: {
+    flexDirection: "row", alignItems: "center", gap: rs(6),
+    alignSelf: "flex-start", paddingVertical: rs(4),
+  },
+  retakeTxt: { fontSize: rf(13), color: C.brand, fontWeight: "600" },
+
+  photoWarn: {
+    flexDirection: "row", gap: rs(8),
+    backgroundColor: "#fff0f0", borderRadius: rs(10), padding: rs(10),
+    marginBottom: rs(10), borderWidth: 1, borderColor: C.danger + "30",
+  },
+  photoWarnTxt: { flex: 1, fontSize: rf(12), color: C.danger, lineHeight: rf(17) },
 
   submitWrap: { marginTop: rs(24), marginBottom: rs(16) },
   offInfo:    {

@@ -109,10 +109,15 @@ export function initDB(): void {
       has_observations         INTEGER NOT NULL,
       commentaires             TEXT,
       soumis_en_offline        INTEGER NOT NULL DEFAULT 1,
+      photo_classe             TEXT,    -- URI locale de la photo prise par le tuteur
       synced                   INTEGER NOT NULL DEFAULT 0,
       created_at               TEXT    NOT NULL DEFAULT (datetime('now'))
     );
   `);
+  // Migration douce : ajouter la colonne photo_classe si elle n'existe pas encore
+  try {
+    getDB().execSync(`ALTER TABLE rapports_journalier ADD COLUMN photo_classe TEXT`);
+  } catch { /* colonne déjà présente */ }
 }
 
 // ── Offline Queue — écriture ──────────────────────────────────────────────────
@@ -242,6 +247,7 @@ export interface RapportJournalierLocal {
   has_observations:        number;   // 0/1
   commentaires:            string | null;
   soumis_en_offline:       number;   // 0/1
+  photo_classe:            string | null;  // URI locale de la photo
   synced:                  number;   // 0/1
   created_at:              string;
 }
@@ -260,14 +266,15 @@ export function insertRapportJournalier(r: Omit<RapportJournalierLocal, "created
       nb_absences, absents, semaine, jour_cours, difficultes,
       autres_difficultes, description_difficultes,
       directeur_venu, besoin_appui, domaines_appui,
-      has_observations, commentaires, soumis_en_offline, synced
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
+      has_observations, commentaires, soumis_en_offline, photo_classe, synced
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
     [
       r.id, r.date_rapport, r.ief, r.commune, r.ecole, r.superviseur, r.nom_tuteur,
       r.nb_absences, r.absents ?? null, r.semaine, r.jour_cours, r.difficultes,
       r.autres_difficultes ?? null, r.description_difficultes ?? null,
       r.directeur_venu, r.besoin_appui, r.domaines_appui ?? null,
       r.has_observations, r.commentaires ?? null, r.soumis_en_offline,
+      r.photo_classe ?? null,
     ],
   );
 }

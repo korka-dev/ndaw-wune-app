@@ -3,7 +3,7 @@
  * Design identique à la maquette Ndaw Wune v2.
  * Adapté à tous les appareils via useSafeAreaInsets.
  */
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
   Alert, Modal, TextInput, ActivityIndicator,
@@ -16,9 +16,10 @@ import { seancesApi, rapportsApi } from "../services/api";
 import { enqueueAction, upsertRapportCache } from "../services/db";
 import { rs, rf }                  from "../utils/responsive";
 import { C }                       from "../utils/theme";
+import { useFocusEffect }          from "expo-router";
 import AppHeader                   from "../components/AppHeader";
 import ProfileSheet                from "../components/ProfileSheet";
-import { notifySegmentEnd }        from "../services/notifications";
+import { notifySegmentEnd, scheduleSessionAlerts } from "../services/notifications";
 
 /* ── Utilitaires ─────────────────────────────────────────────── */
 function pad(n: number) { return String(n).padStart(2, "0"); }
@@ -40,7 +41,7 @@ const JOURS_FR = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanc
 /* ── Composant ───────────────────────────────────────────────── */
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const { user, syncData, activeSeance, setActiveSeance, isOnline } = useStore();
+  const { user, syncData, activeSeance, setActiveSeance, isOnline, syncOffline } = useStore();
   const planning = syncData?.planning ?? [];
 
   const jsDay     = new Date().getDay();
@@ -48,6 +49,29 @@ export default function HomeScreen() {
   const todayPlan = [...planning]
     .filter(p => p.jour === todayIdx)
     .sort((a, b) => a.heure_debut.localeCompare(b.heure_debut));
+
+  /* ── État démarrage explicite de la séance ── */
+  const [seanceStarted, setSeanceStarted] = useState(false);
+
+  /* ── Re-sync automatique + replanification des alertes vocales ── */
+  useFocusEffect(
+    useCallback(() => {
+      const { syncOffline: syncFn, isOnline: online, syncData: sd } = useStore.getState();
+      if (online) {
+        syncFn(true)
+          .then(() => {
+            // Après sync, replanifie les alertes avec le planning frais
+            const fresh = useStore.getState().syncData?.planning ?? [];
+            scheduleSessionAlerts(fresh).catch(() => {});
+          })
+          .catch(() => {});
+      } else {
+        // Hors-ligne : planifie quand même avec les données en cache
+        const cached = sd?.planning ?? [];
+        scheduleSessionAlerts(cached).catch(() => {});
+      }
+    }, [])
+  );
 
   /* ── Horloge temps réel (tick toutes les secondes) ── */
   const [tick, setTick] = useState(0);
@@ -129,6 +153,32 @@ export default function HomeScreen() {
   };
   const handleResume = () => setPaused(false);
 
+  const handleStartSeance = async () => {
+    if (!activeSeg) return;
+    try {
+      if (isOnline) {
+        const { data } = await seancesApi.start({
+          classe:     activeSeg.classe ?? "",
+          matiere:    activeSeg.matiere ?? null,
+          segment_id: activeSeg.id ?? null,
+          session_id: syncData?.active_session?.id ?? null,
+          started_at: new Date().toISOString(),
+        });
+        setActiveSeance({
+          id:         data.id,
+          classe:     activeSeg.classe ?? "",
+          matiere:    activeSeg.matiere ?? null,
+          started_at: data.started_at ?? new Date().toISOString(),
+          session_id: syncData?.active_session?.id ?? "",
+        });
+      }
+      setSeanceStarted(true);
+    } catch {
+      // Hors ligne ou erreur : on démarre localement
+      setSeanceStarted(true);
+    }
+  };
+
   /* ── Profil ── */
   const [showProfile, setShowProfile] = useState(false);
 
@@ -180,6 +230,7 @@ export default function HomeScreen() {
         });
       }
       setActiveSeance(null);
+      setSeanceStarted(false);
       setShowRapport(false); resetForm();
       Alert.alert("Rapport envoyé !", isOnline ? "Séance terminée." : "Enregistré hors-ligne.");
     } catch (e: any) {
@@ -215,6 +266,35 @@ export default function HomeScreen() {
     );
 
     const isLive = liveIdx !== -1;
+
+    // Si c'est l'heure mais la séance n'est pas démarrée → bouton Démarrer
+    if (isLive && !seanceStarted) {
+      const displayTitle     = activeSeg ? segTitle(activeSeg) : "Aucun cours planifié";
+      const displayTimeRange = activeSeg
+        ? `${activeSeg.heure_debut.slice(0, 5)} – ${activeSeg.heure_fin.slice(0, 5)}`
+        : "—";
+      return (
+        <View style={s.segCard}>
+          <View style={s.segTopRow}>
+            <View style={[s.segBadge, { backgroundColor: C.warn }]}>
+              <Feather name="clock" size={rf(10)} color="#fff" style={{ marginRight: rs(4) }} />
+              <Text style={s.segBadgeTxt}>C'EST L'HEURE</Text>
+            </View>
+            <Text style={s.segTimeRange}>{displayTimeRange}</Text>
+          </View>
+          <Text style={s.segTitle}>{displayTitle}</Text>
+          <TouchableOpacity
+            style={[s.btnAction, { backgroundColor: C.brand, alignSelf: "flex-start", marginTop: rs(12) }]}
+            onPress={handleStartSeance}
+            activeOpacity={0.8}
+          >
+            <Feather name="play" size={rf(13)} color="#fff" style={{ marginRight: rs(6) }} />
+            <Text style={s.btnActionTxt}>Démarrer ma séance</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
     const statusIcon: FName = isLive ? (paused ? "pause" : "play") : "clock";
     const statusLabel = isLive
       ? (paused ? "EN PAUSE" : "EN COURS")
@@ -249,14 +329,14 @@ export default function HomeScreen() {
             <Text style={s.timerSub} numberOfLines={2}>{displaySub}</Text>
           </View>
 
-          {/* Pause / Reprendre uniquement si le segment est en cours */}
-          {isLive && !paused && (
+          {/* Pause / Reprendre uniquement si le segment est en cours et démarré */}
+          {isLive && seanceStarted && !paused && (
             <TouchableOpacity style={[s.btnAction, s.btnPause]} onPress={handlePause} activeOpacity={0.8}>
               <Feather name="pause" size={rf(13)} color="#fff" style={{ marginRight: rs(6) }} />
               <Text style={s.btnActionTxt}>Pause</Text>
             </TouchableOpacity>
           )}
-          {isLive && paused && (
+          {isLive && seanceStarted && paused && (
             <TouchableOpacity style={s.btnAction} onPress={handleResume} activeOpacity={0.8}>
               <Feather name="play" size={rf(13)} color="#fff" style={{ marginRight: rs(6) }} />
               <Text style={s.btnActionTxt}>Reprendre</Text>

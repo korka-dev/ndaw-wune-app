@@ -35,13 +35,23 @@
     "plugins": [
       "expo-router",
       "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Ndaw Wune utilise la galerie pour joindre une photo de la classe au rapport.",
+          "cameraPermission": "Ndaw Wune utilise l'appareil photo pour prendre une photo de la classe lors de la soumission du rapport."
+        }
+      ],
       ["expo-sqlite", { "enableFTS": true }],
       [
         "expo-notifications",
         {
           "icon": "./assets/icon.png",
           "color": "#1a56db",
-          "sounds": []
+          "sounds": [
+            "./assets/sounds/alerte_30min.wav",
+            "./assets/sounds/alerte_5min.wav"
+          ]
         }
       ]
     ],

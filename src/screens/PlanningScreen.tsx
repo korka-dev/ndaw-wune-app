@@ -2,11 +2,12 @@
  * Écran Planning — Vue hebdomadaire de l'emploi du temps de l'enseignant.
  * Compatible Android 7+ / iOS 15.1+, tous formats d'écran.
  */
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View, Text, StyleSheet, ScrollView,
   TouchableOpacity, RefreshControl, Platform,
 } from "react-native";
+import { useFocusEffect } from "expo-router";
 import { useStore } from "../store/useStore";
 import { rs, rf } from "../utils/responsive";
 import { C } from "../utils/theme";
@@ -38,6 +39,15 @@ export default function PlanningScreen() {
 
   const [selectedDay, setSelectedDay] = useState<number>(todayIndex());
   const [refreshing,  setRefreshing]  = useState(false);
+
+  // Re-sync automatique à chaque focus de l'onglet Planning
+  useFocusEffect(
+    useCallback(() => {
+      if (isOnline) {
+        syncOffline(true).catch(() => {});
+      }
+    }, [isOnline])
+  );
 
   const onRefresh = async () => {
     if (!isOnline) return;
