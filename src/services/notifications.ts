@@ -19,7 +19,8 @@
  */
 import * as Notifications from "expo-notifications";
 import * as Speech from "expo-speech";
-import { Platform } from "react-native";
+import { Platform, Vibration } from "react-native";
+import { Audio } from "expo-av";
 
 /* ════════════════════════════════════════════════════════════════
    Handler global — foreground
@@ -47,8 +48,8 @@ async function ensureAndroidChannels(): Promise<void> {
   await Notifications.setNotificationChannelAsync(CHANNEL_PLANNING, {
     name:             "Planning Ndaw Wune",
     description:      "Alertes de fin de segment du planning quotidien",
-    importance:       Notifications.AndroidImportance.HIGH,
-    vibrationPattern: [0, 200, 100, 200],
+    importance:       Notifications.AndroidImportance.MAX,
+    vibrationPattern: [0, 500, 250, 500, 250, 500, 250, 500],
     lightColor:       "#1a56db",
     sound:            "default",
     enableVibrate:    true,
@@ -240,11 +241,35 @@ export async function cancelAllSessionAlerts(): Promise<void> {
 /* ════════════════════════════════════════════════════════════════
    Notification immédiate — fin de segment (usage existant)
    ════════════════════════════════════════════════════════════════ */
+export async function playAlarmSound(): Promise<void> {
+  try {
+    await Audio.setAudioModeAsync({
+      playsInSilentModeIOS: true,
+      staysActiveInBackground: true,
+      playThroughEarpieceAndroid: false,
+    });
+
+    const { sound } = await Audio.Sound.createAsync(
+      require("../../assets/sounds/alarm.mp3")
+    );
+    await sound.playAsync();
+
+    sound.setOnPlaybackStatusUpdate((status) => {
+      if (status.isLoaded && status.didJustFinish) {
+        sound.unloadAsync();
+      }
+    });
+  } catch (e) {
+    console.warn("[AlarmSound] Erreur lecture :", e);
+  }
+}
+
 export async function notifySegmentEnd(
   finishedTitle: string,
   nextTitle?: string,
 ): Promise<void> {
   try {
+    // 1. Notif système (joue le son du canal)
     await Notifications.scheduleNotificationAsync({
       content: {
         title: `${finishedTitle} — terminé ✓`,
@@ -257,6 +282,18 @@ export async function notifySegmentEnd(
       },
       trigger: null,
     });
+
+    // 2. Parler à voix haute immédiatement (TTS Ndaw Wune)
+    const voiceMsg = nextTitle
+      ? `Attention. L'activité "${finishedTitle}" est terminée. Veuillez passer à l'activité suivante : "${nextTitle}".`
+      : `L'activité "${finishedTitle}" est terminée. C'est fini pour aujourd'hui. Profitez de votre temps libre !`;
+    speakAlert(voiceMsg);
+
+    // 3. Vibrer fortement la tablette/le téléphone (rythme d'alarme)
+    Vibration.vibrate([0, 500, 250, 500, 250, 500, 250, 500]);
+
+    // 4. Jouer le son d'alarme physique de la séance
+    await playAlarmSound();
   } catch (e) {
     console.warn("[Notif] Erreur notifySegmentEnd :", e);
   }

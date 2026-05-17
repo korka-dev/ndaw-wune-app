@@ -3,20 +3,21 @@
  * Design identique à la maquette Ndaw Wune v2.
  * Adapté à tous les appareils via useSafeAreaInsets.
  */
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
   Alert, Modal, TextInput, ActivityIndicator,
   KeyboardAvoidingView, Platform,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useStore }                from "../store/useStore";
-import { seancesApi, rapportsApi } from "../services/api";
+import { useStore }                          from "../store/useStore";
+import { seancesApi, rapportsApi, syncApi } from "../services/api";
 import { enqueueAction, upsertRapportCache } from "../services/db";
 import { rs, rf }                  from "../utils/responsive";
 import { C }                       from "../utils/theme";
-import { useFocusEffect }          from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import AppHeader                   from "../components/AppHeader";
 import ProfileSheet                from "../components/ProfileSheet";
 import { notifySegmentEnd, scheduleSessionAlerts } from "../services/notifications";
@@ -40,6 +41,7 @@ const JOURS_FR = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanc
 
 /* ── Composant ───────────────────────────────────────────────── */
 export default function HomeScreen() {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, syncData, activeSeance, setActiveSeance, isOnline, syncOffline } = useStore();
   const planning = syncData?.planning ?? [];
@@ -51,11 +53,10 @@ export default function HomeScreen() {
     .sort((a, b) => a.heure_debut.localeCompare(b.heure_debut));
 
   /**
-   * Prochain jour avec un planning (si aujourd'hui est vide).
+   * Prochain jour avec un planning.
    * Cherche jusqu'à 7 jours en avant (cycle hebdomadaire).
    */
   const nextScheduledDay = useMemo(() => {
-    if (todayPlan.length > 0) return null;
     for (let offset = 1; offset <= 7; offset++) {
       const dayIdx = (todayIdx + offset) % 7;
       const segs   = [...planning]
@@ -69,140 +70,158 @@ export default function HomeScreen() {
     }
     return null;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planning, todayIdx, todayPlan.length]);
+  }, [planning, todayIdx]);
 
   /* ── État démarrage explicite de la séance ── */
   const [seanceStarted, setSeanceStarted] = useState(false);
+  /* Liste des segments complétés aujourd'hui */
+  const [completedSegIds, setCompletedSegIds] = useState<string[]>([]);
 
-  /* ── Re-sync automatique + replanification des alertes vocales ── */
+  /* Charger les segments déjà complétés aujourd'hui depuis la persistance */
+  useEffect(() => {
+    const loadCompleted = async () => {
+      try {
+        const key = `completed-segs-${new Date().toISOString().split('T')[0]}`;
+        const val = await AsyncStorage.getItem(key);
+        if (val) {
+          setCompletedSegIds(JSON.parse(val));
+        }
+      } catch {}
+    };
+    loadCompleted();
+  }, []);
+
+  const dayCompleted = todayPlan.length > 0 && todayPlan.every(seg => completedSegIds.includes(seg.id));
+  /* Sync manuelle */
+  const [syncing, setSyncing] = useState(false);
+
+  const handleManualSync = async () => {
+    if (syncing || !isOnline) return;
+    setSyncing(true);
+    try {
+      // Invalide d'abord le cache Redis côté serveur → garantit des données fraîches
+      await syncApi.invalidate().catch(() => {});
+      await syncOffline(true);
+    } catch {}
+    finally { setSyncing(false); }
+  };
+
+  /* ── Replanification des alertes vocales au focus ── */
+  /* La sync elle-même est gérée centralement par NetworkWatcher (polling 30 s). */
   useFocusEffect(
     useCallback(() => {
-      const { syncOffline: syncFn, isOnline: online, syncData: sd } = useStore.getState();
-      if (online) {
-        syncFn(true)
-          .then(() => {
-            // Après sync, replanifie les alertes avec le planning frais
-            const fresh = useStore.getState().syncData?.planning ?? [];
-            scheduleSessionAlerts(fresh).catch(() => {});
-          })
-          .catch(() => {});
-      } else {
-        // Hors-ligne : planifie quand même avec les données en cache
-        const cached = sd?.planning ?? [];
-        scheduleSessionAlerts(cached).catch(() => {});
-      }
+      const { syncData: sd } = useStore.getState();
+      const planning = sd?.planning ?? [];
+      scheduleSessionAlerts(planning).catch(() => {});
     }, [])
   );
 
-  /* ── Horloge temps réel (tick toutes les secondes) ── */
-  const [tick, setTick] = useState(0);
-  const [paused, setPaused] = useState(false);
-  const [pausedRemain, setPausedRemain] = useState(0);
+  /* ── Chronomètre / Timer Manuel de l'activité en cours ── */
+  const [elapsed, setElapsed] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
 
   useEffect(() => {
-    if (paused) return;
-    const id = setInterval(() => setTick(t => t + 1), 1000);
+    if (activeSeance) {
+      setSeanceStarted(true);
+      const start = new Date(activeSeance.started_at).getTime();
+      const sec = Math.floor((Date.now() - start) / 1000);
+      setElapsed(Math.max(0, sec));
+    } else {
+      setSeanceStarted(false);
+      setElapsed(0);
+      setIsPaused(false);
+    }
+  }, [activeSeance]);
+
+  useEffect(() => {
+    if (!activeSeance || isPaused) return;
+    const start = new Date(activeSeance.started_at).getTime();
+    const updateElapsed = () => {
+      const sec = Math.floor((Date.now() - start) / 1000);
+      setElapsed(Math.max(0, sec));
+    };
+    updateElapsed();
+    const id = setInterval(updateElapsed, 1000);
     return () => clearInterval(id);
-  }, [paused]);
+  }, [activeSeance, isPaused]);
 
   /* ── Calcul basé sur l'heure réelle ── */
   const now    = new Date();
   const curMin = now.getHours() * 60 + now.getMinutes();
   const curSec = curMin * 60 + now.getSeconds();
 
-  // Index du segment actuellement en cours
-  const liveIdx = todayPlan.findIndex(seg =>
-    curMin >= toMin(seg.heure_debut) && curMin < toMin(seg.heure_fin)
-  );
-  // Index du prochain segment à venir
-  const nextIdx = liveIdx === -1
-    ? todayPlan.findIndex(seg => curMin < toMin(seg.heure_debut))
-    : -1;
-  // Tous les segments sont terminés
-  const allDone = todayPlan.length > 0 &&
-    todayPlan.every(seg => curMin >= toMin(seg.heure_fin));
-
-  // Segment affiché dans la carte principale
-  const shownIdx = liveIdx !== -1 ? liveIdx
-                 : nextIdx !== -1 ? nextIdx
-                 : todayPlan.length - 1;
-  const activeSeg = todayPlan[shownIdx] ?? null;
-
-  // Secondes restantes (live ou gelées si pause)
-  const liveRemain = activeSeg && liveIdx !== -1
-    ? Math.max(0, toMin(activeSeg.heure_fin) * 60 - curSec)
-    : activeSeg ? segDurMin(activeSeg.heure_debut, activeSeg.heure_fin) * 60 : 0;
-  const remainSec = paused ? pausedRemain : liveRemain;
+  // Segment actif : le premier segment de la journée non complété !
+  const activeSeg = todayPlan.find(seg => !completedSegIds.includes(seg.id)) ?? null;
 
   const durMin  = activeSeg ? segDurMin(activeSeg.heure_debut, activeSeg.heure_fin) : 0;
   const durSec  = durMin * 60;
-  const progress = durSec > 0 ? Math.max(0, Math.min(1, remainSec / durSec)) : 0;
+  const remainSec = activeSeance ? Math.max(0, durSec - elapsed) : durSec;
+  const progress = durSec > 0 ? (durSec - remainSec) / durSec : 0;
 
   /* ── Détection fin de segment → notification ── */
-  const prevLiveIdxRef = useRef<number>(-2); // -2 = première render, ne pas notifier
-
   useEffect(() => {
-    const prev = prevLiveIdxRef.current;
-
-    // Ignorer la toute première render (évite fausse notif au démarrage)
-    if (prev === -2) {
-      prevLiveIdxRef.current = liveIdx;
-      return;
+    if (activeSeance && remainSec === 0 && elapsed > 0) {
+      notifySegmentEnd(
+        activeSeg ? segTitle(activeSeg) : "Séance en cours",
+        "Le temps de l'activité est écoulé."
+      );
     }
+  }, [remainSec, activeSeance, elapsed, activeSeg]);
 
-    // Un segment était en cours et il vient de changer (terminé ou suivant)
-    if (prev >= 0 && liveIdx !== prev) {
-      const endedSeg = todayPlan[prev];
-      if (endedSeg) {
-        // Segment suivant : soit le nouveau liveIdx, soit le prochain à venir
-        const followIdx  = liveIdx >= 0 ? liveIdx : nextIdx >= 0 ? nextIdx : -1;
-        const followSeg  = followIdx >= 0 ? todayPlan[followIdx] : undefined;
-        notifySegmentEnd(
-          segTitle(endedSeg),
-          followSeg ? segTitle(followSeg) : undefined,
-        );
-      }
-    }
+  const handlePause = () => setIsPaused(true);
+  const handleResume = () => setIsPaused(false);
 
-    prevLiveIdxRef.current = liveIdx;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveIdx]);
-
-  const handlePause = () => {
-    setPausedRemain(liveRemain);
-    setPaused(true);
-  };
-  const handleResume = () => setPaused(false);
-
-  const handleStartSeance = async () => {
+  const handleStartSeance = () => {
     if (!activeSeg) return;
-    try {
-      if (isOnline) {
-        const { data } = await seancesApi.start({
-          classe:     activeSeg.classe ?? "",
-          matiere:    activeSeg.matiere ?? null,
+    const startedAt  = new Date().toISOString();
+    const localId    = `offline-seance-${Date.now()}`;
+    const sessionId  = syncData?.active_session?.id ?? "";
+    const classeVal  = activeSeg.classe  ?? "";
+    const matiereVal = activeSeg.matiere ?? null;
+
+    // ── 1. Démarrer IMMÉDIATEMENT avec un ID local provisoire ───────────────
+    setActiveSeance({
+      id:         localId,
+      classe:     classeVal,
+      matiere:    matiereVal,
+      started_at: startedAt,
+      session_id: sessionId,
+    });
+    setSeanceStarted(true);
+    setElapsed(0);
+    setIsPaused(false);
+
+    // ── 2. Enregistrer sur le serveur en arrière-plan ───────────────────────
+    if (isOnline) {
+      seancesApi
+        .start({
+          classe:     classeVal,
+          matiere:    matiereVal,
           segment_id: activeSeg.id ?? null,
           session_id: syncData?.active_session?.id ?? null,
-          started_at: new Date().toISOString(),
+          started_at: startedAt,
+        })
+        .then(({ data }) => {
+          // Remplacer l'ID local par l'ID réel du serveur si la séance est toujours active
+          const current = useStore.getState().activeSeance;
+          if (current?.id === localId) {
+            setActiveSeance({
+              ...current,
+              id:         data.id,
+              started_at: data.started_at ?? startedAt,
+            });
+          }
+        })
+        .catch(() => {
+          // Échec réseau : on garde l'ID local, la séance sera réconciliée plus tard
         });
-        setActiveSeance({
-          id:         data.id,
-          classe:     activeSeg.classe ?? "",
-          matiere:    activeSeg.matiere ?? null,
-          started_at: data.started_at ?? new Date().toISOString(),
-          session_id: syncData?.active_session?.id ?? "",
-        });
-      }
-      setSeanceStarted(true);
-    } catch {
-      // Hors ligne ou erreur : on démarre localement
-      setSeanceStarted(true);
     }
   };
+
+
 
   /* ── Profil ── */
   const [showProfile,   setShowProfile]   = useState(false);
-  const [showNextPlan,  setShowNextPlan]  = useState(false);
 
   /* ── Rapport modal ── */
   const [showRapport, setShowRapport] = useState(false);
@@ -214,6 +233,101 @@ export default function HomeScreen() {
   const canSend = segsDone !== null && bilan !== null;
 
   const resetForm = () => { setPresences(0); setSegsDone(null); setBilan(null); setCommentaire(""); };
+
+  const handleFinishSeance = () => {
+    // Garde : éviter les double-appels
+    if (submitting || !activeSeance) return;
+    setSubmitting(true);
+
+    // ── Capture immédiate des valeurs (avant que le state change) ───────────
+    const seanceId   = activeSeance.id;
+    const classe     = activeSeance.classe;
+    const matiere    = activeSeance.matiere ?? null;
+    const startedAt  = activeSeance.started_at;
+    const finishedAt = new Date().toISOString();
+    const dureeMinutes = Math.max(1, todayPlan.reduce(
+      (acc, seg) => acc + segDurMin(seg.heure_debut, seg.heure_fin), 0
+    ));
+    const segId = activeSeg?.id ?? null;
+
+    // ── 1. Mise à jour locale IMMÉDIATE — ne pas attendre le serveur ────────
+    setActiveSeance(null);
+    setSeanceStarted(false);
+    setIsPaused(false);
+    setElapsed(0);
+
+    if (segId) {
+      const newCompleted = [...completedSegIds, segId];
+      setCompletedSegIds(newCompleted);
+      // Persistance AsyncStorage en fire-and-forget
+      const key = `completed-segs-${new Date().toISOString().split("T")[0]}`;
+      AsyncStorage.setItem(key, JSON.stringify(newCompleted)).catch(() => {});
+    }
+
+    setSubmitting(false);
+
+    // ── 2. Sync serveur en arrière-plan (ne bloque JAMAIS l'UI) ─────────────
+    const isOfflineSeance = seanceId.startsWith("offline-");
+
+    if (isOnline && !isOfflineSeance) {
+      // Appel API sans await → l'écran s'est déjà mis à jour
+      seancesApi
+        .finish(seanceId, { finished_at: finishedAt, duree_minutes: dureeMinutes })
+        .then(() =>
+          rapportsApi.submit({
+            seance_id:       seanceId,
+            contenu:         "Séance complétée avec succès.",
+            points_positifs: "Séance complétée",
+            difficultes:     null,
+            soumis_en_offline: false,
+          })
+        )
+        .then(() => {
+          try {
+            upsertRapportCache({
+              id:              `${seanceId}-rapport`,
+              seance_id:       seanceId,
+              classe,
+              matiere,
+              date_seance:     startedAt ?? finishedAt,
+              contenu:         "Séance complétée avec succès.",
+              points_positifs: "Séance complétée",
+              difficultes:     null,
+              synced:          1,
+            });
+          } catch {}
+        })
+        .catch(() => {
+          // Serveur injoignable → on queue pour sync ultérieure
+          try {
+            const localId = `offline-${Date.now()}`;
+            enqueueAction("FINISH_SEANCE", {
+              seance_id: seanceId, finished_at: finishedAt, duree_minutes: dureeMinutes,
+            });
+            enqueueAction("SUBMIT_RAPPORT", {
+              local_rapport_id: localId,
+              seance_id:        seanceId,
+              contenu:          "Séance complétée avec succès.",
+              soumis_en_offline: true,
+            });
+          } catch {}
+        });
+    } else {
+      // Hors-ligne ou séance locale → queue directement
+      try {
+        const localId = `offline-${Date.now()}`;
+        enqueueAction("FINISH_SEANCE", {
+          seance_id: seanceId, finished_at: finishedAt, duree_minutes: dureeMinutes,
+        });
+        enqueueAction("SUBMIT_RAPPORT", {
+          local_rapport_id: localId,
+          seance_id:        seanceId,
+          contenu:          "Séance complétée avec succès.",
+          soumis_en_offline: true,
+        });
+      } catch {}
+    }
+  };
 
   const submitRapport = async () => {
     if (!canSend || submitting) return;
@@ -254,6 +368,13 @@ export default function HomeScreen() {
       setActiveSeance(null);
       setSeanceStarted(false);
       setShowRapport(false); resetForm();
+
+      if (activeSeg) {
+        const newCompleted = [...completedSegIds, activeSeg.id];
+        setCompletedSegIds(newCompleted);
+        const key = `completed-segs-${new Date().toISOString().split('T')[0]}`;
+        AsyncStorage.setItem(key, JSON.stringify(newCompleted)).catch(() => {});
+      }
       Alert.alert("Rapport envoyé !", isOnline ? "Séance terminée." : "Enregistré hors-ligne.");
     } catch (e: any) {
       Alert.alert("Erreur", e?.response?.data?.detail ?? "Erreur lors de l'envoi.");
@@ -270,196 +391,207 @@ export default function HomeScreen() {
   const renderSegCard = () => {
     type FName = React.ComponentProps<typeof Feather>["name"];
 
-    // Aucun cours planifié aujourd'hui → carte centrée simple
-    if (todayPlan.length === 0) return (
-      <View style={[s.segCard, s.segCardEmpty]}>
-        <Feather name="calendar" size={rf(32)} color={C.brand} style={{ marginBottom: rs(12) }} />
-        <Text style={s.segEmptyTitle}>Pas de cours aujourd'hui</Text>
-        <Text style={s.segEmptyMsg}>Profitez de votre journée de repos 🎉</Text>
-      </View>
-    );
-
-    // Journée terminée
-    if (allDone) return (
-      <View style={[s.segCard, { backgroundColor: C.success }]}>
-        <View style={{ flexDirection: "row", alignItems: "center", marginBottom: rs(14) }}>
-          <Feather name="check-circle" size={rf(20)} color="#fff" style={{ marginRight: rs(8) }} />
-          <Text style={[s.segTitle, { color: "#fff", marginBottom: 0 }]}>Journée terminée !</Text>
-        </View>
-        <TouchableOpacity
-          style={[s.btnAction, { backgroundColor: "rgba(255,255,255,0.25)", alignSelf: "flex-start" }]}
-          onPress={() => setShowRapport(true)} activeOpacity={0.8}
-        >
-          <Feather name="send" size={rf(13)} color="#fff" style={{ marginRight: rs(6) }} />
-          <Text style={s.btnActionTxt}>Soumettre le rapport</Text>
-        </TouchableOpacity>
-      </View>
-    );
-
-    const isLive = liveIdx !== -1;
-
-    // Si c'est l'heure mais la séance n'est pas démarrée → bouton Démarrer
-    if (isLive && !seanceStarted) {
-      const displayTitle     = activeSeg ? segTitle(activeSeg) : "Aucun cours planifié";
-      const displayTimeRange = activeSeg
-        ? `${activeSeg.heure_debut.slice(0, 5)} – ${activeSeg.heure_fin.slice(0, 5)}`
-        : "—";
+    // 1. Aucun cours planifié aujourd'hui
+    if (todayPlan.length === 0) {
       return (
-        <View style={s.segCard}>
-          <View style={s.segTopRow}>
-            <View style={[s.segBadge, { backgroundColor: C.warn }]}>
-              <Feather name="clock" size={rf(10)} color="#fff" style={{ marginRight: rs(4) }} />
-              <Text style={s.segBadgeTxt}>C'EST L'HEURE</Text>
-            </View>
-            <Text style={s.segTimeRange}>{displayTimeRange}</Text>
-          </View>
-          <Text style={s.segTitle}>{displayTitle}</Text>
-          <TouchableOpacity
-            style={[s.btnAction, { backgroundColor: C.brand, alignSelf: "flex-start", marginTop: rs(12) }]}
-            onPress={handleStartSeance}
-            activeOpacity={0.8}
-          >
-            <Feather name="play" size={rf(13)} color="#fff" style={{ marginRight: rs(6) }} />
-            <Text style={s.btnActionTxt}>Démarrer ma séance</Text>
-          </TouchableOpacity>
+        <View style={[s.segCard, s.segCardEmpty]}>
+          <Feather name="calendar" size={rf(32)} color={C.brand} style={{ marginBottom: rs(12) }} />
+          <Text style={s.segEmptyTitle}>Pas de cours aujourd'hui</Text>
+          <Text style={s.segEmptyMsg}>Profitez de votre journée de repos</Text>
         </View>
       );
     }
 
-    const statusIcon: FName = isLive ? (paused ? "pause" : "play") : "clock";
-    const statusLabel = isLive
-      ? (paused ? "EN PAUSE" : "EN COURS")
-      : "À VENIR";
+    // 2. Journée complétée avec le prochain jour de cours
+    if (dayCompleted) {
+      return (
+        <View style={{ gap: rs(14) }}>
+          {/* Carte 1 : Planning du jour effectué */}
+          <View style={[s.segCard, { backgroundColor: C.success, marginBottom: 0 }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", marginBottom: rs(10) }}>
+              <Feather name="check-circle" size={rf(20)} color="#fff" style={{ marginRight: rs(8) }} />
+              <Text style={[s.segTitle, { color: "#fff", marginBottom: 0 }]}>Planning du jour effectué ✓</Text>
+            </View>
+            <Text style={{ color: "rgba(255, 255, 255, 0.9)", fontSize: rf(14), marginBottom: rs(16), lineHeight: rs(20) }}>
+              Toutes les activités de votre planning sont complétées pour aujourd'hui. Bravo !
+            </Text>
+            <TouchableOpacity
+              style={[s.btnAction, { backgroundColor: "rgba(255,255,255,0.25)", alignSelf: "flex-start" }]}
+              onPress={() => router.push("/today-summary")} activeOpacity={0.8}
+            >
+              <Feather name="eye" size={rf(13)} color="#fff" style={{ marginRight: rs(6) }} />
+              <Text style={s.btnActionTxt}>Voir les détails</Text>
+            </TouchableOpacity>
+          </View>
 
-    const displayTitle     = activeSeg ? segTitle(activeSeg) : "Aucun cours planifié";
+          {/* Carte 2 : Prochain planning */}
+          {nextScheduledDay ? (
+            <View style={[s.segCard, s.segCardEmpty, { marginTop: 0 }]}>
+              <Feather name="calendar" size={rf(32)} color={C.brand} style={{ marginBottom: rs(10) }} />
+              <Text style={s.segEmptyTitle}>Prochain planning</Text>
+              <Text style={s.segEmptyMsg}>
+                {JOURS_FR[nextScheduledDay.dayIdx]}{" "}
+                {nextScheduledDay.date.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
+                {" · "}{nextScheduledDay.segs.length} cours
+              </Text>
+
+              {/* Bouton Voir plus */}
+              <TouchableOpacity
+                style={[s.nextCourseBtn, { marginTop: rs(16), width: '80%' }]}
+                onPress={() => {
+                  const dateStr = nextScheduledDay.date.toISOString();
+                  router.push(`/next-planning?dayIdx=${nextScheduledDay.dayIdx}&dateStr=${encodeURIComponent(dateStr)}`);
+                }}
+                activeOpacity={0.8}
+              >
+                <Feather name="eye" size={rf(14)} color="#fff" style={{ marginRight: rs(6) }} />
+                <Text style={s.nextCourseBtnTxt}>Voir plus</Text>
+                <Feather name="chevron-right" size={rf(14)} color="#fff" style={{ marginLeft: rs(6) }} />
+              </TouchableOpacity>
+            </View>
+          ) : (
+            /* Aucun prochain planning dans la semaine */
+            <View style={[s.segCard, s.segCardEmpty, { marginTop: 0 }]}>
+              <Feather name="calendar" size={rf(32)} color={C.brand} style={{ marginBottom: rs(10) }} />
+              <Text style={s.segEmptyTitle}>Prochain planning</Text>
+              <Text style={s.segEmptyMsg}>Aucun cours planifié cette semaine</Text>
+            </View>
+          )}
+        </View>
+      );
+    }
+
+    const isSeanceActive = !!activeSeance;
+
+    // 3. Séance active (Timer qui tourne)
+    if (isSeanceActive) {
+      const displayTitle = activeSeg ? segTitle(activeSeg) : "Séance en cours";
+      const displayTimeRange = activeSeg
+        ? `${activeSeg.heure_debut.slice(0, 5)} – ${activeSeg.heure_fin.slice(0, 5)}`
+        : "—";
+      
+      const displayTimer = fmt(remainSec);
+      const displaySub = remainSec > 0 
+        ? `restantes sur ${durMin} min` 
+        : "Temps écoulé ! Pensez à terminer.";
+
+      const statusIcon: FName = isPaused ? "pause" : "play";
+      const statusLabel = isPaused ? "EN PAUSE" : "EN COURS";
+
+      return (
+        <View style={s.segCard}>
+          <View style={s.segTopRow}>
+            <View style={s.segBadge}>
+              <Feather name={statusIcon} size={rf(10)} color="#fff" style={{ marginRight: rs(4) }} />
+              <Text style={s.segBadgeTxt}>{statusLabel}</Text>
+            </View>
+            <Text style={s.segTimeRange}>{displayTimeRange}</Text>
+          </View>
+
+          <Text style={s.segTitle}>{displayTitle}</Text>
+
+          <View style={s.segTimerRow}>
+            <View style={{ flex: 1, marginRight: rs(12) }}>
+              <Text style={s.timerText} numberOfLines={1} adjustsFontSizeToFit>
+                {displayTimer}
+              </Text>
+              <Text style={s.timerSub} numberOfLines={2}>{displaySub}</Text>
+            </View>
+
+            <View style={{ flexDirection: "column", gap: rs(8) }}>
+              {isPaused ? (
+                <TouchableOpacity style={s.btnAction} onPress={handleResume} activeOpacity={0.8}>
+                  <Feather name="play" size={rf(13)} color="#fff" style={{ marginRight: rs(6) }} />
+                  <Text style={s.btnActionTxt}>Reprendre</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity style={[s.btnAction, s.btnPause]} onPress={handlePause} activeOpacity={0.8}>
+                  <Feather name="pause" size={rf(13)} color="#fff" style={{ marginRight: rs(6) }} />
+                  <Text style={s.btnActionTxt}>Pause</Text>
+                </TouchableOpacity>
+              )}
+
+              <TouchableOpacity 
+                style={[s.btnAction, { backgroundColor: C.danger }]} 
+                onPress={handleFinishSeance} 
+                activeOpacity={0.8}
+              >
+                <Feather name="check" size={rf(13)} color="#fff" style={{ marginRight: rs(6) }} />
+                <Text style={s.btnActionTxt}>Terminer</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={s.progressBg}>
+            <View style={[s.progressFill, { width: `${progress * 100}%` as any }]} />
+          </View>
+        </View>
+      );
+    }
+
+    // 4. Aucune séance active -> Prêt à démarrer l'activité
+    const displayTitle = activeSeg ? segTitle(activeSeg) : "Aucun cours planifié";
     const displayTimeRange = activeSeg
       ? `${activeSeg.heure_debut.slice(0, 5)} – ${activeSeg.heure_fin.slice(0, 5)}`
       : "—";
-    const displayTimer = activeSeg && isLive ? fmt(remainSec) : "—:——";
-    const displaySub   = isLive
-      ? `restantes sur ${durMin} min`
-      : activeSeg ? `Début à ${activeSeg.heure_debut.slice(0, 5)}` : "";
 
     return (
       <View style={s.segCard}>
         <View style={s.segTopRow}>
-          <View style={s.segBadge}>
-            <Feather name={statusIcon} size={rf(10)} color="#fff" style={{ marginRight: rs(4) }} />
-            <Text style={s.segBadgeTxt}>{statusLabel}</Text>
+          <View style={[s.segBadge, { backgroundColor: C.brand }]}>
+            <Feather name="play" size={rf(10)} color="#fff" style={{ marginRight: rs(4) }} />
+            <Text style={s.segBadgeTxt}>PRÊT À DÉMARRER</Text>
           </View>
           <Text style={s.segTimeRange}>{displayTimeRange}</Text>
         </View>
-
         <Text style={s.segTitle}>{displayTitle}</Text>
-
-        <View style={s.segTimerRow}>
-          <View style={{ flex: 1, marginRight: rs(12) }}>
-            <Text style={s.timerText} numberOfLines={1} adjustsFontSizeToFit>
-              {displayTimer}
-            </Text>
-            <Text style={s.timerSub} numberOfLines={2}>{displaySub}</Text>
-          </View>
-
-          {/* Pause / Reprendre uniquement si le segment est en cours et démarré */}
-          {isLive && seanceStarted && !paused && (
-            <TouchableOpacity style={[s.btnAction, s.btnPause]} onPress={handlePause} activeOpacity={0.8}>
-              <Feather name="pause" size={rf(13)} color="#fff" style={{ marginRight: rs(6) }} />
-              <Text style={s.btnActionTxt}>Pause</Text>
-            </TouchableOpacity>
-          )}
-          {isLive && seanceStarted && paused && (
-            <TouchableOpacity style={s.btnAction} onPress={handleResume} activeOpacity={0.8}>
-              <Feather name="play" size={rf(13)} color="#fff" style={{ marginRight: rs(6) }} />
-              <Text style={s.btnActionTxt}>Reprendre</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        <View style={s.progressBg}>
-          <View style={[s.progressFill, { width: `${progress * 100}%` as any }]} />
-        </View>
+        <TouchableOpacity
+          style={s.btnStart}
+          onPress={handleStartSeance}
+          activeOpacity={0.85}
+        >
+          <Feather name="play" size={rf(15)} color={C.brand} style={{ marginRight: rs(8) }} />
+          <Text style={s.btnStartTxt}>Démarrer l'activité</Text>
+        </TouchableOpacity>
       </View>
     );
   };
 
   /* ── Ligne planning ── */
-  const doneCount = todayPlan.filter(seg => curMin >= toMin(seg.heure_fin)).length;
+  const doneCount = todayPlan.filter(seg => completedSegIds.includes(seg.id)).length;
 
-  /** Rendu d'une ligne du planning du PROCHAIN jour (pas d'état live/done, tout est à venir) */
-  const renderNextPlanRow = (seg: any, i: number, arr: any[]) => (
-    <View
-      key={seg.id ?? i}
-      style={[s.planRow, i < arr.length - 1 && s.planRowBorder]}
-    >
-      <View style={[s.planDot, { backgroundColor: C.surfaceAlt }]}>
-        <View style={[s.planDotInner, { backgroundColor: C.border }]} />
-      </View>
-      <Text style={s.planHeure}>{seg.heure_debut.slice(0, 5)}</Text>
-      <View style={{ flex: 1 }}>
-        <View style={s.planTitleRow}>
-          <Text style={s.planSegTitle} numberOfLines={1}>{segTitle(seg)}</Text>
-          <Text style={s.planSegDur}>{" · "}{segDurMin(seg.heure_debut, seg.heure_fin)} min</Text>
-        </View>
+  /** Carte d'un créneau du PROCHAIN jour (tout à venir, pas d'état live/done) */
+  const renderNextPlanRow = (seg: any, i: number) => (
+    <View key={seg.id ?? i} style={s.planItemCard}>
+      <View style={s.planItemBody}>
+        <Text style={s.planItemTitle} numberOfLines={1}>{segTitle(seg)}</Text>
+        <Text style={s.planItemMeta}>
+          {seg.heure_debut.slice(0, 5)} – {seg.heure_fin.slice(0, 5)}
+          {" · "}{segDurMin(seg.heure_debut, seg.heure_fin)} min
+        </Text>
       </View>
     </View>
   );
 
+  /** Carte d'un créneau du jour courant */
   const renderPlanRow = (seg: any, i: number) => {
-    // Basé uniquement sur l'heure réelle
-    const isDone    = curMin >= toMin(seg.heure_fin);
-    const isCur     = liveIdx === i;
-    // Prochain segment à venir (rien en cours actuellement)
-    const isUpNext  = liveIdx === -1 && nextIdx === i;
-    // Segment suivant immédiatement celui en cours
-    const isFollowing = liveIdx !== -1 && i === liveIdx + 1;
+    const isDone    = completedSegIds.includes(seg.id);
+    const dur       = segDurMin(seg.heure_debut, seg.heure_fin);
+    const timeRange = `${seg.heure_debut.slice(0, 5)} – ${seg.heure_fin.slice(0, 5)}`;
 
     return (
-      <View
-        key={seg.id}
-        style={[
-          s.planRow,
-          i < todayPlan.length - 1 && s.planRowBorder,
-          isCur && { backgroundColor: C.brandSoft },
-        ]}
-      >
-        <View style={[s.planDot, {
-          backgroundColor: isCur ? C.brand : isDone ? C.successSoft : C.surfaceAlt,
-        }]}>
-          {isCur
-            ? <Feather name="play"  size={rf(10)} color="#fff" />
-            : isDone
-              ? <Feather name="check" size={rf(11)} color={C.success} />
-              : <View style={[s.planDotInner, { backgroundColor: isUpNext ? C.brand : C.border }]} />
-          }
+      <View key={seg.id} style={s.planItemCard}>
+        <View style={s.planItemBody}>
+          <Text
+            style={[s.planItemTitle, isDone && s.planItemTitleDone]}
+            numberOfLines={1}
+          >
+            {segTitle(seg)}
+          </Text>
+          <Text style={[s.planItemMeta, isDone && { opacity: 0.55 }]}>
+            {timeRange} · {dur} min
+          </Text>
         </View>
-
-        <Text style={[s.planHeure, isCur && { color: C.brand, fontWeight: "700" }]}>
-          {seg.heure_debut.slice(0, 5)}
-        </Text>
-
-        <View style={{ flex: 1 }}>
-          <View style={s.planTitleRow}>
-            <Text
-              style={[s.planSegTitle, isCur && { fontWeight: "700" }, isDone && { color: C.textMuted }]}
-              numberOfLines={1}
-            >
-              {segTitle(seg)}
-            </Text>
-            <Text style={[s.planSegDur, isDone && { color: C.textMuted }]}>
-              {" · "}{segDurMin(seg.heure_debut, seg.heure_fin)} min
-            </Text>
-          </View>
-        </View>
-
-        {isUpNext && (
-          <View style={s.badgeProchain}><Text style={s.badgeProchainTxt}>PROCHAIN</Text></View>
-        )}
-        {isCur && (
-          <View style={s.badgeEnCours}><Text style={s.badgeEnCoursTxt}>EN COURS</Text></View>
-        )}
-        {isFollowing && (
-          <View style={s.badgeSuivant}><Text style={s.badgeSuivantTxt}>Suivant</Text></View>
-        )}
       </View>
     );
   };
@@ -467,7 +599,13 @@ export default function HomeScreen() {
   /* ── Rendu ── */
   return (
     <View style={s.screen}>
-      <AppHeader userName={greetName} onAvatarPress={() => setShowProfile(true)} />
+      <AppHeader
+        userName={greetName}
+        onAvatarPress={() => setShowProfile(true)}
+        onSyncPress={handleManualSync}
+        syncing={syncing}
+        isOnline={isOnline}
+      />
 
       {/* ── Mode "pas de cours" ── */}
       {todayPlan.length === 0 ? (
@@ -485,51 +623,34 @@ export default function HomeScreen() {
             <View style={[s.segCard, s.segCardEmpty]}>
               <Feather name="calendar" size={rf(32)} color={C.brand} style={{ marginBottom: rs(10) }} />
               <Text style={s.segEmptyTitle}>Pas de cours aujourd'hui</Text>
-              <Text style={s.segEmptyMsg}>Profitez de votre journée de repos 🎉</Text>
+              <Text style={s.segEmptyMsg}>Profitez de votre journée de repos</Text>
             </View>
 
             {/* Carte 2 — Prochain cours */}
             {nextScheduledDay && (
-              <>
-                <View style={[s.segCard, s.segCardEmpty, { marginTop: rs(12) }]}>
-                  <Feather name="calendar" size={rf(32)} color={C.brand} style={{ marginBottom: rs(10) }} />
-                  <Text style={s.segEmptyTitle}>Prochain cours</Text>
-                  <Text style={s.segEmptyMsg}>
-                    {JOURS_FR[nextScheduledDay.dayIdx]}{" "}
-                    {nextScheduledDay.date.toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}
-                    {" · "}{nextScheduledDay.segs.length} cours
-                  </Text>
-                </View>
+              <View style={[s.segCard, s.segCardEmpty, { marginTop: rs(12) }]}>
+                <Feather name="calendar" size={rf(32)} color={C.brand} style={{ marginBottom: rs(10) }} />
+                <Text style={s.segEmptyTitle}>Prochain cours</Text>
+                <Text style={s.segEmptyMsg}>
+                  {JOURS_FR[nextScheduledDay.dayIdx]}{" "}
+                  {nextScheduledDay.date.toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}
+                  {" · "}{nextScheduledDay.segs.length} cours
+                </Text>
 
                 {/* Bouton Voir Planning */}
                 <TouchableOpacity
-                  style={s.nextCourseBtn}
-                  onPress={() => setShowNextPlan(v => !v)}
+                  style={[s.nextCourseBtn, { marginTop: rs(16), width: '80%' }]}
+                  onPress={() => {
+                    const dateStr = nextScheduledDay.date.toISOString();
+                    router.push(`/next-planning?dayIdx=${nextScheduledDay.dayIdx}&dateStr=${encodeURIComponent(dateStr)}`);
+                  }}
                   activeOpacity={0.8}
                 >
                   <Feather name="calendar" size={rf(14)} color="#fff" style={{ marginRight: rs(6) }} />
-                  <Text style={s.nextCourseBtnTxt}>Voir Planning</Text>
-                  <Feather
-                    name={showNextPlan ? "chevron-up" : "chevron-down"}
-                    size={rf(14)} color="#fff"
-                    style={{ marginLeft: rs(6) }}
-                  />
+                  <Text style={s.nextCourseBtnTxt}>Voir le planning</Text>
+                  <Feather name="chevron-right" size={rf(14)} color="#fff" style={{ marginLeft: rs(6) }} />
                 </TouchableOpacity>
-
-                {/* Planning déplié */}
-                {showNextPlan && (
-                  <View style={s.planCard}>
-                    <View style={s.planHeader}>
-                      <Text style={s.planTitle}>
-                        {JOURS_FR[nextScheduledDay.dayIdx]}{" "}
-                        {nextScheduledDay.date.toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}
-                      </Text>
-                      <Text style={s.planCount}>{nextScheduledDay.segs.length} cours</Text>
-                    </View>
-                    {nextScheduledDay.segs.map((seg, i, arr) => renderNextPlanRow(seg, i, arr))}
-                  </View>
-                )}
-              </>
+              </View>
             )}
           </View>
         </ScrollView>
@@ -546,10 +667,11 @@ export default function HomeScreen() {
 
           {renderSegCard()}
 
-          <View style={s.planCard}>
+          {/* ── Planning du jour — cartes séparées ── */}
+          <View style={s.planSection}>
             <View style={s.planHeader}>
               <Text style={s.planTitle}>Planning du jour</Text>
-              <Text style={s.planCount}>{doneCount} / {todayPlan.length} faits</Text>
+              <Text style={s.planCount}>{doneCount} / {todayPlan.length} fait{todayPlan.length > 1 ? "s" : ""}</Text>
             </View>
             {todayPlan.map(renderPlanRow)}
           </View>
@@ -674,32 +796,30 @@ const s = StyleSheet.create({
   btnAction:    { backgroundColor: "rgba(255,255,255,0.22)", borderRadius: rs(12), paddingHorizontal: rs(18), paddingVertical: rs(12), flexDirection: "row", alignItems: "center" },
   btnPause:     { backgroundColor: "rgba(0,0,0,0.22)" },
   btnActionTxt: { color: "#fff", fontWeight: "700", fontSize: rf(13) },
+  btnStart:     { backgroundColor: "#fff", borderRadius: rs(14), paddingVertical: rs(16), marginTop: rs(16), flexDirection: "row", alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.12, shadowOffset: { width: 0, height: 2 }, shadowRadius: 6, elevation: 3 },
+  btnStartTxt:  { color: C.brand, fontWeight: "800", fontSize: rf(15) },
   progressBg:   { height: rs(6), backgroundColor: "rgba(255,255,255,0.25)", borderRadius: rs(3), overflow: "hidden" },
   progressFill: { height: "100%", backgroundColor: "#fff", borderRadius: rs(3) },
 
-  /* Planning */
-  planCard:      { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: rs(16), overflow: "hidden", marginBottom: rs(14) },
-  planHeader:    { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: rs(14), borderBottomWidth: 1, borderBottomColor: C.border },
-  planTitle:     { fontSize: rf(14), fontWeight: "700", color: C.text },
-  planCount:     { fontSize: rf(12), color: C.textMuted },
-  planRow:       { flexDirection: "row", alignItems: "center", paddingHorizontal: rs(14), paddingVertical: rs(12) },
-  planRowBorder: { borderBottomWidth: 1, borderBottomColor: C.border },
-  planDot:       { width: rs(30), height: rs(30), borderRadius: rs(15), alignItems: "center", justifyContent: "center", marginRight: rs(12), flexShrink: 0 },
-  planDotInner:  { width: rs(8), height: rs(8), borderRadius: rs(4) },
-  planHeure:     { fontSize: rf(13), color: C.textMuted, minWidth: rs(42) },
-  planTitleRow:  { flexDirection: "row", alignItems: "center", flexShrink: 1 },
-  planSegTitle:  { fontSize: rf(14), fontWeight: "600", color: C.text, flexShrink: 1 },
-  planSegDur:    { fontSize: rf(12), color: C.textMuted, flexShrink: 0 },
+  /* ── Planning du jour — cartes séparées ── */
+  planSection:       { marginBottom: rs(14) },
+  planHeader:        { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: rs(10) },
+  planTitle:         { fontSize: rf(14), fontWeight: "700", color: C.text },
+  planCount:         { fontSize: rf(12), color: C.textMuted },
 
-  badgeProchain:    { backgroundColor: C.brandSoft, borderRadius: rs(6), paddingHorizontal: rs(8), paddingVertical: rs(3) },
-  badgeProchainTxt: { fontSize: rf(10), fontWeight: "700", color: C.brand },
-  badgeEnCours:     { backgroundColor: "rgba(0,0,0,0.07)", borderRadius: rs(6), paddingHorizontal: rs(8), paddingVertical: rs(3) },
-  badgeEnCoursTxt:  { fontSize: rf(10), fontWeight: "700", color: C.brand },
-  badgeSuivant:     { borderWidth: 1, borderColor: C.border, borderRadius: rs(6), paddingHorizontal: rs(8), paddingVertical: rs(3) },
-  badgeSuivantTxt:  { fontSize: rf(10), fontWeight: "600", color: C.textMuted },
-
-  emptyPlan:    { padding: rs(28), alignItems: "center" },
-  emptyPlanTxt: { fontSize: rf(13), color: C.textMuted, fontStyle: "italic", textAlign: "center" },
+  /* Carte individuelle */
+  planItemCard:      {
+    backgroundColor: C.surface,
+    borderRadius: rs(12),
+    borderWidth: 1,
+    borderColor: C.border,
+    overflow: "hidden",
+    marginBottom: rs(8),
+  },
+  planItemBody:      { paddingHorizontal: rs(14), paddingVertical: rs(12) },
+  planItemTitle:     { fontSize: rf(15), fontWeight: "600", color: C.text, marginBottom: rs(3) },
+  planItemTitleDone: { color: C.textMuted, fontWeight: "400" },
+  planItemMeta:      { fontSize: rf(12), color: C.textMuted },
 
   /* Segment card — pas de cours aujourd'hui */
   segCardEmpty:   { backgroundColor: C.surface, borderWidth: 1.5, borderColor: C.border, alignItems: "center", justifyContent: "center", paddingVertical: rs(32), width: "100%" },

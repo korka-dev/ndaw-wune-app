@@ -1,7 +1,8 @@
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const API_URL = "http://10.7.26.128:8000/api/v1"; // IP locale Wi-Fi
+// const API_URL = "https://api.ndawwune.cloud/api/v1"; // Production Cloud
+const API_URL = "http://192.168.1.108:8000/api/v1"; // Développement Local Wi-Fi
 
 export const api = axios.create({ baseURL: API_URL, timeout: 15000 });
 
@@ -43,7 +44,8 @@ export const authApi = {
 };
 
 export const syncApi = {
-  sync: () => api.get("/app/sync"),
+  sync:       () => api.get("/app/sync"),
+  invalidate: () => api.post("/app/sync/invalidate"),
 };
 
 export const seancesApi = {

@@ -1,32 +1,76 @@
 /**
- * Composant invisible — surveille la connectivité réseau.
+ * Composant invisible — surveille la connectivité réseau et synchronise
+ * les données en temps quasi-réel.
+ *
+ * Stratégie :
+ *   • Vérification réseau toutes les 15 s (détection offline/online rapide).
+ *   • Synchronisation complète toutes les 30 s quand l'app est en ligne
+ *     (planning, profil, session active). Le serveur répond depuis son cache
+ *     Redis en < 5 ms si rien n'a changé → très léger.
+ *   • Sync immédiate au retour en ligne (flush queue + fetch fresh data).
+ *   • Sync immédiate quand l'app revient au premier plan (AppState "active").
+ *   • Protection anti-doublon : une seule sync à la fois (isSyncing).
  *
  * Compatible Android 5+ (API 21) et iOS 13+.
- * isInternetReachable peut être null sur certains Android (anciens ou sans Google Play) ;
+ * isInternetReachable peut être null sur certains Android anciens ;
  * on considère alors l'appareil en ligne si isConnected est vrai.
- *
- * Au retour en ligne :
- *   1. Vide la file d'attente hors-ligne (rapports, fins de séances).
- *   2. Resynchronise le cache (planning, session active, profil).
  */
 import { useEffect, useRef } from "react";
+import { AppState, AppStateStatus } from "react-native";
 import * as Network from "expo-network";
 import { useStore } from "../store/useStore";
 import { flushQueue } from "../services/queue";
+import { scheduleSessionAlerts } from "../services/notifications";
+
+const NETWORK_CHECK_MS = 15_000;   // 15 s — vérification connectivité
+const SYNC_INTERVAL_MS = 30_000;   // 30 s — sync données quand online
 
 export default function NetworkWatcher() {
   const { setIsOnline, syncOffline } = useStore();
-  // Ref pour éviter les boucles de sync infinies
-  const lastOnline = useRef<boolean>(true);
+
+  const lastOnline  = useRef<boolean>(true);
+  const isSyncing   = useRef<boolean>(false);   // anti-doublon
+  const lastSyncAt  = useRef<number>(0);         // timestamp de la dernière sync
+
+  // ── Sync protégée contre les appels simultanés ─────────────────────────────
+  const doSync = async (reason: string) => {
+    if (isSyncing.current) return;
+    const { token, isOnline: online } = useStore.getState();
+    if (!token || !online) return;
+
+    isSyncing.current = true;
+    console.log(`[Sync] Déclenchement — ${reason}`);
+    try {
+      await syncOffline(true);
+      lastSyncAt.current = Date.now();
+      // Replanifier les alertes vocales avec le planning frais
+      const freshPlanning = useStore.getState().syncData?.planning ?? [];
+      scheduleSessionAlerts(freshPlanning).catch(() => {});
+    } catch (e) {
+      console.warn("[Sync] Erreur :", e);
+    } finally {
+      isSyncing.current = false;
+    }
+  };
 
   useEffect(() => {
-    let interval: ReturnType<typeof setInterval>;
+    // ── 1. AppState — sync quand l'app revient au premier plan ────────────────
+    const appStateSub = AppState.addEventListener(
+      "change",
+      (state: AppStateStatus) => {
+        if (state === "active") {
+          // Sync seulement si la dernière remonte à plus de 30 s
+          if (Date.now() - lastSyncAt.current > SYNC_INTERVAL_MS) {
+            doSync("retour premier plan");
+          }
+        }
+      }
+    );
 
-    const check = async () => {
+    // ── 2. Vérification réseau toutes les 15 s ────────────────────────────────
+    const checkNetwork = async () => {
       try {
         const state = await Network.getNetworkStateAsync();
-
-        // isInternetReachable peut être null sur Android ancien → fallback sur isConnected
         const online =
           !!state.isConnected &&
           (state.isInternetReachable === null ? true : !!state.isInternetReachable);
@@ -36,24 +80,33 @@ export default function NetworkWatcher() {
         setIsOnline(online);
 
         if (online && wasOffline) {
-          console.log("[Network] Connexion rétablie — démarrage de la synchronisation");
-          // 1. Vider la file d'attente en priorité
-          const synced = await flushQueue();
-          if (synced > 0) {
-            console.log(`[Network] ${synced} action(s) synchronisée(s) depuis la file`);
+          // Retour en ligne : vider la queue en priorité, puis syncer
+          console.log("[Network] Connexion rétablie — synchronisation");
+          const flushed = await flushQueue();
+          if (flushed > 0) {
+            console.log(`[Network] ${flushed} action(s) synchronisée(s) depuis la file`);
           }
-          // 2. Resynchroniser le cache (planning, session, profil)
-          await syncOffline(true);
+          await doSync("retour en ligne");
         }
       } catch (e) {
-        // Ne jamais planter l'app si la vérification réseau échoue
-        console.warn("[Network] Erreur lors de la vérification réseau :", e);
+        console.warn("[Network] Erreur vérification réseau :", e);
       }
     };
 
-    check();
-    interval = setInterval(check, 15_000);
-    return () => clearInterval(interval);
+    // ── 3. Sync périodique toutes les 30 s quand en ligne ────────────────────
+    const periodicSync = () => doSync("polling 30 s");
+
+    // Démarrage
+    checkNetwork();
+    const netTimer  = setInterval(checkNetwork,  NETWORK_CHECK_MS);
+    const syncTimer = setInterval(periodicSync,   SYNC_INTERVAL_MS);
+
+    return () => {
+      clearInterval(netTimer);
+      clearInterval(syncTimer);
+      appStateSub.remove();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return null;

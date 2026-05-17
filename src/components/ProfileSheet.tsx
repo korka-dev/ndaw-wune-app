@@ -2,11 +2,12 @@
  * ProfileSheet — Bottom sheet profil enseignant.
  * Ouvert depuis l'avatar dans AppHeader.
  */
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View, Text, TouchableOpacity, StyleSheet, Modal,
-  ScrollView, Switch, Alert,
+  ScrollView, Switch, Alert, Animated, PanResponder
 } from "react-native";
+import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useStore } from "../store/useStore";
 import { rs, rf } from "../utils/responsive";
@@ -25,6 +26,38 @@ export default function ProfileSheet({ visible, onClose }: Props) {
   const { user, syncData, logout } = useStore();
   const router = useRouter();
   const [darkMode, setDarkMode] = useState(false);
+
+  const panY = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      panY.setValue(0);
+    }
+  }, [visible, panY]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gs) => gs.dy > 0 && Math.abs(gs.dy) > Math.abs(gs.dx),
+      onPanResponderMove: (_, gs) => {
+        if (gs.dy > 0) panY.setValue(gs.dy);
+      },
+      onPanResponderRelease: (_, gs) => {
+        if (gs.dy > 150 || gs.vy > 1.5) {
+          Animated.timing(panY, {
+            toValue: 1000,
+            duration: 200,
+            useNativeDriver: true,
+          }).start(onClose);
+        } else {
+          Animated.spring(panY, {
+            toValue: 0,
+            useNativeDriver: true,
+          }).start();
+        }
+      },
+    })
+  ).current;
 
   if (!user) return null;
 
@@ -52,8 +85,8 @@ export default function ProfileSheet({ visible, onClose }: Props) {
   };
 
   const menuItems = [
-    { icon: "👤", label: "Mes informations", sub: null, action: null },
-    { icon: "📦", label: "Ma classe",         sub: classe ? `${classe}` : null, action: null },
+    { icon: "user", label: "Mes informations", sub: null, action: null },
+    { icon: "box", label: "Ma classe",         sub: classe ? `${classe}` : null, action: null },
   ];
 
   return (
@@ -63,11 +96,15 @@ export default function ProfileSheet({ visible, onClose }: Props) {
       transparent
       onRequestClose={onClose}
     >
-      {/* Fond semi-transparent */}
       <TouchableOpacity style={s.overlay} activeOpacity={1} onPress={onClose}>
-        <TouchableOpacity activeOpacity={1} style={s.sheet} onPress={() => {}}>
-          {/* Handle */}
-          <View style={s.handle} />
+        <Animated.View 
+          style={[s.sheet, { transform: [{ translateY: panY }] }]}
+          onStartShouldSetResponder={() => true}
+        >
+          {/* Pan handler sur le haut (la barre) pour permettre le glissement sans gêner le scroll */}
+          <View {...panResponder.panHandlers} style={s.dragArea}>
+            <View style={s.handle} />
+          </View>
 
           <ScrollView showsVerticalScrollIndicator={false}>
             {/* ── Carte utilisateur dorée ── */}
@@ -100,13 +137,13 @@ export default function ProfileSheet({ visible, onClose }: Props) {
             <View style={s.menuCard}>
               {/* Mes informations */}
               <TouchableOpacity style={[s.menuRow, s.menuBorder]} activeOpacity={0.65}>
-                <View style={s.menuIcon}><Text style={s.menuIconTxt}>👤</Text></View>
+                <View style={s.menuIcon}><Feather name="user" size={rf(18)} color={C.brand} /></View>
                 <Text style={s.menuLabel}>Mes informations</Text>
               </TouchableOpacity>
 
               {/* Ma classe */}
               <TouchableOpacity style={[s.menuRow, s.menuBorder]} activeOpacity={0.65}>
-                <View style={s.menuIcon}><Text style={s.menuIconTxt}>📦</Text></View>
+                <View style={s.menuIcon}><Feather name="box" size={rf(18)} color={C.brand} /></View>
                 <View style={{ flex: 1 }}>
                   <Text style={s.menuLabel}>Ma classe</Text>
                   {nbEleves > 0 && <Text style={s.menuSub}>{nbEleves} élèves</Text>}
@@ -115,7 +152,7 @@ export default function ProfileSheet({ visible, onClose }: Props) {
 
               {/* Langue d'enseignement */}
               <View style={[s.menuRow, s.menuBorder]}>
-                <View style={s.menuIcon}><Text style={s.menuIconTxt}>🌐</Text></View>
+                <View style={s.menuIcon}><Feather name="globe" size={rf(18)} color={C.brand} /></View>
                 <View style={{ flex: 1 }}>
                   <Text style={s.menuLabel}>Langue d'enseignement</Text>
                   <Text style={s.menuSub}>{langue}</Text>
@@ -127,7 +164,7 @@ export default function ProfileSheet({ visible, onClose }: Props) {
 
               {/* Mode sombre */}
               <View style={[s.menuRow, s.menuBorder]}>
-                <View style={s.menuIcon}><Text style={s.menuIconTxt}>🌙</Text></View>
+                <View style={s.menuIcon}><Feather name="moon" size={rf(18)} color={C.brand} /></View>
                 <Text style={[s.menuLabel, { flex: 1 }]}>Mode sombre</Text>
                 <Switch
                   value={darkMode}
@@ -139,7 +176,7 @@ export default function ProfileSheet({ visible, onClose }: Props) {
 
               {/* Aide */}
               <TouchableOpacity style={s.menuRow} activeOpacity={0.65}>
-                <View style={s.menuIcon}><Text style={s.menuIconTxt}>📄</Text></View>
+                <View style={s.menuIcon}><Feather name="file-text" size={rf(18)} color={C.brand} /></View>
                 <Text style={s.menuLabel}>Aide et tutoriels</Text>
               </TouchableOpacity>
             </View>
@@ -151,7 +188,7 @@ export default function ProfileSheet({ visible, onClose }: Props) {
 
             <View style={{ height: rs(24) }} />
           </ScrollView>
-        </TouchableOpacity>
+        </Animated.View>
       </TouchableOpacity>
     </Modal>
   );
@@ -163,17 +200,23 @@ const s = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.4)",
     justifyContent: "flex-end",
   },
+  dragArea: {
+    width: "100%",
+    paddingTop: rs(12),
+    paddingBottom: rs(8),
+    alignItems: "center",
+    backgroundColor: "transparent",
+  },
   sheet: {
     backgroundColor: C.bg,
     borderTopLeftRadius: rs(28),
     borderTopRightRadius: rs(28),
-    paddingTop: rs(12),
     paddingHorizontal: rs(16),
     maxHeight: "90%",
   },
   handle: {
     width: rs(40), height: rs(4), borderRadius: rs(2),
-    backgroundColor: C.border, alignSelf: "center", marginBottom: rs(20),
+    backgroundColor: C.border, marginBottom: rs(12),
   },
 
   /* Carte utilisateur dorée */
