@@ -191,15 +191,27 @@ export default function HomeScreen() {
     setElapsed(0);
     setIsPaused(false);
 
+    // Sauvegarder le payload de démarrage pour la réconciliation offline
+    const _startPayload = {
+      classe:              classeVal,
+      matiere:             matiereVal,
+      planning_segment_id: activeSeg.id ?? null,
+      session_id:          sessionId,
+      date_seance:         startedAt,
+      started_at:          startedAt,
+    };
+    AsyncStorage.setItem(`start_payload_${localId}`, JSON.stringify(_startPayload)).catch(() => {});
+
     // ── 2. Enregistrer sur le serveur en arrière-plan ───────────────────────
     if (isOnline) {
       seancesApi
         .start({
-          classe:     classeVal,
-          matiere:    matiereVal,
-          segment_id: activeSeg.id ?? null,
-          session_id: syncData?.active_session?.id ?? null,
-          started_at: startedAt,
+          classe:               classeVal,
+          matiere:              matiereVal,
+          planning_segment_id:  activeSeg.id ?? null,
+          session_id:           sessionId,
+          date_seance:          startedAt,   // date du jour (ISO 8601)
+          started_at:           startedAt,
         })
         .then(({ data }) => {
           // Remplacer l'ID local par l'ID réel du serveur si la séance est toujours active
@@ -234,7 +246,7 @@ export default function HomeScreen() {
 
   const resetForm = () => { setPresences(0); setSegsDone(null); setBilan(null); setCommentaire(""); };
 
-  const handleFinishSeance = () => {
+  const handleFinishSeance = async () => {
     // Garde : éviter les double-appels
     if (submitting || !activeSeance) return;
     setSubmitting(true);
@@ -313,16 +325,25 @@ export default function HomeScreen() {
           } catch {}
         });
     } else {
-      // Hors-ligne ou séance locale → queue directement
+      // Hors-ligne ou séance locale → queue directement avec payload de démarrage
       try {
         const localId = `offline-${Date.now()}`;
+        // Récupérer le start_payload stocké au démarrage de la séance
+        const startPayloadRaw = await AsyncStorage.getItem(`start_payload_${seanceId}`).catch(() => null);
+        const startPayload = startPayloadRaw ? JSON.parse(startPayloadRaw) : null;
+        // Nettoyer le payload temporaire
+        AsyncStorage.removeItem(`start_payload_${seanceId}`).catch(() => {});
+
         enqueueAction("FINISH_SEANCE", {
-          seance_id: seanceId, finished_at: finishedAt, duree_minutes: dureeMinutes,
+          seance_id:     seanceId,
+          finished_at:   finishedAt,
+          duree_minutes: dureeMinutes,
+          start_payload: startPayload, // pour la réconciliation dans queue.ts
         });
         enqueueAction("SUBMIT_RAPPORT", {
-          local_rapport_id: localId,
-          seance_id:        seanceId,
-          contenu:          "Séance complétée avec succès.",
+          local_rapport_id:  localId,
+          seance_id:         seanceId,
+          contenu:           "Séance complétée avec succès.",
           soumis_en_offline: true,
         });
       } catch {}
@@ -667,14 +688,21 @@ export default function HomeScreen() {
 
           {renderSegCard()}
 
-          {/* ── Planning du jour — cartes séparées ── */}
-          <View style={s.planSection}>
-            <View style={s.planHeader}>
-              <Text style={s.planTitle}>Planning du jour</Text>
-              <Text style={s.planCount}>{doneCount} / {todayPlan.length} fait{todayPlan.length > 1 ? "s" : ""}</Text>
-            </View>
-            {todayPlan.map(renderPlanRow)}
-          </View>
+          {/* ── Planning du jour — masqué si tout est complété ── */}
+          {!dayCompleted && (() => {
+            const remaining = todayPlan.filter(seg => !completedSegIds.includes(seg.id));
+            return (
+              <View style={s.planSection}>
+                <View style={s.planHeader}>
+                  <Text style={s.planTitle}>Planning du jour</Text>
+                  <Text style={s.planCount}>
+                    {remaining.length} restant{remaining.length > 1 ? "s" : ""}
+                  </Text>
+                </View>
+                {remaining.map(renderPlanRow)}
+              </View>
+            );
+          })()}
         </ScrollView>
       )}
 

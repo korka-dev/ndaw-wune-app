@@ -6,10 +6,19 @@
  *   2. flushQueue() lit toutes les actions en attente dans SQLite.
  *   3. Chaque action est rejouée vers le backend.
  *   4. En cas de succès → supprimée de la file.
- *   5. En cas d'erreur réseau → conservée pour la prochaine tentative.
- *   6. En cas d'erreur métier (4xx) → marquée "échouée" (attempts++) mais conservée
- *      pour investigation (ne bloque pas les autres actions).
+ *   5. En cas d'erreur réseau → arrêt (inutile de continuer, on réessaiera plus tard).
+ *   6. En cas d'erreur métier (4xx) → marquée "échouée" (attempts++) mais conservée.
+ *
+ * ── Réconciliation des séances offline ──────────────────────────────────────
+ * Quand une séance démarre hors-ligne, elle reçoit un ID local (ex: "offline-seance-…").
+ * Pour la synchroniser :
+ *   1. On crée la séance sur le serveur → on récupère le vrai UUID.
+ *   2. On termine la séance avec le vrai UUID.
+ *   3. On soumet le rapport avec ce même UUID.
+ *
+ * Le mapping offline-id → server-uuid est persisté dans AsyncStorage.
  */
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { seancesApi, rapportsApi, rapportJournalierApi } from "./api";
 import {
   getPendingActions,
@@ -20,14 +29,31 @@ import {
   QueueItem,
 } from "./db";
 
-export const MAX_ATTEMPTS = 5; // au-delà, on abandonne silencieusement
+export const MAX_ATTEMPTS = 5;
 
-/**
- * Rejoue toutes les actions en attente.
- * À appeler dès que la connexion est rétablie.
- *
- * @returns nombre d'actions synchronisées avec succès
- */
+const OFFLINE_ID_MAP_KEY = "offline_seance_id_map";
+
+async function getOfflineIdMap(): Promise<Record<string, string>> {
+  try {
+    const raw = await AsyncStorage.getItem(OFFLINE_ID_MAP_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+async function setOfflineIdMapping(offlineId: string, serverId: string): Promise<void> {
+  try {
+    const map = await getOfflineIdMap();
+    map[offlineId] = serverId;
+    await AsyncStorage.setItem(OFFLINE_ID_MAP_KEY, JSON.stringify(map));
+  } catch {}
+}
+
+export async function clearOfflineIdMap(): Promise<void> {
+  await AsyncStorage.removeItem(OFFLINE_ID_MAP_KEY);
+}
+
 export async function flushQueue(): Promise<number> {
   const pending = getPendingActions();
   if (pending.length === 0) return 0;
@@ -36,7 +62,6 @@ export async function flushQueue(): Promise<number> {
   let synced = 0;
 
   for (const item of pending) {
-    // Ignorer les actions qui ont trop échoué
     if (item.attempts >= MAX_ATTEMPTS) {
       console.warn(`[Queue] Action ${item.id} (${item.action}) abandonnée après ${item.attempts} tentatives`);
       continue;
@@ -48,15 +73,13 @@ export async function flushQueue(): Promise<number> {
       synced++;
       console.log(`[Queue] ✅ ${item.action} (id ${item.id}) synchronisé`);
     } catch (err: any) {
-      const isNetworkError = !err?.response; // pas de réponse = erreur réseau
+      const isNetworkError = !err?.response;
       const errMsg = err?.response?.data?.detail ?? err?.message ?? "Erreur inconnue";
 
       if (isNetworkError) {
-        // Erreur réseau → on arrête tout (inutile de continuer)
         console.warn(`[Queue] Erreur réseau — arrêt du flush`);
         break;
       } else {
-        // Erreur métier (4xx) → on marque et on continue avec le suivant
         markActionFailed(item.id, errMsg);
         console.warn(`[Queue] ❌ ${item.action} (id ${item.id}) échoué : ${errMsg}`);
       }
@@ -67,33 +90,53 @@ export async function flushQueue(): Promise<number> {
   return synced;
 }
 
-// ── Traitement par type d'action ──────────────────────────────────────────────
-
 async function processAction(item: QueueItem): Promise<void> {
   const payload = JSON.parse(item.payload);
 
   switch (item.action) {
     case "FINISH_SEANCE": {
       const { seance_id, ...body } = payload;
-      await seancesApi.finish(seance_id, body);
+
+      if (seance_id?.startsWith("offline-")) {
+        // Réconciliation : démarrer d'abord sur le serveur si nécessaire
+        const idMap = await getOfflineIdMap();
+
+        if (!idMap[seance_id]) {
+          if (!payload.start_payload) {
+            throw new Error(
+              `Impossible de réconcilier la séance offline ${seance_id} : payload de démarrage manquant.`
+            );
+          }
+          const { data: started } = await seancesApi.start(payload.start_payload);
+          await setOfflineIdMapping(seance_id, started.id);
+          idMap[seance_id] = started.id;
+        }
+
+        await seancesApi.finish(idMap[seance_id], body);
+      } else {
+        await seancesApi.finish(seance_id, body);
+      }
       break;
     }
 
     case "SUBMIT_RAPPORT": {
-      const { local_rapport_id, ...body } = payload;
-      await rapportsApi.submit(body);
-      if (local_rapport_id) {
-        markRapportSynced(local_rapport_id);
+      const { local_rapport_id, seance_id, ...body } = payload;
+
+      let resolvedSeanceId = seance_id;
+      if (seance_id?.startsWith("offline-")) {
+        const idMap = await getOfflineIdMap();
+        resolvedSeanceId = idMap[seance_id] ?? seance_id;
       }
+
+      await rapportsApi.submit({ ...body, seance_id: resolvedSeanceId });
+      if (local_rapport_id) markRapportSynced(local_rapport_id);
       break;
     }
 
     case "SUBMIT_RAPPORT_JOURNALIER": {
       const { local_id, ...body } = payload;
       await rapportJournalierApi.submit(body);
-      if (local_id) {
-        markRapportJournalierSynced(local_id);
-      }
+      if (local_id) markRapportJournalierSynced(local_id);
       break;
     }
 

@@ -1,14 +1,9 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { authApi, rapportJournalierApi } from "../services/api";
+import { authApi } from "../services/api";
 import { fetchAndCache, getCached, clearCache, SyncPayload } from "../services/cache";
-import {
-  clearAllLocalData,
-  getPendingActions,
-  deleteAction,
-  markActionFailed,
-  markRapportJournalierSynced,
-} from "../services/db";
+import { clearAllLocalData } from "../services/db";
+import { flushQueue, clearOfflineIdMap } from "../services/queue";
 
 interface ActiveSeance {
   id:         string;
@@ -23,7 +18,7 @@ interface AppStore {
   user:               SyncPayload["profile"] | null;
   token:              string | null;
   loading:            boolean;
-  mustChangePassword: boolean;   // ← flag premier connexion
+  mustChangePassword: boolean;
 
   // Sync / cache
   syncData:  SyncPayload | null;
@@ -34,11 +29,11 @@ interface AppStore {
   activeSeance: ActiveSeance | null;
 
   // Actions
-  login:            (identifier: string, password: string) => Promise<{ mustChangePassword: boolean }>;
-  logout:           () => Promise<void>;
-  syncOffline:      (online: boolean) => Promise<void>;
-  setActiveSeance:  (s: ActiveSeance | null) => void;
-  setIsOnline:      (v: boolean) => void;
+  login:             (identifier: string, password: string) => Promise<{ mustChangePassword: boolean }>;
+  logout:            () => Promise<void>;
+  syncOffline:       (online: boolean) => Promise<void>;
+  setActiveSeance:   (s: ActiveSeance | null) => void;
+  setIsOnline:       (v: boolean) => void;
   clearPasswordFlag: () => void;
 }
 
@@ -52,8 +47,8 @@ export const useStore = create<AppStore>((set, get) => ({
   lastSync:           null,
   activeSeance:       null,
 
-  setIsOnline:      (v) => set({ isOnline: v }),
-  setActiveSeance:  (s) => set({ activeSeance: s }),
+  setIsOnline:       (v) => set({ isOnline: v }),
+  setActiveSeance:   (s) => set({ activeSeance: s }),
   clearPasswordFlag: () => set({ mustChangePassword: false }),
 
   login: async (identifier, password) => {
@@ -66,16 +61,13 @@ export const useStore = create<AppStore>((set, get) => ({
       const mustChange = data.must_change_password ?? false;
       set({ token: data.access_token, loading: false, mustChangePassword: mustChange });
 
-      // Ne pas syncer offline si l'utilisateur doit d'abord changer son mot de passe
       if (!mustChange) {
-        // 1. Récupérer le profil pour connaître le rôle (toujours fiable)
         try {
           const { data: me } = await authApi.me();
           set({ user: me });
           await AsyncStorage.setItem("user_role", me.role);
         } catch {}
 
-        // 2. Sync offline seulement pour les enseignants
         const role = get().user?.role;
         if (role && role !== "superviseur") {
           await get().syncOffline(true);
@@ -90,49 +82,48 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   logout: async () => {
-    await clearCache();          // AsyncStorage (tokens + snapshot JSON)
-    clearAllLocalData();         // SQLite (queue offline + rapports cache)
-    set({ user: null, token: null, syncData: null, activeSeance: null, mustChangePassword: false });
+    // Tenter de révoquer le token côté serveur (best-effort)
+    try { await authApi.logout(); } catch {}
+
+    await clearCache();           // AsyncStorage : tokens + snapshot JSON
+    clearAllLocalData();          // SQLite : queue offline + rapports cache
+    await clearOfflineIdMap();    // AsyncStorage : mapping IDs offline
+    set({
+      user: null,
+      token: null,
+      syncData: null,
+      activeSeance: null,
+      mustChangePassword: false,
+    });
   },
 
   syncOffline: async (online) => {
     if (online) {
+      // 1. Rafraîchir les données depuis le serveur
       try {
         const payload = await fetchAndCache();
         set({ syncData: payload, user: payload.profile, lastSync: payload.synced_at });
       } catch {
-        // fallback cache si réseau défaillant
+        // Réseau défaillant → fallback cache local
         const cached = await getCached();
         if (cached) set({ syncData: cached, user: cached.profile });
         return;
       }
 
-      // ── Traitement de la queue offline ──────────────────────────────
+      // 2. Vider la queue offline — toute la logique est dans queue.ts (source unique)
       try {
-        const pending = getPendingActions();
-        for (const item of pending) {
-          try {
-            if (item.action === "SUBMIT_RAPPORT_JOURNALIER") {
-              const payload = JSON.parse(item.payload);
-              await rapportJournalierApi.submit(payload);
-              // Marquer comme synchronisé dans SQLite
-              if (payload.local_id) {
-                markRapportJournalierSynced(payload.local_id);
-              }
-              deleteAction(item.id);
-            }
-          } catch (err: any) {
-            const msg = err?.response?.data?.detail ?? err?.message ?? "Erreur inconnue";
-            markActionFailed(item.id, String(msg));
-          }
+        const count = await flushQueue();
+        if (count > 0) {
+          console.log(`[Store] ${count} action(s) offline synchronisée(s)`);
         }
       } catch (e) {
-        console.warn("[Queue] Erreur traitement queue offline :", e);
+        console.warn("[Store] Erreur lors du flush de la queue offline :", e);
       }
+
       return;
     }
 
-    // Hors-ligne : charger depuis le cache
+    // Hors-ligne : charger depuis le cache local
     const cached = await getCached();
     if (cached) {
       set({ syncData: cached, user: cached.profile });

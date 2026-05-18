@@ -17,10 +17,72 @@
  *   speakAlert(message)               → TTS immédiat (French)
  *   notifySegmentEnd(finished, next?) → notif immédiate fin de segment
  */
-import * as Notifications from "expo-notifications";
 import * as Speech from "expo-speech";
 import { Platform, Vibration } from "react-native";
 import { Audio } from "expo-av";
+import Constants, { ExecutionEnvironment } from "expo-constants";
+
+let Notifications: any;
+
+// Détecte si l'app s'exécute dans l'application Expo Go sur Android
+const isAndroidExpoGo = Platform.OS === "android" && Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+
+if (isAndroidExpoGo) {
+  console.warn("[Notif] Environnement Expo Go Android détecté (SDK 53+).");
+  console.warn("[Notif] Désactivation des notifications système natives pour éviter le crash d'Expo Go.");
+  
+  // Utilisation d'un stub de secours complet
+  Notifications = {
+    setNotificationHandler: () => {},
+    setNotificationChannelAsync: async () => {},
+    getPermissionsAsync: async () => ({ status: "undetermined" }),
+    requestPermissionsAsync: async () => ({ status: "undetermined" }),
+    scheduleNotificationAsync: async () => "stub-id",
+    getAllScheduledNotificationsAsync: async () => [],
+    cancelScheduledNotificationAsync: async () => {},
+    AndroidImportance: {
+      MAX: 5,
+      HIGH: 4,
+      DEFAULT: 3,
+      LOW: 2,
+      MIN: 1,
+      NONE: 0
+    },
+    AndroidNotificationVisibility: {
+      PUBLIC: 1,
+      PRIVATE: 0,
+      SECRET: -1
+    }
+  };
+} else {
+  try {
+    Notifications = require("expo-notifications");
+  } catch (e) {
+    console.warn("[Notif] Impossible de charger expo-notifications nativement.");
+    Notifications = {
+      setNotificationHandler: () => {},
+      setNotificationChannelAsync: async () => {},
+      getPermissionsAsync: async () => ({ status: "undetermined" }),
+      requestPermissionsAsync: async () => ({ status: "undetermined" }),
+      scheduleNotificationAsync: async () => "stub-id",
+      getAllScheduledNotificationsAsync: async () => [],
+      cancelScheduledNotificationAsync: async () => {},
+      AndroidImportance: {
+        MAX: 5,
+        HIGH: 4,
+        DEFAULT: 3,
+        LOW: 2,
+        MIN: 1,
+        NONE: 0
+      },
+      AndroidNotificationVisibility: {
+        PUBLIC: 1,
+        PRIVATE: 0,
+        SECRET: -1
+      }
+    };
+  }
+}
 
 /* ════════════════════════════════════════════════════════════════
    Handler global — foreground

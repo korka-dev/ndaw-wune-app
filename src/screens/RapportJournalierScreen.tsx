@@ -2,10 +2,11 @@
  * NWN-AS 2025-2026 — Rapport Journalier du Tuteur
  * Formulaire étape par étape (6 étapes).
  */
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   ScrollView, ActivityIndicator, Alert, Image,
+  KeyboardAvoidingView, Platform, Keyboard,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -23,6 +24,7 @@ import {
 import { rapportJournalierApi } from "../services/api";
 
 // ── Constantes ─────────────────────────────────────────────────────────────
+
 
 const DIFFICULTES_LIST = [
   "Gestion des groupes",
@@ -81,6 +83,23 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
   const { syncData, isOnline } = useStore();
   const profile = syncData?.profile;
   const school  = syncData?.school;
+
+  // ── Scroll vers le champ actif (étape 2) ─────────────────────────────
+  const step2ScrollRef = useRef<ScrollView>(null);
+  const scrollToInput = useCallback(() => {
+    // Les TextInputs sont toujours en bas de la liste → scrollToEnd suffit
+    setTimeout(() => step2ScrollRef.current?.scrollToEnd({ animated: true }), 150);
+  }, []);
+
+  // ── Suivi visibilité clavier (pour navigation inter-étapes) ───────────
+  const kbVisible = useRef(false);
+  useEffect(() => {
+    const showEvt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvt = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const s1 = Keyboard.addListener(showEvt, () => { kbVisible.current = true;  });
+    const s2 = Keyboard.addListener(hideEvt, () => { kbVisible.current = false; });
+    return () => { s1.remove(); s2.remove(); };
+  }, []);
 
   // ── État formulaire ────────────────────────────────────────────────────
   const [step, setStep] = useState(1);
@@ -177,10 +196,14 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
   const goNext = () => {
     const err = validateStep(step);
     if (err) { Alert.alert("Champ manquant", err); return; }
+    Keyboard.dismiss();
     if (step < TOTAL_STEPS) setStep(s => s + 1);
   };
 
-  const goPrev = () => { if (step > 1) setStep(s => s - 1); };
+  const goPrev = () => {
+    Keyboard.dismiss();
+    if (step > 1) setStep(s => s - 1);
+  };
 
   // ── Soumission ────────────────────────────────────────────────────────
   const handleSubmit = async () => {
@@ -222,7 +245,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
         ief, commune, ecole, superviseur: superviseur.trim(), nom_tuteur: nomTuteur,
         nb_absences: nb, absents: nb > 0 ? absents.trim() : null,
         semaine: semaine!, jour_cours: jourCours!,
-        difficultes,
+        difficultes:             JSON.stringify(difficultes),          // ← sérialisation JSON attendue par le backend
         autres_difficultes:      hasAutres ? autresDifficultes.trim() : null,
         description_difficultes: showDesc  ? descriptionDifficultes.trim() : null,
         directeur_venu: !!directeurVenu, besoin_appui: !!besoinAppui,
@@ -230,7 +253,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
         has_observations: !!hasObservations,
         commentaires:     hasObservations ? commentaires.trim() : null,
         soumis_en_offline: offline,
-        photo_classe: photoBase64 ? `data:image/jpeg;base64,${photoBase64}` : null,
+        photo_classe_url: photoBase64 ? `data:image/jpeg;base64,${photoBase64}` : null, // ← nom de champ corrigé
       };
 
       if (isOnline) {
@@ -272,7 +295,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
   // ── Vue succès ────────────────────────────────────────────────────────
   if (submitted) {
     return (
-      <SafeAreaView style={s.root} edges={["top", "bottom"]}>
+      <SafeAreaView style={s.root} edges={["top"]}>
         <View style={s.successWrap}>
           <Feather name="check-circle" size={rf(60)} color={C.success} />
           <Text style={s.successTitle}>Rapport soumis !</Text>
@@ -331,14 +354,52 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
 
             {/* Progression */}
             <Text style={s.question}>Semaine de progression</Text>
+
+            {/* Banner sélection */}
+            {semaine ? (
+              <View style={s.semBanner}>
+                <View style={s.semBannerBadge}>
+                  <Text style={s.semBannerNum}>{semaine}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <View style={s.semBannerTop}>
+                    <Text style={s.semBannerLabel}>Semaine sélectionnée</Text>
+                    <Text style={s.semBannerPct}>{Math.round((semaine / 25) * 100)} %</Text>
+                  </View>
+                  <Text style={s.semBannerSub}>{semaine} sur 25 semaines</Text>
+                  <View style={s.semProgressTrack}>
+                    <View style={[s.semProgressFill, { width: `${(semaine / 25) * 100}%` as any }]} />
+                  </View>
+                </View>
+              </View>
+            ) : (
+              <View style={s.semPlaceholder}>
+                <Feather name="calendar" size={rf(15)} color={C.textMuted} />
+                <Text style={s.semPlaceholderTxt}>Touchez une semaine ci-dessous</Text>
+              </View>
+            )}
+
+            {/* Grille 5 × 5 — flex:1 garantit l'alignement quelle que soit la taille d'écran */}
             <View style={s.semGrid}>
-              {Array.from({ length: 25 }, (_, i) => i + 1).map(n => (
-                <TouchableOpacity
-                  key={n} style={[s.semCell, semaine === n && s.semSel]}
-                  onPress={() => setSemaine(n)} activeOpacity={0.7}
-                >
-                  <Text style={[s.semTxt, semaine === n && s.semTxtSel]}>{n}</Text>
-                </TouchableOpacity>
+              {[0, 1, 2, 3, 4].map(rowIdx => (
+                <View key={rowIdx} style={s.semRow}>
+                  {[1, 2, 3, 4, 5].map(colIdx => {
+                    const n    = rowIdx * 5 + colIdx;
+                    const sel  = semaine === n;
+                    const past = semaine !== null && n < semaine;
+                    return (
+                      <TouchableOpacity
+                        key={n}
+                        style={[s.semCell, sel && s.semSel, past && s.semPast]}
+                        onPress={() => setSemaine(n)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[s.semNum, sel && s.semNumSel, past && s.semNumPast]}>{n}</Text>
+                        <Text style={[s.semLbl, sel && s.semLblSel]}>S</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
               ))}
             </View>
 
@@ -360,7 +421,14 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
       /* ── Étape 2 : Difficultés ── */
       case 2:
         return (
-          <ScrollView style={s.stepBody} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <ScrollView
+            ref={step2ScrollRef}
+            style={s.stepBody}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets={true}
+            showsVerticalScrollIndicator={false}
+          >
             <Text style={s.question}>Difficultés rencontrées</Text>
             {DIFFICULTES_LIST.map(o => (
               <Check key={o} label={o} checked={difficultes.includes(o)} onPress={() => toggleDiff(o)} />
@@ -370,9 +438,17 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
               <>
                 <Text style={[s.question, { marginTop: rs(16) }]}>Précisez les autres difficultés</Text>
                 <TextInput
-                  style={s.area} value={autresDifficultes} onChangeText={setAutresDifficultes}
-                  placeholder="Décrivez…" placeholderTextColor={C.textMuted}
-                  multiline textAlignVertical="top"
+                  style={s.area}
+                  value={autresDifficultes}
+                  onChangeText={setAutresDifficultes}
+                  placeholder="Décrivez…"
+                  placeholderTextColor={C.textMuted}
+                  multiline
+                  textAlignVertical="top"
+                  returnKeyType="done"
+                  blurOnSubmit={true}
+                  onFocus={scrollToInput}
+                  onSubmitEditing={Keyboard.dismiss}
                 />
               </>
             )}
@@ -380,13 +456,21 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
               <>
                 <Text style={[s.question, { marginTop: rs(16) }]}>Description des difficultés</Text>
                 <TextInput
-                  style={s.area} value={descriptionDifficultes} onChangeText={setDescriptionDifficultes}
-                  placeholder="Description…" placeholderTextColor={C.textMuted}
-                  multiline textAlignVertical="top"
+                  style={s.area}
+                  value={descriptionDifficultes}
+                  onChangeText={setDescriptionDifficultes}
+                  placeholder="Description…"
+                  placeholderTextColor={C.textMuted}
+                  multiline
+                  textAlignVertical="top"
+                  returnKeyType="done"
+                  blurOnSubmit={true}
+                  onFocus={scrollToInput}
+                  onSubmitEditing={Keyboard.dismiss}
                 />
               </>
             )}
-            <View style={{ height: rs(24) }} />
+            <View style={{ height: rs(120) }} />
           </ScrollView>
         );
 
@@ -396,12 +480,40 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
           <ScrollView style={s.stepBody} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             {/* Supervision */}
             <Text style={s.question}>Le directeur / superviseur est-il venu ?</Text>
-            <Radio label="Oui" selected={directeurVenu === true}  onPress={() => setDirecteurVenu(true)} />
-            <Radio label="Non" selected={directeurVenu === false} onPress={() => setDirecteurVenu(false)} />
+            <View style={s.ouiNonRow}>
+              <TouchableOpacity
+                style={[s.ouiNonBtn, directeurVenu === true  && s.ouiNonSel]}
+                onPress={() => setDirecteurVenu(true)} activeOpacity={0.75}
+              >
+                <Feather name="check" size={rf(15)} color={directeurVenu === true  ? "#fff" : C.success} />
+                <Text style={[s.ouiNonTxt, directeurVenu === true  && s.ouiNonTxtSel]}>Oui</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.ouiNonBtn, s.nonBtn, directeurVenu === false && s.ouiNonSelNon]}
+                onPress={() => setDirecteurVenu(false)} activeOpacity={0.75}
+              >
+                <Feather name="x" size={rf(15)} color={directeurVenu === false ? "#fff" : C.danger} />
+                <Text style={[s.ouiNonTxt, directeurVenu === false && s.ouiNonTxtSel]}>Non</Text>
+              </TouchableOpacity>
+            </View>
 
             <Text style={[s.question, { marginTop: rs(20) }]}>Besoin d'appui pédagogique ?</Text>
-            <Radio label="Oui" selected={besoinAppui === true}  onPress={() => setBesoinAppui(true)} />
-            <Radio label="Non" selected={besoinAppui === false} onPress={() => setBesoinAppui(false)} />
+            <View style={s.ouiNonRow}>
+              <TouchableOpacity
+                style={[s.ouiNonBtn, besoinAppui === true  && s.ouiNonSel]}
+                onPress={() => setBesoinAppui(true)} activeOpacity={0.75}
+              >
+                <Feather name="check" size={rf(15)} color={besoinAppui === true  ? "#fff" : C.success} />
+                <Text style={[s.ouiNonTxt, besoinAppui === true  && s.ouiNonTxtSel]}>Oui</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.ouiNonBtn, s.nonBtn, besoinAppui === false && s.ouiNonSelNon]}
+                onPress={() => setBesoinAppui(false)} activeOpacity={0.75}
+              >
+                <Feather name="x" size={rf(15)} color={besoinAppui === false ? "#fff" : C.danger} />
+                <Text style={[s.ouiNonTxt, besoinAppui === false && s.ouiNonTxtSel]}>Non</Text>
+              </TouchableOpacity>
+            </View>
 
             {besoinAppui === true && (
               <>
@@ -418,8 +530,22 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
 
             {/* Observations */}
             <Text style={s.question}>Avez-vous des observations ou commentaires ?</Text>
-            <Radio label="Oui" selected={hasObservations === true}  onPress={() => setHasObservations(true)} />
-            <Radio label="Non" selected={hasObservations === false} onPress={() => setHasObservations(false)} />
+            <View style={s.ouiNonRow}>
+              <TouchableOpacity
+                style={[s.ouiNonBtn, hasObservations === true  && s.ouiNonSel]}
+                onPress={() => setHasObservations(true)} activeOpacity={0.75}
+              >
+                <Feather name="check" size={rf(15)} color={hasObservations === true  ? "#fff" : C.success} />
+                <Text style={[s.ouiNonTxt, hasObservations === true  && s.ouiNonTxtSel]}>Oui</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.ouiNonBtn, s.nonBtn, hasObservations === false && s.ouiNonSelNon]}
+                onPress={() => setHasObservations(false)} activeOpacity={0.75}
+              >
+                <Feather name="x" size={rf(15)} color={hasObservations === false ? "#fff" : C.danger} />
+                <Text style={[s.ouiNonTxt, hasObservations === false && s.ouiNonTxtSel]}>Non</Text>
+              </TouchableOpacity>
+            </View>
 
             {hasObservations === true && (
               <>
@@ -456,7 +582,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
                   <Text style={s.photoBadgeTxt}>Photo prise</Text>
                 </View>
                 <TouchableOpacity style={s.retakeBtn} onPress={() => { setPhotoUri(null); setPhotoBase64(null); }} activeOpacity={0.8}>
-                  <Feather name="refresh-cw" size={rf(14)} color={C.brand} />
+                  <Feather name="refresh-cw" size={rf(16)} color={C.danger} />
                   <Text style={s.retakeTxt}>Reprendre la photo</Text>
                 </TouchableOpacity>
               </View>
@@ -472,7 +598,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
   const meta = STEPS_META[step - 1];
 
   return (
-    <SafeAreaView style={s.root} edges={["top", "bottom"]}>
+    <SafeAreaView style={s.root} edges={["top"]}>
 
       {/* ── Barre titre ── */}
       <View style={s.topBar}>
@@ -511,30 +637,34 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
       {/* ── Contenu ── */}
       {renderStep()}
 
-      {/* ── Navigation ── */}
-      <View style={s.navRow}>
-        {step < TOTAL_STEPS ? (
-          <TouchableOpacity style={s.nextBtn} onPress={goNext} activeOpacity={0.85}>
-            <Text style={s.nextBtnTxt}>Suivant</Text>
-            <Feather name="arrow-right" size={rf(16)} color="#fff" style={{ marginLeft: rs(6) }} />
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity
-            style={[s.nextBtn, s.submitBtn, (loading || !photoUri) && s.submitDis]}
-            onPress={handleSubmit}
-            disabled={loading || !photoUri}
-            activeOpacity={0.85}
-          >
-            {loading
-              ? <ActivityIndicator color="#fff" />
-              : <>
-                  <Feather name="send" size={rf(16)} color="#fff" style={{ marginRight: rs(6) }} />
-                  <Text style={s.nextBtnTxt}>Soumettre</Text>
-                </>
-            }
-          </TouchableOpacity>
-        )}
-      </View>
+      {/* ── Navigation — KAV uniquement ici pour remonter le bouton au-dessus du clavier ── */}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
+        <View style={s.navRow}>
+          {step < TOTAL_STEPS ? (
+            <TouchableOpacity style={s.nextBtn} onPress={goNext} activeOpacity={0.85}>
+              <Text style={s.nextBtnTxt}>Suivant</Text>
+              <Feather name="arrow-right" size={rf(16)} color="#fff" style={{ marginLeft: rs(6) }} />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[s.nextBtn, s.submitBtn, (loading || !photoUri) && s.submitDis]}
+              onPress={handleSubmit}
+              disabled={loading || !photoUri}
+              activeOpacity={0.85}
+            >
+              {loading
+                ? <ActivityIndicator color="#fff" />
+                : <>
+                    <Feather name="send" size={rf(16)} color="#fff" style={{ marginRight: rs(6) }} />
+                    <Text style={s.nextBtnTxt}>Soumettre</Text>
+                  </>
+              }
+            </TouchableOpacity>
+          )}
+        </View>
+      </KeyboardAvoidingView>
 
     </SafeAreaView>
   );
@@ -576,7 +706,7 @@ const s = StyleSheet.create({
   radioDot:    { width: rs(10), height: rs(10), borderRadius: rs(5), backgroundColor: C.brand },
   checkOuter:  { width: rs(22), height: rs(22), borderRadius: rs(6), borderWidth: 2, borderColor: C.border, alignItems: "center", justifyContent: "center", marginRight: rs(12) },
   checkSel:    { borderColor: C.brand, backgroundColor: C.brand },
-  optLabel:    { fontSize: rf(14), color: C.textMuted, flex: 1 },
+  optLabel:    { fontSize: rf(16), color: C.textMuted, flex: 1 },
   optLabelSel: { color: C.text, fontWeight: "600" },
 
   /* Compteur absences */
@@ -587,12 +717,49 @@ const s = StyleSheet.create({
   /* Textarea */
   area: { backgroundColor: C.surface, borderRadius: rs(12), borderWidth: 1, borderColor: C.border, padding: rs(12), fontSize: rf(14), color: C.text, minHeight: rs(90), marginTop: rs(4) },
 
-  /* Semaine */
-  semGrid: { flexDirection: "row", flexWrap: "wrap", gap: rs(8), marginBottom: rs(8) },
-  semCell: { width: rs(44), height: rs(44), borderRadius: rs(10), borderWidth: 1.5, borderColor: C.border, alignItems: "center", justifyContent: "center" },
-  semSel:    { backgroundColor: C.brand, borderColor: C.brand },
-  semTxt:    { fontSize: rf(13), fontWeight: "600", color: C.textMuted },
-  semTxtSel: { color: "#fff" },
+  /* Semaine — banner */
+  semBanner: {
+    flexDirection: "row", alignItems: "center", gap: rs(12),
+    backgroundColor: C.brandSoft, borderRadius: rs(14),
+    padding: rs(12), marginBottom: rs(14),
+    borderWidth: 1, borderColor: C.brand + "30",
+  },
+  semBannerBadge: {
+    width: rs(46), height: rs(46), borderRadius: rs(12),
+    backgroundColor: C.brand, alignItems: "center", justifyContent: "center",
+  },
+  semBannerNum:     { fontSize: rf(20), fontWeight: "800", color: "#fff" },
+  semBannerTop:     { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  semBannerLabel:   { fontSize: rf(13), fontWeight: "700", color: C.brand },
+  semBannerPct:     { fontSize: rf(11), fontWeight: "700", color: C.brand },
+  semBannerSub:     { fontSize: rf(11), color: C.textMuted, marginTop: rs(2), marginBottom: rs(6) },
+  semProgressTrack: { height: rs(4), backgroundColor: C.brand + "25", borderRadius: rs(2), overflow: "hidden" },
+  semProgressFill:  { height: "100%", backgroundColor: C.brand, borderRadius: rs(2) },
+
+  semPlaceholder: {
+    flexDirection: "row", alignItems: "center", gap: rs(8),
+    backgroundColor: C.surface, borderRadius: rs(12),
+    padding: rs(12), marginBottom: rs(14),
+    borderWidth: 1, borderColor: C.border, borderStyle: "dashed",
+  },
+  semPlaceholderTxt: { fontSize: rf(13), color: C.textMuted },
+
+  /* Semaine — grille */
+  semGrid: { gap: rs(6), marginBottom: rs(8) },
+  semRow:  { flexDirection: "row", gap: rs(6) },
+  semCell: {
+    flex: 1, aspectRatio: 1,
+    borderRadius: rs(10), borderWidth: 1.5, borderColor: C.border,
+    alignItems: "center", justifyContent: "center",
+    backgroundColor: C.surface,
+  },
+  semSel:     { backgroundColor: C.brand, borderColor: C.brand },
+  semPast:    { backgroundColor: C.brandSoft, borderColor: C.brand + "40" },
+  semNum:     { fontSize: rf(14), fontWeight: "800", color: C.textMuted, lineHeight: rf(16) },
+  semNumSel:  { color: "#fff" },
+  semNumPast: { color: C.brand },
+  semLbl:     { fontSize: rf(8), fontWeight: "600", color: C.textMuted, letterSpacing: 0.3 },
+  semLblSel:  { color: "rgba(255,255,255,0.75)" },
 
   /* Jour */
   jourRow: { flexDirection: "row", gap: rs(10) },
@@ -607,8 +774,27 @@ const s = StyleSheet.create({
   photoPreview: { width: "100%", aspectRatio: 4/3, borderRadius: rs(14), backgroundColor: C.border },
   photoBadge:   { flexDirection: "row", alignItems: "center", gap: rs(6), backgroundColor: C.successSoft, borderRadius: rs(8), paddingHorizontal: rs(10), paddingVertical: rs(6), alignSelf: "flex-start" },
   photoBadgeTxt:{ fontSize: rf(12), fontWeight: "600", color: C.success },
-  retakeBtn:    { flexDirection: "row", alignItems: "center", gap: rs(6), paddingVertical: rs(4) },
-  retakeTxt:    { fontSize: rf(13), color: C.brand, fontWeight: "600" },
+  retakeBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: rs(8), paddingVertical: rs(14),
+    borderRadius: rs(12), borderWidth: 1.5, borderColor: C.danger + "70",
+    backgroundColor: C.dangerSoft,
+  },
+  retakeTxt: { fontSize: rf(14), color: C.danger, fontWeight: "700" },
+
+  /* Boutons Oui / Non côte à côte */
+  ouiNonRow: { flexDirection: "row", gap: rs(10), marginBottom: rs(8) },
+  ouiNonBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: rs(8), paddingVertical: rs(14),
+    borderRadius: rs(12), borderWidth: 1.5, borderColor: C.success + "60",
+    backgroundColor: C.surface,
+  },
+  nonBtn:        { borderColor: C.danger + "60" },
+  ouiNonSel:     { backgroundColor: C.success, borderColor: C.success },
+  ouiNonSelNon:  { backgroundColor: C.danger,  borderColor: C.danger  },
+  ouiNonTxt:     { fontSize: rf(15), fontWeight: "700", color: C.textMuted },
+  ouiNonTxtSel:  { color: "#fff" },
 
   /* Navigation */
   navRow:    { paddingHorizontal: rs(16), paddingVertical: rs(14), borderTopWidth: 1, borderTopColor: C.border, backgroundColor: C.surface },
