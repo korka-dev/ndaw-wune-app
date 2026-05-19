@@ -126,7 +126,7 @@ export default function WelcomeScreen() {
             onPress={() => router.push("/login")}
             activeOpacity={0.85}
           >
-            <Text style={s.btnTxt}>Se connecter</Text>
+            <Text style={s.btnTxt}>Commencer</Text>
           </TouchableOpacity>
         </Animated.View>
       </SafeAreaView>
@@ -234,7 +234,7 @@ const s = StyleSheet.create({
 
   footer: {
     paddingHorizontal: rs(24),
-    paddingBottom: rs(40),
+    paddingBottom: rs(140),
   },
   btn: {
     backgroundColor: C.primary,

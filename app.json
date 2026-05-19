@@ -20,7 +20,10 @@
       "minSdkVersion": 24,
       "compileSdkVersion": 35,
       "targetSdkVersion": 35,
-      "usesCleartextTraffic": true
+      "usesCleartextTraffic": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "ios": {
       "bundleIdentifier": "sn.aroka.ared.ndawune",
@@ -28,7 +31,7 @@
       "minimumOsVersion": "15.1",
       "infoPlist": {
         "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": true
+          "NSAllowsArbitraryLoads": false
         }
       }
     },
@@ -42,7 +45,12 @@
           "cameraPermission": "Ndaw Wune utilise l'appareil photo pour prendre une photo de la classe lors de la soumission du rapport."
         }
       ],
-      ["expo-sqlite", { "enableFTS": true }],
+      [
+        "expo-sqlite",
+        {
+          "enableFTS": true
+        }
+      ],
       [
         "expo-notifications",
         {
@@ -59,6 +67,12 @@
     "scheme": "ared-ndawune",
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "864f56bb-cd8e-4670-bdc1-316fbe10ad60"
+      }
     }
   }
 }
