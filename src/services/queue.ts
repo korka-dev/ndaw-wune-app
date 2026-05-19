@@ -24,10 +24,13 @@ import {
   getPendingActions,
   deleteAction,
   markActionFailed,
+  resetFailedActions,
   markRapportSynced,
   markRapportJournalierSynced,
   QueueItem,
 } from "./db";
+
+export { resetFailedActions };
 
 export const MAX_ATTEMPTS = 5;
 
@@ -63,7 +66,8 @@ export async function flushQueue(): Promise<number> {
 
   for (const item of pending) {
     if (item.attempts >= MAX_ATTEMPTS) {
-      console.warn(`[Queue] Action ${item.id} (${item.action}) abandonnée après ${item.attempts} tentatives`);
+      console.warn(`[Queue] Action ${item.id} (${item.action}) supprimée après ${item.attempts} tentatives`);
+      deleteAction(item.id);  // nettoie la file — l'action ne peut plus être récupérée
       continue;
     }
 

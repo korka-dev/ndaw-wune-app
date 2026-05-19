@@ -166,6 +166,17 @@ export function markActionFailed(id: number, error: string): void {
 }
 
 /**
+ * Réinitialise le compteur de tentatives de toutes les actions échouées.
+ * Utile après une panne serveur résolue — permet de rejouer les actions bloquées.
+ */
+export function resetFailedActions(): void {
+  getDB().runSync(
+    `UPDATE offline_queue SET attempts = 0, last_error = NULL WHERE attempts >= ?`,
+    [5],
+  );
+}
+
+/**
  * Vide complètement la file (à l'appel de logout).
  */
 export function clearQueue(): void {

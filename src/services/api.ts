@@ -15,7 +15,7 @@ import Constants from "expo-constants";
 const API_URL: string =
   (process.env.EXPO_PUBLIC_API_URL as string | undefined) ??
   (Constants.expoConfig?.extra?.apiUrl as string | undefined) ??
-  "https://api.ndawwune.cloud/api/v1"; // Fallback par défaut vers le backend en ligne
+  "http://10.0.2.2:8000/api/v1"; // Fallback émulateur Android (local)
 
 export const api = axios.create({ baseURL: API_URL, timeout: 15000 });
 

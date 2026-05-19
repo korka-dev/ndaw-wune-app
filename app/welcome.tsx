@@ -5,11 +5,10 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as Notifications from "expo-notifications";
 import { rs, rf } from "../src/utils/responsive";
 import { C } from "../src/utils/theme";
 import AredLogo from "../src/components/AredLogo";
-import { setupNotifications } from "../src/services/notifications";
+import { setupNotifications, getNotificationPermissionStatus } from "../src/services/notifications";
 
 const NOTIF_PERM_KEY = "notif_permission_asked";
 
@@ -67,7 +66,7 @@ export default function WelcomeScreen() {
     const alreadyAsked = await AsyncStorage.getItem(NOTIF_PERM_KEY);
     if (alreadyAsked) return; // Déjà traité — ne plus afficher
 
-    const { status } = await Notifications.getPermissionsAsync();
+    const status = await getNotificationPermissionStatus();
     if (status === "granted") {
       // Permission déjà accordée (rare au premier lancement, possible après réinstall)
       await AsyncStorage.setItem(NOTIF_PERM_KEY, "granted");

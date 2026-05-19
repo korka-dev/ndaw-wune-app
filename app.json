@@ -49,8 +49,9 @@
           "icon": "./assets/icon.png",
           "color": "#1a56db",
           "sounds": [
-            "./assets/sounds/alerte_30min.wav",
-            "./assets/sounds/alerte_5min.wav"
+            "./assets/sounds/finactivité.mp3",
+            "./assets/sounds/30minutes.mp3",
+            "./assets/sounds/5minutes.mp3"
           ]
         }
       ]

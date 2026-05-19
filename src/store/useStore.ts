@@ -4,6 +4,7 @@ import { authApi } from "../services/api";
 import { fetchAndCache, getCached, clearCache, SyncPayload } from "../services/cache";
 import { clearAllLocalData } from "../services/db";
 import { flushQueue, clearOfflineIdMap } from "../services/queue";
+import { cancelAllSessionAlerts } from "../services/notifications";
 
 interface ActiveSeance {
   id:         string;
@@ -85,9 +86,10 @@ export const useStore = create<AppStore>((set, get) => ({
     // Tenter de révoquer le token côté serveur (best-effort)
     try { await authApi.logout(); } catch {}
 
-    await clearCache();           // AsyncStorage : tokens + snapshot JSON
-    clearAllLocalData();          // SQLite : queue offline + rapports cache
-    await clearOfflineIdMap();    // AsyncStorage : mapping IDs offline
+    await cancelAllSessionAlerts(); // Annule les rappels de séance planifiés
+    await clearCache();             // AsyncStorage : tokens + snapshot JSON
+    clearAllLocalData();            // SQLite : queue offline + rapports cache
+    await clearOfflineIdMap();      // AsyncStorage : mapping IDs offline
     set({
       user: null,
       token: null,
