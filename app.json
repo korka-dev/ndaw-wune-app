@@ -53,8 +53,8 @@
           "color": "#1a56db",
           "sounds": [
             "./assets/sounds/finactivite.mp3",
-            "./assets/sounds/30minutes.mp3",
-            "./assets/sounds/5minutes.mp3"
+            "./assets/sounds/rappel_30min.mp3",
+            "./assets/sounds/rappel_5min.mp3"
           ]
         }
       ]

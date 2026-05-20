@@ -84,9 +84,9 @@ const CHANNEL_ALERTS_5   = "ndawwune-alerts-5";
 // Noms des sons copiés dans res/raw/ par le plugin expo-notifications.
 // Android : sans extension (res/raw/xxx) — iOS : avec extension.
 const ios = Platform.OS === "ios";
-const SOUND_FIN = ios ? "finactivite.mp3" : "finactivité";
-const SOUND_30  = ios ? "30minutes.mp3"   : "30minutes";
-const SOUND_5   = ios ? "5minutes.mp3"    : "5minutes";
+const SOUND_FIN = ios ? "finactivite.mp3"  : "finactivite";
+const SOUND_30  = ios ? "rappel_30min.mp3" : "rappel_30min";
+const SOUND_5   = ios ? "rappel_5min.mp3"  : "rappel_5min";
 
 async function ensureAndroidChannels(): Promise<void> {
   if (Platform.OS !== "android") return;
@@ -104,7 +104,7 @@ async function ensureAndroidChannels(): Promise<void> {
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
   });
 
-  // ── Canal rappel 30 min : 30minutes.mp3 + vibration douce ───────
+  // ── Canal rappel 30 min : rappel_30min.mp3 + vibration douce ───────
   // Note : sur Android le canal n'est créé qu'une seule fois par installation.
   // Pour changer le son ultérieurement, désinstaller/réinstaller l'app.
   await Notifications.setNotificationChannelAsync(CHANNEL_ALERTS_30, {
@@ -120,7 +120,7 @@ async function ensureAndroidChannels(): Promise<void> {
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
   });
 
-  // ── Canal rappel 5 min : 5minutes.mp3 + vibration urgente ───────
+  // ── Canal rappel 5 min : rappel_5min.mp3 + vibration urgente ───────
   await Notifications.setNotificationChannelAsync(CHANNEL_ALERTS_5, {
     name:             "Rappel 5 min — Ndaw Wune",
     description:      "Rappel 5 minutes avant le début d'une séance",
