@@ -2,7 +2,7 @@
  * Notifications — Ndaw Wune (Android-first)
  * ─────────────────────────────────────────────────────────────────
  * Trois canaux Android :
- *   • "ndawwune-fin"        : fin d'activité        (finactivité.mp3 + vibration forte)
+ *   • "ndawwune-fin"        : fin d'activité        (finactivite.mp3 + vibration forte)
  *   • "ndawwune-alerts-30"  : rappel 30 min avant   (30minutes.mp3 + vibration douce)
  *   • "ndawwune-alerts-5"   : rappel 5 min avant    (5minutes.mp3 + vibration urgente)
  *
@@ -84,14 +84,14 @@ const CHANNEL_ALERTS_5   = "ndawwune-alerts-5";
 // Noms des sons copiés dans res/raw/ par le plugin expo-notifications.
 // Android : sans extension (res/raw/xxx) — iOS : avec extension.
 const ios = Platform.OS === "ios";
-const SOUND_FIN = ios ? "finactivité.mp3" : "finactivité";
+const SOUND_FIN = ios ? "finactivite.mp3" : "finactivité";
 const SOUND_30  = ios ? "30minutes.mp3"   : "30minutes";
 const SOUND_5   = ios ? "5minutes.mp3"    : "5minutes";
 
 async function ensureAndroidChannels(): Promise<void> {
   if (Platform.OS !== "android") return;
 
-  // ── Canal fin d'activité : finactivité.mp3 + vibration forte ────
+  // ── Canal fin d'activité : finactivite.mp3 + vibration forte ────
   await Notifications.setNotificationChannelAsync(CHANNEL_FIN, {
     name:             "Fin d'activité — Ndaw Wune",
     description:      "Son joué à la fin de chaque activité",
@@ -303,6 +303,42 @@ export async function cancelAllSessionAlerts(): Promise<void> {
 }
 
 /* ════════════════════════════════════════════════════════════════
+   Alerte pause longue — déclenché 5 min après la mise en pause
+   ════════════════════════════════════════════════════════════════ */
+const PAUSE_ALERT_ID = "pause-seance-5min";
+
+/**
+ * Planifie une notification qui se déclenche 5 minutes après l'appel.
+ * À appeler dès que l'enseignant met l'activité en pause.
+ */
+export async function schedulePauseAlert(): Promise<void> {
+  // Annuler un éventuel rappel précédent avant d'en programmer un nouveau
+  await cancelPauseAlert();
+  try {
+    await Notifications.scheduleNotificationAsync({
+      identifier: PAUSE_ALERT_ID,
+      content: {
+        title: "⏸ Activité en pause",
+        body: "Votre activité est en pause depuis 5 minutes. Pensez à reprendre ou à terminer la séance.",
+        ...(Platform.OS === "android" && { channelId: CHANNEL_ALERTS_5 }),
+      },
+      trigger: { seconds: 5 * 60 } as any,
+    });
+  } catch (e) {
+    console.warn("[Notif] Erreur schedulePauseAlert :", e);
+  }
+}
+
+/**
+ * Annule le rappel de pause (à appeler à la reprise ou à la fin de la séance).
+ */
+export async function cancelPauseAlert(): Promise<void> {
+  try {
+    await Notifications.cancelScheduledNotificationAsync(PAUSE_ALERT_ID);
+  } catch {}
+}
+
+/* ════════════════════════════════════════════════════════════════
    Notification immédiate — fin de segment (utilisée par le timer séance)
    ════════════════════════════════════════════════════════════════ */
 export async function playAlarmSound(): Promise<void> {
@@ -313,7 +349,7 @@ export async function playAlarmSound(): Promise<void> {
       playThroughEarpieceAndroid: false,
     });
     const { sound } = await Audio.Sound.createAsync(
-      require("../../assets/sounds/finactivité.mp3"),
+      require("../../assets/sounds/finactivite.mp3"),
     );
     await sound.playAsync();
     sound.setOnPlaybackStatusUpdate(status => {

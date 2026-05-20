@@ -4,7 +4,7 @@
     "slug": "ared-ndawune",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/logo.png",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/logo.png",
@@ -17,10 +17,6 @@
         "backgroundColor": "#1a56db"
       },
       "package": "sn.aroka.ared.ndawune",
-      "minSdkVersion": 24,
-      "compileSdkVersion": 35,
-      "targetSdkVersion": 35,
-      "usesCleartextTraffic": false,
       "permissions": [
         "android.permission.RECORD_AUDIO"
       ]
@@ -28,7 +24,6 @@
     "ios": {
       "bundleIdentifier": "sn.aroka.ared.ndawune",
       "supportsTablet": false,
-      "minimumOsVersion": "15.1",
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": false
@@ -57,7 +52,7 @@
           "icon": "./assets/icon.png",
           "color": "#1a56db",
           "sounds": [
-            "./assets/sounds/finactivité.mp3",
+            "./assets/sounds/finactivite.mp3",
             "./assets/sounds/30minutes.mp3",
             "./assets/sounds/5minutes.mp3"
           ]
