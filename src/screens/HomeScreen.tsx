@@ -20,7 +20,12 @@ import { C }                       from "../utils/theme";
 import { useFocusEffect, useRouter } from "expo-router";
 import AppHeader                   from "../components/AppHeader";
 import ProfileSheet                from "../components/ProfileSheet";
-import { notifySegmentEnd, scheduleSessionAlerts } from "../services/notifications";
+import {
+  notifySegmentEnd,
+  scheduleSessionAlerts,
+  schedulePauseAlert,
+  cancelPauseAlert,
+} from "../services/notifications";
 
 /* ── Utilitaires ─────────────────────────────────────────────── */
 function pad(n: number) { return String(n).padStart(2, "0"); }
@@ -117,33 +122,53 @@ export default function HomeScreen() {
   );
 
   /* ── Chronomètre / Timer Manuel de l'activité en cours ── */
-  const [elapsed, setElapsed] = useState(0);
-  const [isPaused, setIsPaused] = useState(false);
+  const TIMER_STATE_KEY = "timer_pause_state";
 
+  const [elapsed,       setElapsed]       = useState(0);
+  const [isPaused,      setIsPaused]      = useState(false);
+  // Timestamp (ms) auquel la pause a commencé
+  const [pausedAt,      setPausedAt]      = useState<number | null>(null);
+  // Durée totale des pauses accumulées (ms) — pour calculer le temps réel actif
+  const [totalPausedMs, setTotalPausedMs] = useState(0);
+
+  // ── Restaurer l'état de pause depuis AsyncStorage au montage / changement de séance ──
   useEffect(() => {
-    if (activeSeance) {
-      setSeanceStarted(true);
-      const start = new Date(activeSeance.started_at).getTime();
-      const sec = Math.floor((Date.now() - start) / 1000);
-      setElapsed(Math.max(0, sec));
-    } else {
+    if (!activeSeance) {
       setSeanceStarted(false);
       setElapsed(0);
       setIsPaused(false);
+      setPausedAt(null);
+      setTotalPausedMs(0);
+      return;
     }
-  }, [activeSeance]);
+    setSeanceStarted(true);
+    // Charger l'état persisté pour cette séance
+    AsyncStorage.getItem(TIMER_STATE_KEY)
+      .then(raw => {
+        if (!raw) return;
+        try {
+          const saved = JSON.parse(raw);
+          if (saved.seanceId !== activeSeance.id) return; // état d'une autre séance
+          setIsPaused(saved.isPaused ?? false);
+          setPausedAt(saved.pausedAt ?? null);
+          setTotalPausedMs(saved.totalPausedMs ?? 0);
+        } catch {}
+      })
+      .catch(() => {});
+  }, [activeSeance?.id]); // eslint-disable-line
 
+  // ── Timer : s'actualise chaque seconde, soustrait les pauses accumulées ──
   useEffect(() => {
     if (!activeSeance || isPaused) return;
     const start = new Date(activeSeance.started_at).getTime();
-    const updateElapsed = () => {
-      const sec = Math.floor((Date.now() - start) / 1000);
+    const update = () => {
+      const sec = Math.floor((Date.now() - start - totalPausedMs) / 1000);
       setElapsed(Math.max(0, sec));
     };
-    updateElapsed();
-    const id = setInterval(updateElapsed, 1000);
+    update();
+    const id = setInterval(update, 1000);
     return () => clearInterval(id);
-  }, [activeSeance, isPaused]);
+  }, [activeSeance, isPaused, totalPausedMs]);
 
   /* ── Calcul basé sur l'heure réelle ── */
   const now    = new Date();
@@ -168,8 +193,40 @@ export default function HomeScreen() {
     }
   }, [remainSec, activeSeance, elapsed, activeSeg]);
 
-  const handlePause = () => setIsPaused(true);
-  const handleResume = () => setIsPaused(false);
+  const handlePause = () => {
+    if (!activeSeance) return;
+    const now = Date.now();
+    setIsPaused(true);
+    setPausedAt(now);
+    // Persister pour survie au background
+    AsyncStorage.setItem(TIMER_STATE_KEY, JSON.stringify({
+      seanceId:      activeSeance.id,
+      isPaused:      true,
+      pausedAt:      now,
+      totalPausedMs,
+    })).catch(() => {});
+    // Notification si toujours en pause dans 5 min
+    schedulePauseAlert().catch(() => {});
+  };
+
+  const handleResume = () => {
+    if (!activeSeance) return;
+    const now = Date.now();
+    const addedMs = pausedAt ? now - pausedAt : 0;
+    const newTotalPausedMs = totalPausedMs + addedMs;
+    setIsPaused(false);
+    setPausedAt(null);
+    setTotalPausedMs(newTotalPausedMs);
+    // Persister l'état repris
+    AsyncStorage.setItem(TIMER_STATE_KEY, JSON.stringify({
+      seanceId:      activeSeance.id,
+      isPaused:      false,
+      pausedAt:      null,
+      totalPausedMs: newTotalPausedMs,
+    })).catch(() => {});
+    // Annuler l'alerte de pause
+    cancelPauseAlert().catch(() => {});
+  };
 
   const handleStartSeance = () => {
     if (!activeSeg) return;
@@ -246,26 +303,45 @@ export default function HomeScreen() {
 
   const resetForm = () => { setPresences(0); setSegsDone(null); setBilan(null); setCommentaire(""); };
 
+  // Bouton "Terminer" → demande confirmation avant d'agir
+  const handleFinishPress = () => {
+    Alert.alert(
+      "Terminer l'activité ?",
+      "Êtes-vous sûr de vouloir terminer cette séance ?",
+      [
+        { text: "Annuler", style: "cancel" },
+        { text: "Terminer", style: "destructive", onPress: handleFinishSeance },
+      ],
+      { cancelable: true }
+    );
+  };
+
   const handleFinishSeance = async () => {
     // Garde : éviter les double-appels
     if (submitting || !activeSeance) return;
     setSubmitting(true);
 
     // ── Capture immédiate des valeurs (avant que le state change) ───────────
-    const seanceId   = activeSeance.id;
-    const classe     = activeSeance.classe;
-    const matiere    = activeSeance.matiere ?? null;
-    const startedAt  = activeSeance.started_at;
-    const finishedAt = new Date().toISOString();
-    const dureeMinutes = Math.max(1, todayPlan.reduce(
-      (acc, seg) => acc + segDurMin(seg.heure_debut, seg.heure_fin), 0
-    ));
+    const seanceId    = activeSeance.id;
+    const classe      = activeSeance.classe;
+    const matiere     = activeSeance.matiere ?? null;
+    const startedAt   = activeSeance.started_at;
+    const finishedAt  = new Date().toISOString();
+    // Durée réelle = temps écoulé depuis le démarrage, hors pauses (minimum 1 min)
+    const startMs     = new Date(startedAt).getTime();
+    const dureeMinutes = Math.max(1, Math.round((Date.now() - startMs - totalPausedMs) / 60000));
     const segId = activeSeg?.id ?? null;
 
     // ── 1. Mise à jour locale IMMÉDIATE — ne pas attendre le serveur ────────
+    // Annuler l'alerte de pause en cours + nettoyer l'état persisté
+    cancelPauseAlert().catch(() => {});
+    AsyncStorage.removeItem(TIMER_STATE_KEY).catch(() => {});
+
     setActiveSeance(null);
     setSeanceStarted(false);
     setIsPaused(false);
+    setPausedAt(null);
+    setTotalPausedMs(0);
     setElapsed(0);
 
     if (segId) {
@@ -354,11 +430,16 @@ export default function HomeScreen() {
     if (!canSend || submitting) return;
     setSubmitting(true);
     try {
-      const finishedAt   = new Date().toISOString();
-      // Durée totale planifiée pour aujourd'hui (en minutes)
-      const dureeMinutes = Math.max(1, todayPlan.reduce(
-        (acc, seg) => acc + segDurMin(seg.heure_debut, seg.heure_fin), 0
-      ));
+      const finishedAt = new Date().toISOString();
+      // Durée réelle = temps actif depuis le démarrage, hors pauses (minimum 1 min)
+      const dureeMinutes = activeSeance
+        ? Math.max(1, Math.round(
+            (Date.now() - new Date(activeSeance.started_at).getTime() - totalPausedMs) / 60000
+          ))
+        : Math.max(1, todayPlan.reduce(
+            (acc, seg) => acc + segDurMin(seg.heure_debut, seg.heure_fin), 0
+          ));
+
       if (isOnline && activeSeance) {
         await seancesApi.finish(activeSeance.id, { finished_at: finishedAt, duree_minutes: dureeMinutes });
         await rapportsApi.submit({
@@ -386,8 +467,16 @@ export default function HomeScreen() {
           soumis_en_offline: true,
         });
       }
+
+      // Nettoyer l'état du timer
+      cancelPauseAlert().catch(() => {});
+      AsyncStorage.removeItem(TIMER_STATE_KEY).catch(() => {});
       setActiveSeance(null);
       setSeanceStarted(false);
+      setIsPaused(false);
+      setPausedAt(null);
+      setTotalPausedMs(0);
+      setElapsed(0);
       setShowRapport(false); resetForm();
 
       if (activeSeg) {
@@ -532,9 +621,9 @@ export default function HomeScreen() {
                 </TouchableOpacity>
               )}
 
-              <TouchableOpacity 
-                style={[s.btnAction, { backgroundColor: C.danger }]} 
-                onPress={handleFinishSeance} 
+              <TouchableOpacity
+                style={[s.btnAction, { backgroundColor: C.danger }]}
+                onPress={handleFinishPress}
                 activeOpacity={0.8}
               >
                 <Feather name="check" size={rf(13)} color="#fff" style={{ marginRight: rs(6) }} />
