@@ -7,6 +7,11 @@
 .expo
 __generated__
 
+# Dossiers natifs générés par Expo Prebuild / CNG
+# EAS Build les régénère automatiquement — ne pas les versionner
+/android
+/ios
+
 ### ReactNative.macOS Stack ###
 # General
 .DS_Store
