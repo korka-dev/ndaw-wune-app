@@ -13,6 +13,7 @@
       }
     },
     "preview": {
+      "channel": "preview",
       "distribution": "internal",
       "prebuildCommand": "expo prebuild --clean",
       "env": {
@@ -26,6 +27,7 @@
       }
     },
     "production": {
+      "channel": "production",
       "prebuildCommand": "expo prebuild --clean",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api.ndawwune.cloud/api/v1"

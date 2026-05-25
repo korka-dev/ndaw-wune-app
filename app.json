@@ -16,9 +16,17 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1a56db"
       },
+      "statusBar": {
+        "barStyle": "dark-content",
+        "backgroundColor": "#FAF7F1",
+        "translucent": false
+      },
       "package": "sn.aroka.ared.ndawune",
       "permissions": [
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.USE_EXACT_ALARM"
       ]
     },
     "ios": {
@@ -60,6 +68,12 @@
       ]
     ],
     "scheme": "ared-ndawune",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/864f56bb-cd8e-4670-bdc1-316fbe10ad60"
+    },
     "experiments": {
       "typedRoutes": true
     },

@@ -1,5 +1,13 @@
+/**
+ * Page Profil — écran plein accessible depuis le tab (href: null).
+ * Styles optimisés pour lisibilité Android maximale.
+ */
 import React, { useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Switch, Alert, TouchableOpacity } from "react-native";
+import {
+  View, Text, StyleSheet, ScrollView, Switch, Alert,
+  TouchableOpacity, Platform,
+} from "react-native";
+import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useStore } from "../../src/store/useStore";
@@ -41,7 +49,7 @@ export default function ProfileScreen() {
   };
 
   return (
-    <View style={[s.container, { paddingTop: insets.top + rs(20) }]}>
+    <View style={[s.container, { paddingTop: insets.top + rs(16) }]}>
       <Text style={s.screenTitle}>Mon Profil</Text>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scrollContent}>
@@ -74,143 +82,207 @@ export default function ProfileScreen() {
         {/* ── Menu ── */}
         <View style={s.menuCard}>
           {/* Mes informations */}
-          <TouchableOpacity style={[s.menuRow, s.menuBorder]} activeOpacity={0.65}>
-            <View style={s.menuIcon}><Text style={s.menuIconTxt}>👤</Text></View>
+          <TouchableOpacity style={[s.menuRow, s.menuBorder]} activeOpacity={0.6}>
+            <View style={s.menuIconBox}>
+              <Feather name="user" size={22} color={C.brand} />
+            </View>
             <Text style={s.menuLabel}>Mes informations</Text>
+            <Feather name="chevron-right" size={20} color="#999" />
           </TouchableOpacity>
 
           {/* Ma classe */}
-          <TouchableOpacity style={[s.menuRow, s.menuBorder]} activeOpacity={0.65}>
-            <View style={s.menuIcon}><Text style={s.menuIconTxt}>📦</Text></View>
-            <View style={{ flex: 1 }}>
+          <TouchableOpacity style={[s.menuRow, s.menuBorder]} activeOpacity={0.6}>
+            <View style={s.menuIconBox}>
+              <Feather name="users" size={22} color={C.brand} />
+            </View>
+            <View style={s.menuTextWrap}>
               <Text style={s.menuLabel}>Ma classe</Text>
               {nbEleves > 0 && <Text style={s.menuSub}>{nbEleves} élèves</Text>}
             </View>
+            <Feather name="chevron-right" size={20} color="#999" />
           </TouchableOpacity>
 
           {/* Langue d'enseignement */}
-          <View style={[s.menuRow, s.menuBorder]}>
-            <View style={s.menuIcon}><Text style={s.menuIconTxt}>🌐</Text></View>
-            <View style={{ flex: 1 }}>
+          <TouchableOpacity style={[s.menuRow, s.menuBorder]} activeOpacity={0.6}>
+            <View style={s.menuIconBox}>
+              <Feather name="globe" size={22} color={C.brand} />
+            </View>
+            <View style={s.menuTextWrap}>
               <Text style={s.menuLabel}>Langue d'enseignement</Text>
               <Text style={s.menuSub}>{langue}</Text>
             </View>
-            <TouchableOpacity style={s.changerBtn} activeOpacity={0.75}>
+            <View style={s.changerBtn}>
               <Text style={s.changerTxt}>Changer</Text>
-            </TouchableOpacity>
-          </View>
+            </View>
+          </TouchableOpacity>
 
           {/* Mode sombre */}
           <View style={[s.menuRow, s.menuBorder]}>
-            <View style={s.menuIcon}><Text style={s.menuIconTxt}>🌙</Text></View>
+            <View style={s.menuIconBox}>
+              <Feather name="moon" size={22} color={C.brand} />
+            </View>
             <Text style={[s.menuLabel, { flex: 1 }]}>Mode sombre</Text>
             <Switch
               value={darkMode}
               onValueChange={setDarkMode}
-              trackColor={{ false: C.border, true: C.brand }}
-              thumbColor="#fff"
+              trackColor={{ false: "#D1D1D1", true: C.brand }}
+              thumbColor={darkMode ? "#fff" : "#f4f4f4"}
             />
           </View>
 
-          {/* Aide */}
-          <TouchableOpacity style={s.menuRow} activeOpacity={0.65}>
-            <View style={s.menuIcon}><Text style={s.menuIconTxt}>📄</Text></View>
+          {/* Aide et tutoriels */}
+          <TouchableOpacity style={s.menuRow} activeOpacity={0.6}>
+            <View style={s.menuIconBox}>
+              <Feather name="help-circle" size={22} color={C.brand} />
+            </View>
             <Text style={s.menuLabel}>Aide et tutoriels</Text>
+            <Feather name="chevron-right" size={20} color="#999" />
           </TouchableOpacity>
         </View>
 
-        {/* ── Déconnexion ── */}
-        <TouchableOpacity style={s.logoutBtn} onPress={handleLogout} activeOpacity={0.8}>
+        {/* ── Bouton Déconnexion ── */}
+        <TouchableOpacity style={s.logoutBtn} onPress={handleLogout} activeOpacity={0.7}>
+          <Feather name="log-out" size={20} color="#C0392B" />
           <Text style={s.logoutTxt}>Se déconnecter</Text>
         </TouchableOpacity>
 
-        <View style={{ height: rs(40) }} />
+        <View style={{ height: rs(60) }} />
       </ScrollView>
     </View>
   );
 }
 
+/* ═══════════════════════════════════════════════════════
+   Styles — lisibilité maximale sur Android
+   ═══════════════════════════════════════════════════════ */
 const s = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: C.bg,
+    backgroundColor: "#FAF7F1",
   },
   screenTitle: {
-    fontSize: rf(24),
-    fontWeight: "800",
-    color: C.text,
-    paddingHorizontal: rs(20),
-    marginBottom: rs(16),
+    fontSize: 28,
+    fontWeight: "900",
+    color: "#1A1A1A",
+    paddingHorizontal: 20,
+    marginBottom: 18,
+    ...(Platform.OS === "android" && { fontFamily: "sans-serif-medium" }),
   },
   scrollContent: {
-    paddingHorizontal: rs(20),
-    paddingBottom: rs(80), // for the tab bar
+    paddingHorizontal: 20,
+    paddingBottom: 80,
   },
 
-  /* Carte utilisateur dorée */
+  /* ── Carte utilisateur dorée ── */
   userCard: {
     backgroundColor: C.brand,
-    borderRadius: rs(18),
-    padding: rs(18),
+    borderRadius: 16,
+    padding: 18,
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: rs(16),
+    marginBottom: 16,
   },
   userAvatar: {
-    width: rs(52), height: rs(52), borderRadius: rs(26),
-    backgroundColor: "rgba(255,255,255,0.25)",
+    width: 56, height: 56, borderRadius: 28,
+    backgroundColor: "rgba(255,255,255,0.3)",
     alignItems: "center", justifyContent: "center",
-    marginRight: rs(14),
+    marginRight: 14,
   },
-  userAvatarTxt: { color: "#fff", fontWeight: "700", fontSize: rf(20) },
-  userName:      { color: "#fff", fontWeight: "700", fontSize: rf(17), marginBottom: rs(2) },
-  userMeta:      { color: "rgba(255,255,255,0.82)", fontSize: rf(13) },
-  userPhone:     { color: "rgba(255,255,255,0.72)", fontSize: rf(13), marginTop: rs(2) },
+  userAvatarTxt: {
+    color: "#fff", fontWeight: "800", fontSize: 24,
+  },
+  userName: {
+    color: "#fff", fontWeight: "800",
+    fontSize: 21, marginBottom: 3,
+  },
+  userMeta: {
+    color: "rgba(255,255,255,0.92)",
+    fontSize: 16, fontWeight: "600",
+  },
+  userPhone: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 15, fontWeight: "500", marginTop: 2,
+  },
 
-  /* Stats */
-  statsRow: { flexDirection: "row", marginBottom: rs(16) },
+  /* ── Stats ── */
+  statsRow: {
+    flexDirection: "row", marginBottom: 16, gap: 8,
+  },
   statCard: {
-    flex: 1, backgroundColor: C.surfaceAlt,
-    borderRadius: rs(14), padding: rs(12),
-    alignItems: "center", marginHorizontal: rs(4),
-  },
-  statVal:   { fontSize: rf(22), fontWeight: "800", color: C.text },
-  statLabel: { fontSize: rf(12), color: C.textMuted, marginTop: rs(2) },
-
-  /* Menu */
-  menuCard: {
-    backgroundColor: C.surface,
-    borderRadius: rs(18),
-    borderWidth: 1, borderColor: C.border,
-    overflow: "hidden",
-    marginBottom: rs(20),
-  },
-  menuRow:   {
-    flexDirection: "row", alignItems: "center",
-    paddingHorizontal: rs(16), paddingVertical: rs(14),
-  },
-  menuBorder:{ borderBottomWidth: 1, borderBottomColor: C.border },
-  menuIcon:  {
-    width: rs(36), height: rs(36), borderRadius: rs(10),
-    backgroundColor: C.brandSoft,
-    alignItems: "center", justifyContent: "center",
-    marginRight: rs(12),
-  },
-  menuIconTxt:  { fontSize: rf(17) },
-  menuLabel:    { fontSize: rf(15), fontWeight: "600", color: C.text },
-  menuSub:      { fontSize: rf(12), color: C.textMuted, marginTop: rs(1) },
-
-  changerBtn: {
-    borderWidth: 1.5, borderColor: C.brand,
-    borderRadius: rs(10), paddingHorizontal: rs(12), paddingVertical: rs(5),
-  },
-  changerTxt: { fontSize: rf(13), fontWeight: "700", color: C.brand },
-
-  /* Déconnexion */
-  logoutBtn: {
-    backgroundColor: C.dangerSoft,
-    borderRadius: rs(16), paddingVertical: rs(16),
+    flex: 1, backgroundColor: "#F5F0E4",
+    borderRadius: 14, paddingVertical: 14,
     alignItems: "center",
   },
-  logoutTxt: { color: C.danger, fontWeight: "700", fontSize: rf(16) },
+  statVal: {
+    fontSize: 26, fontWeight: "900", color: "#1A1A1A",
+  },
+  statLabel: {
+    fontSize: 14, fontWeight: "600", color: "#555", marginTop: 3,
+  },
+
+  /* ── Menu ── */
+  menuCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    borderWidth: 1.5, borderColor: "#E8E0CC",
+    marginBottom: 20,
+    overflow: "hidden",
+  },
+  menuRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+    minHeight: 68,
+  },
+  menuBorder: {
+    borderBottomWidth: 1, borderBottomColor: "#F0EBE0",
+  },
+  menuIconBox: {
+    width: 46, height: 46, borderRadius: 12,
+    backgroundColor: "#F5EDDA",
+    alignItems: "center", justifyContent: "center",
+    marginRight: 14,
+  },
+  menuTextWrap: {
+    flex: 1,
+  },
+  menuLabel: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1A1A1A",
+    flex: 1,
+    ...(Platform.OS === "android" && { fontFamily: "sans-serif-medium" }),
+  },
+  menuSub: {
+    fontSize: 15,
+    fontWeight: "500",
+    color: "#666",
+    marginTop: 3,
+  },
+
+  changerBtn: {
+    borderWidth: 2, borderColor: C.brand,
+    borderRadius: 10, paddingHorizontal: 14, paddingVertical: 7,
+  },
+  changerTxt: {
+    fontSize: 15, fontWeight: "800", color: C.brand,
+  },
+
+  /* ── Bouton Déconnexion ── */
+  logoutBtn: {
+    backgroundColor: "#FDECEC",
+    borderRadius: 14, paddingVertical: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "#F5D5D5",
+  },
+  logoutTxt: {
+    color: "#C0392B",
+    fontWeight: "800",
+    fontSize: 18,
+    marginLeft: 10,
+  },
 });

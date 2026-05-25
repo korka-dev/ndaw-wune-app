@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { authApi } from "../services/api";
+import { authApi, superviseurApi } from "../services/api";
+import { setSecure, clearAuthTokens } from "../services/secureStorage";
 import { fetchAndCache, getCached, clearCache, SyncPayload } from "../services/cache";
 import { clearAllLocalData } from "../services/db";
 import { flushQueue, clearOfflineIdMap } from "../services/queue";
@@ -56,8 +56,8 @@ export const useStore = create<AppStore>((set, get) => ({
     set({ loading: true });
     try {
       const { data } = await authApi.login(identifier, password);
-      await AsyncStorage.setItem("access_token",  data.access_token);
-      await AsyncStorage.setItem("refresh_token", data.refresh_token);
+      await setSecure("access_token",  data.access_token);
+      await setSecure("refresh_token", data.refresh_token);
 
       const mustChange = data.must_change_password ?? false;
       set({ token: data.access_token, loading: false, mustChangePassword: mustChange });
@@ -66,11 +66,22 @@ export const useStore = create<AppStore>((set, get) => ({
         try {
           const { data: me } = await authApi.me();
           set({ user: me });
-          await AsyncStorage.setItem("user_role", me.role);
-        } catch {}
+          await setSecure("user_role", me.role);
+        } catch (meErr) {
+          // L'appel /me a échoué : l'utilisateur est authentifié mais sans profil.
+          // On log l'erreur et on laisse l'app continuer — l'écran home gèrera le cas.
+          console.warn("[Store] Impossible de charger le profil après login :", meErr);
+        }
 
         const role = get().user?.role;
-        if (role && role !== "superviseur") {
+        // Les superviseurs ont leur propre sync (/app/supervisor/sync) — pas la sync enseignant
+        if (role === "superviseur") {
+          try {
+            await superviseurApi.sync();
+          } catch (syncErr) {
+            console.warn("[Store] Sync superviseur échoué :", syncErr);
+          }
+        } else if (role) {
           await get().syncOffline(true);
         }
       }
@@ -87,7 +98,8 @@ export const useStore = create<AppStore>((set, get) => ({
     try { await authApi.logout(); } catch {}
 
     await cancelAllSessionAlerts(); // Annule les rappels de séance planifiés
-    await clearCache();             // AsyncStorage : tokens + snapshot JSON
+    await clearAuthTokens();        // SecureStore : access_token, refresh_token, user_role
+    await clearCache();             // AsyncStorage : snapshot JSON de sync
     clearAllLocalData();            // SQLite : queue offline + rapports cache
     await clearOfflineIdMap();      // AsyncStorage : mapping IDs offline
     set({

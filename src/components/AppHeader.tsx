@@ -84,7 +84,7 @@ const s = StyleSheet.create({
   },
   left:  { flexDirection: "row", alignItems: "center" },
   right: { flexDirection: "row", alignItems: "center", gap: rs(8) },
-  title: { marginLeft: rs(10), fontSize: rf(17), fontWeight: "700", color: C.text },
+  title: { marginLeft: rs(10), fontSize: rf(19), fontWeight: "800", color: C.text },
 
   offlineBadge: {
     flexDirection: "row", alignItems: "center", gap: rs(4),
@@ -92,7 +92,7 @@ const s = StyleSheet.create({
     paddingHorizontal: rs(8), paddingVertical: rs(3),
     borderWidth: 1, borderColor: "#F5D87A",
   },
-  offlineTxt: { fontSize: rf(10), fontWeight: "600", color: C.warn },
+  offlineTxt: { fontSize: rf(12), fontWeight: "700", color: C.warn },
 
   syncBtn: {
     width: rs(34), height: rs(34), borderRadius: rs(17),
@@ -104,5 +104,5 @@ const s = StyleSheet.create({
     backgroundColor: C.brandSoft,
     alignItems: "center", justifyContent: "center",
   },
-  avatarTxt: { fontSize: rf(14), fontWeight: "700", color: C.brand },
+  avatarTxt: { fontSize: rf(15), fontWeight: "800", color: C.brand },
 });

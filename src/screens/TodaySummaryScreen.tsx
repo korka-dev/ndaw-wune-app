@@ -217,14 +217,14 @@ const s = StyleSheet.create({
     backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
     alignItems: "center", justifyContent: "center",
   },
-  headerTitle: { fontSize: rf(16), fontWeight: "700", color: C.text },
+  headerTitle: { fontSize: rf(18), fontWeight: "700", color: C.text },
 
   scrollContent: { paddingHorizontal: rs(20), paddingTop: rs(16), paddingBottom: rs(48) },
 
   /* ── Section date ── */
   topSection:    { marginBottom: rs(28) },
   topDay:        { fontSize: rf(28), fontWeight: "800", color: C.text, marginBottom: rs(4), letterSpacing: -0.5 },
-  topDate:       { fontSize: rf(14), color: C.textMuted, fontWeight: "500", marginBottom: rs(16) },
+  topDate:       { fontSize: rf(16), color: C.textMuted, fontWeight: "500", marginBottom: rs(16) },
 
   completedBanner: {
     flexDirection: "row", alignItems: "center",
@@ -232,7 +232,7 @@ const s = StyleSheet.create({
     paddingHorizontal: rs(14), paddingVertical: rs(10),
     marginBottom: rs(16),
   },
-  completedBannerTxt: { fontSize: rf(14), fontWeight: "600", color: C.success },
+  completedBannerTxt: { fontSize: rf(16), fontWeight: "600", color: C.success },
 
   /* ── Stats ── */
   statsRow:    {
@@ -244,12 +244,12 @@ const s = StyleSheet.create({
   },
   statCard:    { flex: 1, alignItems: "center" },
   statValue:   { fontSize: rf(22), fontWeight: "800", color: C.text },
-  statLabel:   { fontSize: rf(11), color: C.textMuted, fontWeight: "500", marginTop: rs(2) },
+  statLabel:   { fontSize: rf(13), color: C.textMuted, fontWeight: "500", marginTop: rs(2) },
   statDivider: { width: 1, height: rs(36), backgroundColor: C.border },
 
   /* ── Timeline ── */
   sectionTitle: {
-    fontSize: rf(15), fontWeight: "700", color: C.text,
+    fontSize: rf(17), fontWeight: "700", color: C.text,
     marginBottom: rs(16),
   },
   timelineContainer: { paddingLeft: rs(4), paddingBottom: rs(20) },
@@ -281,13 +281,13 @@ const s = StyleSheet.create({
   statusTag:        { flexDirection: "row", alignItems: "center", marginBottom: rs(8), alignSelf: "flex-start" },
   statusTagDone:    {},
   statusTagPending: {},
-  statusTagTxt:     { fontSize: rf(11), fontWeight: "700" },
+  statusTagTxt:     { fontSize: rf(13), fontWeight: "700" },
   statusTagTxtDone: { color: C.success },
   statusTagTxtPending:{ color: C.textMuted },
 
-  courseTitle:     { fontSize: rf(16), fontWeight: "700", color: C.text, marginBottom: rs(10), lineHeight: rf(22) },
+  courseTitle:     { fontSize: rf(18), fontWeight: "700", color: C.text, marginBottom: rs(10), lineHeight: rf(24) },
   courseTitleDone: { color: C.textMuted },
-  courseSub:       { fontSize: rf(12), color: C.textMuted, marginTop: rs(6) },
+  courseSub:       { fontSize: rf(14), color: C.textMuted, marginTop: rs(6) },
 
   badgeRow: { flexDirection: "row", flexWrap: "wrap", gap: rs(6) },
   badge: {
@@ -298,11 +298,11 @@ const s = StyleSheet.create({
   badgeActive:   { backgroundColor: C.brand },
   badgeDone:     { backgroundColor: C.successSoft },
   badgeNeutral:  { backgroundColor: C.surfaceAlt },
-  badgeTxt:      { fontSize: rf(12), marginLeft: rs(5), fontWeight: "700" },
+  badgeTxt:      { fontSize: rf(14), marginLeft: rs(5), fontWeight: "700" },
   badgeTxtActive:  { color: "#fff" },
   badgeTxtDone:    { color: C.success },
   badgeTxtNeutral: { color: C.textMuted },
 
   emptyPlan:    { padding: rs(40), alignItems: "center", justifyContent: "center" },
-  emptyPlanTxt: { fontSize: rf(14), color: C.textMuted, fontWeight: "500", textAlign: "center" },
+  emptyPlanTxt: { fontSize: rf(16), color: C.textMuted, fontWeight: "500", textAlign: "center" },
 });

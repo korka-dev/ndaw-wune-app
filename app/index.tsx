@@ -1,5 +1,5 @@
 import { Redirect } from "expo-router";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getSecure } from "../src/services/secureStorage";
 import { useEffect, useState } from "react";
 
 export default function Index() {
@@ -9,8 +9,8 @@ export default function Index() {
 
   useEffect(() => {
     Promise.all([
-      AsyncStorage.getItem("access_token"),
-      AsyncStorage.getItem("user_role"),
+      getSecure("access_token"),
+      getSecure("user_role"),
     ]).then(([token, storedRole]) => {
       setHasToken(!!token);
       setRole(storedRole);

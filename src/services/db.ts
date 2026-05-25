@@ -12,9 +12,11 @@ import * as SQLite from "expo-sqlite";
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type QueueAction =
-  | "FINISH_SEANCE"               // terminer une séance démarrée en ligne
+  | "FINISH_SEANCE"               // terminer une séance démarrée en ligne ou hors-ligne
   | "SUBMIT_RAPPORT"              // envoyer un rapport de séance rédigé hors-ligne
-  | "SUBMIT_RAPPORT_JOURNALIER";  // envoyer un rapport journalier rédigé hors-ligne
+  | "SUBMIT_RAPPORT_JOURNALIER"   // envoyer un rapport journalier rédigé hors-ligne
+  | "PAUSE_SEANCE"                // mettre en pause une séance (hors-ligne)
+  | "RESUME_SEANCE";              // reprendre une séance en pause (hors-ligne)
 
 export interface QueueItem {
   id:         number;
@@ -23,6 +25,15 @@ export interface QueueItem {
   attempts:   number;        // nombre de tentatives échouées
   last_error: string | null; // dernier message d'erreur
   created_at: string;        // ISO 8601
+}
+
+export interface FailedQueueItem {
+  id:         number;
+  action:     QueueAction;
+  payload:    string;        // JSON sérialisé
+  attempts:   number;
+  last_error: string | null;
+  failed_at:  string;        // ISO 8601
 }
 
 export interface RapportCache {
@@ -118,6 +129,18 @@ export function initDB(): void {
   try {
     getDB().execSync(`ALTER TABLE rapports_journalier ADD COLUMN photo_classe TEXT`);
   } catch { /* colonne déjà présente */ }
+
+  // Archive des actions qui ont dépassé MAX_ATTEMPTS — consultables dans le profil
+  db.execSync(`
+    CREATE TABLE IF NOT EXISTS failed_queue (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      action      TEXT    NOT NULL,
+      payload     TEXT    NOT NULL,
+      attempts    INTEGER NOT NULL,
+      last_error  TEXT,
+      failed_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
 }
 
 // ── Offline Queue — écriture ──────────────────────────────────────────────────
@@ -316,10 +339,41 @@ export function clearRapportsJournalier(): void {
   getDB().execSync(`DELETE FROM rapports_journalier`);
 }
 
+// ── Failed Queue — actions dépassant MAX_ATTEMPTS ─────────────────────────────
+
+/**
+ * Archive une action qui a définitivement échoué.
+ * Appelé par flushQueue() avant de supprimer l'action de offline_queue.
+ */
+export function archiveFailedAction(item: Omit<FailedQueueItem, "id" | "failed_at">): void {
+  getDB().runSync(
+    `INSERT INTO failed_queue (action, payload, attempts, last_error) VALUES (?, ?, ?, ?)`,
+    [item.action, item.payload, item.attempts, item.last_error ?? null],
+  );
+}
+
+/**
+ * Retourne toutes les actions archivées, de la plus récente à la plus ancienne.
+ * Utilisé pour afficher les erreurs dans l'écran Profil.
+ */
+export function getFailedActions(): FailedQueueItem[] {
+  return getDB().getAllSync<FailedQueueItem>(
+    `SELECT * FROM failed_queue ORDER BY failed_at DESC`,
+  );
+}
+
+/**
+ * Supprime toutes les actions archivées (si l'utilisateur les a vues / acquittées).
+ */
+export function clearFailedQueue(): void {
+  getDB().execSync(`DELETE FROM failed_queue`);
+}
+
 // ── Nettoyage complet (logout) ────────────────────────────────────────────────
 
 export function clearAllLocalData(): void {
   clearQueue();
   clearRapportsCache();
   clearRapportsJournalier();
+  clearFailedQueue();
 }

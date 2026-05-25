@@ -1,6 +1,6 @@
 import axios from "axios";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
+import { getSecure, setSecure, clearAuthTokens } from "./secureStorage";
 
 /**
  * URL de base de l'API.
@@ -21,7 +21,7 @@ export const api = axios.create({ baseURL: API_URL, timeout: 15000 });
 
 // ── Intercepteur requête : injection du Bearer token ─────────────────────────
 api.interceptors.request.use(async (config) => {
-  const token = await AsyncStorage.getItem("access_token");
+  const token = await getSecure("access_token");
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
@@ -33,19 +33,19 @@ api.interceptors.response.use(
     const original = error.config;
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true;
-      const refresh = await AsyncStorage.getItem("refresh_token");
+      const refresh = await getSecure("refresh_token");
       if (refresh) {
         try {
           const { data } = await axios.post(`${API_URL}/auth/refresh`, {
             refresh_token: refresh,
           });
-          await AsyncStorage.setItem("access_token", data.access_token);
-          await AsyncStorage.setItem("refresh_token", data.refresh_token);
+          await setSecure("access_token",  data.access_token);
+          await setSecure("refresh_token", data.refresh_token);
           original.headers.Authorization = `Bearer ${data.access_token}`;
           return api(original);
         } catch {
           // Refresh expiré → effacer les tokens et forcer le login
-          await AsyncStorage.multiRemove(["access_token", "refresh_token", "user_role"]);
+          await clearAuthTokens();
         }
       }
     }
@@ -102,10 +102,23 @@ export const seancesApi = {
     nb_eleves_total?: number | null;
   }) => api.post("/app/seances/start", d),
 
+  /** Enregistre une mise en pause (fire-and-forget, offline-queued si hors ligne). */
+  pause: (id: string, paused_at: string) =>
+    api.post(`/app/seances/${id}/pause`, { paused_at }),
+
+  /** Ferme la dernière pause et recalcule le total. */
+  resume: (id: string, resumed_at: string) =>
+    api.post(`/app/seances/${id}/resume`, { resumed_at }),
+
+  /**
+   * Termine la séance. Inclut les pauses pour réconciliation offline.
+   */
   finish: (id: string, d: {
-    finished_at: string;   // ISO 8601
+    finished_at: string;
     duree_minutes: number;
     nb_eleves_presents?: number | null;
+    pauses?: { paused_at: string; resumed_at?: string | null }[];
+    total_paused_minutes?: number;
   }) => api.post(`/app/seances/${id}/finish`, d),
 
   active: () => api.get("/app/seances/active"),

@@ -132,14 +132,14 @@ const s = StyleSheet.create({
     borderColor: C.border,
     alignItems: "center", justifyContent: "center",
   },
-  headerTitle: { fontSize: rf(16), fontWeight: "700", color: C.text },
+  headerTitle: { fontSize: rf(18), fontWeight: "700", color: C.text },
 
   scrollContent: { paddingHorizontal: rs(20), paddingTop: rs(16), paddingBottom: rs(48) },
 
   /* Section date en haut */
   topDateSection: { marginBottom: rs(24), paddingLeft: rs(8) },
   topDay: { fontSize: rf(28), fontWeight: "800", color: C.text, marginBottom: rs(4), letterSpacing: -0.5 },
-  topDateStr: { fontSize: rf(14), color: C.textMuted, fontWeight: "500" },
+  topDateStr: { fontSize: rf(16), color: C.textMuted, fontWeight: "500" },
 
   timelineContainer: { paddingBottom: rs(20), paddingLeft: rs(4) },
 
@@ -164,11 +164,11 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 }, 
     elevation: 2 
   },
-  courseTitle: { fontSize: rf(16), fontWeight: "700", color: C.text, marginBottom: rs(14), lineHeight: rf(22) },
+  courseTitle: { fontSize: rf(18), fontWeight: "700", color: C.text, marginBottom: rs(14), lineHeight: rf(24) },
   courseMeta: { flexDirection: "row", alignItems: "center" },
   badgeDur: { flexDirection: "row", alignItems: "center", paddingHorizontal: rs(10), paddingVertical: rs(6), borderRadius: rs(8) },
-  courseDur: { fontSize: rf(12), marginLeft: rs(6), fontWeight: "700" },
+  courseDur: { fontSize: rf(14), marginLeft: rs(6), fontWeight: "700" },
   
   emptyPlan: { padding: rs(40), alignItems: "center", justifyContent: "center", marginTop: rs(20) },
-  emptyPlanTxt: { fontSize: rf(14), color: C.textMuted, fontWeight: "500", textAlign: "center" },
+  emptyPlanTxt: { fontSize: rf(16), color: C.textMuted, fontWeight: "500", textAlign: "center" },
 });

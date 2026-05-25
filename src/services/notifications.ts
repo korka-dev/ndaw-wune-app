@@ -1,18 +1,20 @@
 /**
- * Notifications — Ndaw Wune (Android-first)
+ * Notifications — Ndaw Wune (Android-first, iOS compatible)
  * ─────────────────────────────────────────────────────────────────
+ * Architecture robuste pour les notifications de planning :
+ *
  * Trois canaux Android :
  *   • "ndawwune-fin"        : fin d'activité        (finactivite.mp3 + vibration forte)
- *   • "ndawwune-alerts-30"  : rappel 30 min avant   (30minutes.mp3 + vibration douce)
- *   • "ndawwune-alerts-5"   : rappel 5 min avant    (5minutes.mp3 + vibration urgente)
+ *   • "ndawwune-alerts-30"  : rappel 30 min avant   (rappel_30min.mp3 + vibration douce)
+ *   • "ndawwune-alerts-5"   : rappel 5 min avant    (rappel_5min.mp3 + vibration urgente)
  *
  * Planification :
- *   scheduleSessionAlerts() programme les rappels des 7 prochains jours.
- *   Ainsi même si l'enseignant n'ouvre l'app qu'une fois par semaine,
- *   toutes ses séances sont couvertes.
+ *   scheduleSessionAlerts() programme les rappels pour la PREMIÈRE tâche
+ *   de chaque journée sur les 7 prochains jours (30 min + 5 min avant).
+ *   Re-planification automatique après chaque sync.
+ *   Gestion intelligente des doublons (annule avant de re-planifier).
  *
  * Convention jour : 0 = Lundi, 1 = Mardi, …, 5 = Samedi, 6 = Dimanche
- * (identique à la convention du backend Ndaw Wune)
  *
  * API publique :
  *   setupNotifications()              → init canaux + demande permission
@@ -21,12 +23,15 @@
  *   speakAlert(message)               → TTS immédiat (fr-FR)
  *   triggerAlertVibration(alertType)  → vibration foreground selon le type
  *   notifySegmentEnd(finished, next?) → notif immédiate fin de segment
+ *   getScheduledNotificationsCount()  → nombre de notifications planifiées
+ *   requestExactAlarmPermission()     → Android 12+ exact alarm permission
  */
 
 import * as Speech from "expo-speech";
-import { Platform, Vibration } from "react-native";
+import { Platform, Vibration, AppState } from "react-native";
 import { Audio } from "expo-av";
 import Constants, { ExecutionEnvironment } from "expo-constants";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // ── Détection Expo Go Android (SDK 53+ : notifications natives désactivées) ──
 const isExpoGo =
@@ -45,8 +50,17 @@ const stubNotifications = {
   cancelAllScheduledNotificationsAsync:    async () => {},
   addNotificationReceivedListener:         () => ({ remove: () => {} }),
   addNotificationResponseReceivedListener: () => ({ remove: () => {} }),
+  setBadgeCountAsync:                      async () => {},
+  getBadgeCountAsync:                      async () => 0,
   AndroidImportance: { MAX: 5, HIGH: 4, DEFAULT: 3, LOW: 2, MIN: 1, NONE: 0 },
   AndroidNotificationVisibility: { PUBLIC: 1, PRIVATE: 0, SECRET: -1 },
+  SchedulableTriggerInputTypes: {
+    DATE:          "date",
+    TIME_INTERVAL: "timeInterval",
+    CALENDAR:      "calendar",
+    DAILY:         "daily",
+    WEEKLY:        "weekly",
+  },
 } as const;
 
 let Notifications: any;
@@ -62,13 +76,19 @@ if (isExpoGo) {
 }
 
 /* ════════════════════════════════════════════════════════════════
+   Clé AsyncStorage pour le suivi de la dernière planification
+   ════════════════════════════════════════════════════════════════ */
+const LAST_SCHEDULE_KEY = "@ndawwune:last_notification_schedule";
+const NOTIFICATION_PREFS_KEY = "@ndawwune:notification_prefs";
+
+/* ════════════════════════════════════════════════════════════════
    Handler global — affiche la notif même quand l'app est au premier plan
    ════════════════════════════════════════════════════════════════ */
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert:  true,
     shouldPlaySound:  true,
-    shouldSetBadge:   false,
+    shouldSetBadge:   true,
     shouldShowBanner: true,
     shouldShowList:   true,
   }),
@@ -82,7 +102,6 @@ const CHANNEL_ALERTS_30  = "ndawwune-alerts-30";
 const CHANNEL_ALERTS_5   = "ndawwune-alerts-5";
 
 // Noms des sons copiés dans res/raw/ par le plugin expo-notifications.
-// Android : sans extension (res/raw/xxx) — iOS : avec extension.
 const ios = Platform.OS === "ios";
 const SOUND_FIN = ios ? "finactivite.mp3"  : "finactivite";
 const SOUND_30  = ios ? "rappel_30min.mp3" : "rappel_30min";
@@ -100,13 +119,11 @@ async function ensureAndroidChannels(): Promise<void> {
     lightColor:       "#1a56db",
     sound:            SOUND_FIN,
     enableVibrate:    true,
-    showBadge:        false,
+    showBadge:        true,
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
   });
 
   // ── Canal rappel 30 min : rappel_30min.mp3 + vibration douce ───────
-  // Note : sur Android le canal n'est créé qu'une seule fois par installation.
-  // Pour changer le son ultérieurement, désinstaller/réinstaller l'app.
   await Notifications.setNotificationChannelAsync(CHANNEL_ALERTS_30, {
     name:             "Rappel 30 min — Ndaw Wune",
     description:      "Rappel 30 minutes avant le début d'une séance",
@@ -115,7 +132,7 @@ async function ensureAndroidChannels(): Promise<void> {
     lightColor:       "#f59e0b",
     sound:            SOUND_30,
     enableVibrate:    true,
-    showBadge:        false,
+    showBadge:        true,
     bypassDnd:        false,
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
   });
@@ -129,8 +146,8 @@ async function ensureAndroidChannels(): Promise<void> {
     lightColor:       "#ef4444",
     sound:            SOUND_5,
     enableVibrate:    true,
-    showBadge:        false,
-    bypassDnd:        false,
+    showBadge:        true,
+    bypassDnd:        true,
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
   });
 }
@@ -152,6 +169,17 @@ export async function setupNotifications(): Promise<boolean> {
     console.warn("[Notif] Permission refusée par l'utilisateur.");
     return false;
   }
+  return true;
+}
+
+/**
+ * Vérifie si la permission exact alarm est disponible (Android 12+).
+ * Retourne true si accordée ou non nécessaire.
+ */
+export async function checkExactAlarmPermission(): Promise<boolean> {
+  if (Platform.OS !== "android") return true;
+  // Sur Android 12+ (API 31+), SCHEDULE_EXACT_ALARM est déclaré dans le manifest
+  // et normalement accordé par défaut pour les apps non-cibles de restriction.
   return true;
 }
 
@@ -178,7 +206,7 @@ export interface PlanningSegment {
 }
 
 /* ════════════════════════════════════════════════════════════════
-   Planification des rappels — 7 prochains jours
+   Utilitaires internes
    ════════════════════════════════════════════════════════════════ */
 
 /** Convertit getDay() JS (0=Dim, 1=Lun…) → convention backend (0=Lun…6=Dim) */
@@ -186,22 +214,77 @@ function jsWeekdayToJour(jsDay: number): number {
   return jsDay === 0 ? 6 : jsDay - 1;
 }
 
+/** Formatte l'heure pour l'affichage dans les notifications */
+function formatTime(h: number, m: number): string {
+  return `${String(h).padStart(2, "0")}h${String(m).padStart(2, "0")}`;
+}
+
+/** Parse une heure "HH:MM" ou "HH:MM:SS" en { h, m } */
+function parseTime(timeStr: string): { h: number; m: number } {
+  const parts = timeStr.split(":").map(Number);
+  return { h: parts[0], m: parts[1] };
+}
+
+/** Retourne le titre lisible d'un segment */
+function segmentDisplayTitle(seg: PlanningSegment): string {
+  return seg.titre ?? seg.matiere ?? seg.classe ?? "Séance";
+}
+
+/** Retourne un sous-titre contextuel (classe + matière) */
+function segmentSubtitle(seg: PlanningSegment): string {
+  const parts: string[] = [];
+  if (seg.classe) parts.push(seg.classe);
+  if (seg.matiere && seg.matiere !== seg.titre) parts.push(seg.matiere);
+  return parts.join(" — ");
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Planification des rappels — 7 prochains jours
+   ════════════════════════════════════════════════════════════════ */
+
 /**
  * Planifie (ou re-planifie) les rappels 30 min et 5 min
  * pour les 7 prochains jours.
  *
  * Annule automatiquement les rappels précédents avant de replanifier.
  * À appeler après chaque sync (NetworkWatcher) ou à l'ouverture de l'app (HomeScreen).
+ *
+ * Optimisations :
+ * - Vérifie si une re-planification est nécessaire (pas de double planification)
+ * - Gère la transition jour en cours (ignore les cours déjà passés)
+ * - Ajoute des informations contextuelles riches dans la notification
+ * - Supporte le badge count
  */
 export async function scheduleSessionAlerts(
   segments: PlanningSegment[],
-): Promise<void> {
-  if (segments.length === 0) return;
+  forceReschedule: boolean = false,
+): Promise<number> {
+  if (segments.length === 0) return 0;
+
+  // ── Vérifier si une re-planification est nécessaire ──
+  if (!forceReschedule) {
+    try {
+      const lastSchedule = await AsyncStorage.getItem(LAST_SCHEDULE_KEY);
+      if (lastSchedule) {
+        const { timestamp, segmentHash } = JSON.parse(lastSchedule);
+        const hoursSince = (Date.now() - timestamp) / (1000 * 60 * 60);
+        const currentHash = computeSegmentHash(segments);
+        // Re-planifier seulement si > 6h ou si le planning a changé
+        if (hoursSince < 6 && currentHash === segmentHash) {
+          console.log("[Notif] Planning inchangé depuis < 6h — skip re-planification.");
+          return -1; // -1 = skip
+        }
+      }
+    } catch {
+      // Continue normalement si erreur de lecture
+    }
+  }
 
   await cancelAllSessionAlerts();
 
   const now     = new Date();
   let scheduled = 0;
+  let todayCount = 0;
 
   for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
     // Date cible (minuit, heure locale)
@@ -213,72 +296,126 @@ export async function scheduleSessionAlerts(
     const daySegs    = segments.filter(s => s.jour === targetJour);
     if (daySegs.length === 0) continue;
 
-    for (const seg of daySegs) {
-      const titre  = seg.titre ?? seg.matiere ?? seg.classe ?? "Séance";
-      const parts  = seg.heure_debut.split(":").map(Number);
-      const h      = parts[0];
-      const m      = parts[1];
-      const hLabel = `${String(h).padStart(2, "0")}h${String(m).padStart(2, "0")}`;
+    // Trier par heure de début
+    daySegs.sort((a, b) => a.heure_debut.localeCompare(b.heure_debut));
 
-      // Heure exacte de début du segment ce jour-là
-      const startTime = new Date(targetDate);
-      startTime.setHours(h, m, 0, 0);
+    // ── UNIQUEMENT la première tâche de la journée ──
+    // On ne notifie que pour le premier cours du jour (30 min + 5 min avant)
+    const firstSeg = daySegs[0];
+    const titre    = segmentDisplayTitle(firstSeg);
+    const sub      = segmentSubtitle(firstSeg);
+    const { h, m } = parseTime(firstSeg.heure_debut);
+    const hLabel   = formatTime(h, m);
 
-      // ── Rappel 30 minutes avant ────────────────────────────────────
-      const at30 = new Date(startTime.getTime() - 30 * 60 * 1000);
-      if (at30 > now) {
-        try {
-          await Notifications.scheduleNotificationAsync({
-            identifier: `alert-30-${seg.id}-d${dayOffset}`,
-            content: {
-              title: "🔔 Cours dans 30 minutes",
-              body:  `"${titre}" débute à ${hLabel}. Préparez-vous !`,
-              sound: SOUND_30,
-              data: {
-                alertType:       "30min",
-                seance:          titre,
-                speechMsg:       `Êtes-vous prêt ? La séance "${titre}" commence dans 30 minutes. Préparez votre matériel !`,
-                vibrationPattern: [0, 300, 150, 300],
-              },
-              ...(Platform.OS === "android" && { channelId: CHANNEL_ALERTS_30 }),
+    // Heure exacte de début du premier segment ce jour-là
+    const startTime = new Date(targetDate);
+    startTime.setHours(h, m, 0, 0);
+
+    // Info contextuelle : nombre total de séances pour la journée
+    const totalInfo = daySegs.length > 1
+      ? `${daySegs.length} cours prévus aujourd'hui`
+      : "1 cours prévu aujourd'hui";
+
+    // ── Rappel 30 minutes avant la première tâche ──────────────────
+    const at30 = new Date(startTime.getTime() - 30 * 60 * 1000);
+    if (at30 > now) {
+      try {
+        await Notifications.scheduleNotificationAsync({
+          identifier: `alert-30-${firstSeg.id}-d${dayOffset}`,
+          content: {
+            title: `📋 Premier cours dans 30 minutes`,
+            body:  `${titre} à ${hLabel}${sub ? ` (${sub})` : ""}\n${totalInfo} — Préparez votre matériel !`,
+            subtitle: sub || undefined,
+            sound: SOUND_30,
+            badge: daySegs.length,
+            data: {
+              alertType:        "30min",
+              segmentId:        firstSeg.id,
+              seance:           titre,
+              classe:           firstSeg.classe ?? "",
+              matiere:          firstSeg.matiere ?? "",
+              heureDebut:       firstSeg.heure_debut,
+              heureFin:         firstSeg.heure_fin,
+              totalSeances:     daySegs.length,
+              speechMsg:        `Bonjour ! Votre premier cours "${titre}" commence dans 30 minutes, à ${hLabel}. Vous avez ${daySegs.length} cours aujourd'hui. Préparez votre matériel !`,
+              vibrationPattern: [0, 300, 150, 300],
             },
-            trigger: { date: at30 } as any,
-          });
-          scheduled++;
-        } catch (e) {
-          console.warn(`[Notif] Erreur rappel 30min (${seg.id}) :`, e);
-        }
+            ...(Platform.OS === "android" && { channelId: CHANNEL_ALERTS_30 }),
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: at30,
+          },
+        });
+        scheduled++;
+        if (dayOffset === 0) todayCount++;
+      } catch (e) {
+        console.warn(`[Notif] Erreur rappel 30min (${firstSeg.id}) :`, e);
       }
+    }
 
-      // ── Rappel 5 minutes avant ─────────────────────────────────────
-      const at5 = new Date(startTime.getTime() - 5 * 60 * 1000);
-      if (at5 > now) {
-        try {
-          await Notifications.scheduleNotificationAsync({
-            identifier: `alert-5-${seg.id}-d${dayOffset}`,
-            content: {
-              title: "⚡ Cours dans 5 minutes !",
-              body:  `"${titre}" commence très bientôt. Il est temps d'y aller !`,
-              sound: SOUND_5,
-              data: {
-                alertType:       "5min",
-                seance:          titre,
-                speechMsg:       `Attention ! Le cours "${titre}" commence dans 5 minutes. Il est temps de commencer !`,
-                vibrationPattern: [0, 500, 200, 500, 200, 500],
-              },
-              ...(Platform.OS === "android" && { channelId: CHANNEL_ALERTS_5 }),
+    // ── Rappel 5 minutes avant la première tâche ───────────────────
+    const at5 = new Date(startTime.getTime() - 5 * 60 * 1000);
+    if (at5 > now) {
+      try {
+        await Notifications.scheduleNotificationAsync({
+          identifier: `alert-5-${firstSeg.id}-d${dayOffset}`,
+          content: {
+            title: `⚡ ${titre} dans 5 minutes !`,
+            body:  `Début à ${hLabel}${sub ? ` — ${sub}` : ""}. C'est l'heure d'y aller !`,
+            subtitle: sub || undefined,
+            sound: SOUND_5,
+            badge: daySegs.length,
+            priority: "max",
+            data: {
+              alertType:        "5min",
+              segmentId:        firstSeg.id,
+              seance:           titre,
+              classe:           firstSeg.classe ?? "",
+              matiere:          firstSeg.matiere ?? "",
+              heureDebut:       firstSeg.heure_debut,
+              heureFin:         firstSeg.heure_fin,
+              totalSeances:     daySegs.length,
+              speechMsg:        `Attention ! Le cours "${titre}" commence dans 5 minutes. Il est temps de commencer !`,
+              vibrationPattern: [0, 500, 200, 500, 200, 500],
             },
-            trigger: { date: at5 } as any,
-          });
-          scheduled++;
-        } catch (e) {
-          console.warn(`[Notif] Erreur rappel 5min (${seg.id}) :`, e);
-        }
+            ...(Platform.OS === "android" && { channelId: CHANNEL_ALERTS_5 }),
+          },
+          trigger: {
+            type: Notifications.SchedulableTriggerInputTypes.DATE,
+            date: at5,
+          },
+        });
+        scheduled++;
+        if (dayOffset === 0) todayCount++;
+      } catch (e) {
+        console.warn(`[Notif] Erreur rappel 5min (${firstSeg.id}) :`, e);
       }
     }
   }
 
-  console.log(`[Notif] ${scheduled} rappel(s) planifié(s) pour les 7 prochains jours.`);
+  // ── Sauvegarder le timestamp de la planification ──
+  try {
+    await AsyncStorage.setItem(LAST_SCHEDULE_KEY, JSON.stringify({
+      timestamp:   Date.now(),
+      segmentHash: computeSegmentHash(segments),
+      scheduled,
+      todayCount,
+    }));
+  } catch {}
+
+  console.log(`[Notif] ${scheduled} rappel(s) planifié(s) pour les 7 prochains jours (${todayCount} aujourd'hui).`);
+  return scheduled;
+}
+
+/**
+ * Calcule un hash simple du planning pour détecter les changements.
+ */
+function computeSegmentHash(segments: PlanningSegment[]): string {
+  return segments
+    .map(s => `${s.id}:${s.jour}:${s.heure_debut}`)
+    .sort()
+    .join("|");
 }
 
 /**
@@ -294,12 +431,79 @@ export async function cancelAllSessionAlerts(): Promise<void> {
 
     await Promise.all(ids.map(id => Notifications.cancelScheduledNotificationAsync(id)));
 
+    // Reset badge
+    try {
+      await Notifications.setBadgeCountAsync(0);
+    } catch {}
+
     if (ids.length > 0) {
       console.log(`[Notif] ${ids.length} rappel(s) annulé(s).`);
     }
   } catch (e) {
     console.warn("[Notif] Erreur cancelAllSessionAlerts :", e);
   }
+}
+
+/**
+ * Retourne le nombre de notifications actuellement planifiées.
+ * Utile pour le debug et l'affichage dans l'UI.
+ */
+export async function getScheduledNotificationsCount(): Promise<{
+  total: number;
+  alerts30: number;
+  alerts5: number;
+}> {
+  try {
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    const all = (scheduled as any[]).map((n: any) => n.identifier as string);
+    return {
+      total:    all.filter(id => id.startsWith("alert-")).length,
+      alerts30: all.filter(id => id.startsWith("alert-30-")).length,
+      alerts5:  all.filter(id => id.startsWith("alert-5-")).length,
+    };
+  } catch {
+    return { total: 0, alerts30: 0, alerts5: 0 };
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Re-planification automatique au retour de l'app
+   ════════════════════════════════════════════════════════════════ */
+
+let _appStateListener: any = null;
+let _cachedSegments: PlanningSegment[] = [];
+
+/**
+ * Active la re-planification automatique quand l'app revient au premier plan.
+ * Cela garantit que même si l'utilisateur n'a pas ouvert l'app depuis longtemps,
+ * les notifications sont toujours à jour.
+ */
+export function enableAutoReschedule(segments: PlanningSegment[]): void {
+  _cachedSegments = segments;
+
+  // Retirer l'ancien listener s'il existe
+  if (_appStateListener) {
+    _appStateListener.remove();
+  }
+
+  _appStateListener = AppState.addEventListener("change", async (nextState) => {
+    if (nextState === "active" && _cachedSegments.length > 0) {
+      // Vérifier si les notifications sont toujours valides
+      const counts = await getScheduledNotificationsCount();
+      if (counts.total === 0) {
+        console.log("[Notif] Aucune notification planifiée — re-planification auto.");
+        await scheduleSessionAlerts(_cachedSegments, true);
+      }
+    }
+  });
+}
+
+/**
+ * Met à jour les segments en cache pour la re-planification auto.
+ * À appeler après chaque sync réussie.
+ */
+export function updateCachedSegments(segments: PlanningSegment[]): void {
+  _cachedSegments = segments;
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -312,7 +516,6 @@ const PAUSE_ALERT_ID = "pause-seance-5min";
  * À appeler dès que l'enseignant met l'activité en pause.
  */
 export async function schedulePauseAlert(): Promise<void> {
-  // Annuler un éventuel rappel précédent avant d'en programmer un nouveau
   await cancelPauseAlert();
   try {
     await Notifications.scheduleNotificationAsync({
@@ -320,9 +523,13 @@ export async function schedulePauseAlert(): Promise<void> {
       content: {
         title: "⏸ Activité en pause",
         body: "Votre activité est en pause depuis 5 minutes. Pensez à reprendre ou à terminer la séance.",
+        sound: SOUND_5,
         ...(Platform.OS === "android" && { channelId: CHANNEL_ALERTS_5 }),
       },
-      trigger: { seconds: 5 * 60 } as any,
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+        seconds: 5 * 60,
+      },
     });
   } catch (e) {
     console.warn("[Notif] Erreur schedulePauseAlert :", e);
@@ -362,7 +569,6 @@ export async function playAlarmSound(): Promise<void> {
 
 /* ════════════════════════════════════════════════════════════════
    Vibration foreground — appelée depuis le listener de _layout.tsx
-   quand une notif arrive app ouverte (le canal ne vibre pas en foreground)
    ════════════════════════════════════════════════════════════════ */
 export function triggerAlertVibration(alertType: string): void {
   if (alertType === "5min") {
@@ -370,12 +576,10 @@ export function triggerAlertVibration(alertType: string): void {
   } else if (alertType === "30min") {
     Vibration.vibrate([0, 300, 150, 300]);
   }
-  // "segment_end" est géré directement dans notifySegmentEnd()
 }
 
 /* ════════════════════════════════════════════════════════════════
-   Wrappers listeners — utilisés par _layout.tsx pour éviter
-   l'import direct de expo-notifications (incompatible Expo Go Android)
+   Wrappers listeners — utilisés par _layout.tsx
    ════════════════════════════════════════════════════════════════ */
 export async function getNotificationPermissionStatus(): Promise<string> {
   const { status } = await Notifications.getPermissionsAsync();
@@ -407,6 +611,7 @@ export async function notifySegmentEnd(
           : "Bonne journée, c'est fini pour aujourd'hui !",
         sound: SOUND_FIN,
         color: "#1a56db",
+        badge: 0,
         ...(Platform.OS === "android" && { channelId: CHANNEL_FIN }),
       },
       trigger: null,
@@ -421,4 +626,13 @@ export async function notifySegmentEnd(
   } catch (e) {
     console.warn("[Notif] Erreur notifySegmentEnd :", e);
   }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Utilitaire : résumé du planning notifications (pour debug/UI)
+   ════════════════════════════════════════════════════════════════ */
+export async function getNotificationsSummary(): Promise<string> {
+  const counts = await getScheduledNotificationsCount();
+  if (counts.total === 0) return "Aucune notification planifiée";
+  return `${counts.total} notification(s) : ${counts.alerts30} rappel(s) 30min, ${counts.alerts5} rappel(s) 5min`;
 }

@@ -211,11 +211,11 @@ const s = StyleSheet.create({
     marginBottom: rs(32),
   },
   title:    { marginTop: rs(16), fontSize: rf(26), fontWeight: "800", color: C.text },
-  subtitle: { marginTop: rs(6),  fontSize: rf(14), color: C.textMuted },
+  subtitle: { marginTop: rs(6),  fontSize: rf(16), color: C.textMuted },
 
   /* Champs */
   fieldWrap: { marginBottom: rs(16) },
-  label:     { fontSize: rf(14), fontWeight: "600", color: C.text, marginBottom: rs(8) },
+  label:     { fontSize: rf(16), fontWeight: "600", color: C.text, marginBottom: rs(8) },
 
   /* Téléphone */
   phoneRow: {
@@ -229,12 +229,12 @@ const s = StyleSheet.create({
     paddingHorizontal: rs(14), paddingVertical: rs(14),
   },
   countryFlag: { fontSize: rf(18), marginRight: rs(6) },
-  countryCode: { fontSize: rf(14), fontWeight: "600", color: C.text },
+  countryCode: { fontSize: rf(16), fontWeight: "600", color: C.text },
   separator:   { width: 1, height: rs(26), backgroundColor: C.border },
   phoneInput:  {
     flex: 1,
     paddingHorizontal: rs(14), paddingVertical: rs(14),
-    fontSize: rf(16), color: C.text,
+    fontSize: rf(18), color: C.text,
     letterSpacing: 1,            // petit espacement visuel entre les groupes
   },
   /* Mot de passe */
@@ -246,13 +246,13 @@ const s = StyleSheet.create({
   pwdInput: {
     flex: 1,
     paddingHorizontal: rs(16), paddingVertical: rs(14),
-    fontSize: rf(15), color: C.text,
+    fontSize: rf(17), color: C.text,
   },
   eyeBtn: { paddingHorizontal: rs(14), paddingVertical: rs(14) },
 
   /* Mot de passe oublié */
   forgotWrap: { alignSelf: "flex-end", marginBottom: rs(28) },
-  forgotTxt:  { fontSize: rf(13), color: C.primary, fontWeight: "600" },
+  forgotTxt:  { fontSize: rf(15), color: C.primary, fontWeight: "600" },
 
   /* Bouton */
   btn: {
@@ -264,5 +264,5 @@ const s = StyleSheet.create({
     elevation: 4,
   },
   btnDisabled: { opacity: 0.6 },
-  btnTxt:      { color: "#fff", fontWeight: "700", fontSize: rf(16), letterSpacing: 0.3 },
+  btnTxt:      { color: "#fff", fontWeight: "700", fontSize: rf(18), letterSpacing: 0.3 },
 });

@@ -677,26 +677,26 @@ const s = StyleSheet.create({
 
   /* Barre titre */
   topBar:  { flexDirection: "row", alignItems: "center", paddingHorizontal: rs(16), paddingVertical: rs(12), backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border },
-  topTitle:{ fontSize: rf(16), fontWeight: "700", color: C.text, flex: 1 },
+  topTitle:{ fontSize: rf(18), fontWeight: "700", color: C.text, flex: 1 },
   backBtn: { marginRight: rs(12) },
   offPill: { flexDirection: "row", alignItems: "center", gap: rs(4), backgroundColor: C.warnSoft, borderRadius: rs(20), paddingHorizontal: rs(10), paddingVertical: rs(4) },
-  offTxt:  { fontSize: rf(11), color: C.warn, fontWeight: "600" },
+  offTxt:  { fontSize: rf(13), color: C.warn, fontWeight: "600" },
 
   /* Progression */
   progressWrap: { flexDirection: "row", alignItems: "center", paddingHorizontal: rs(16), paddingVertical: rs(12), gap: rs(10) },
   progressBar:  { flex: 1, height: rs(6), backgroundColor: C.border, borderRadius: rs(3), overflow: "hidden" },
   progressFill: { height: "100%", backgroundColor: C.brand, borderRadius: rs(3) },
-  progressTxt:  { fontSize: rf(12), fontWeight: "700", color: C.textMuted, minWidth: rs(32), textAlign: "right" },
+  progressTxt:  { fontSize: rf(14), fontWeight: "700", color: C.textMuted, minWidth: rs(32), textAlign: "right" },
 
   /* En-tête étape */
   stepHeader:  { flexDirection: "row", alignItems: "center", paddingHorizontal: rs(16), paddingBottom: rs(12), gap: rs(10) },
   stepIconWrap:{ width: rs(36), height: rs(36), borderRadius: rs(10), backgroundColor: C.brandSoft, alignItems: "center", justifyContent: "center" },
-  stepTitle:   { fontSize: rf(18), fontWeight: "700", color: C.text },
+  stepTitle:   { fontSize: rf(19), fontWeight: "700", color: C.text },
 
   /* Corps de l'étape */
   stepBody: { flex: 1, paddingHorizontal: rs(16) },
 
-  question:  { fontSize: rf(15), fontWeight: "600", color: C.text, marginBottom: rs(14), lineHeight: rf(22), marginTop: rs(4) },
+  question:  { fontSize: rf(17), fontWeight: "600", color: C.text, marginBottom: rs(14), lineHeight: rf(24), marginTop: rs(4) },
   divider:   { height: 1, backgroundColor: C.border, marginVertical: rs(20) },
 
   /* Options */
@@ -706,7 +706,7 @@ const s = StyleSheet.create({
   radioDot:    { width: rs(10), height: rs(10), borderRadius: rs(5), backgroundColor: C.brand },
   checkOuter:  { width: rs(22), height: rs(22), borderRadius: rs(6), borderWidth: 2, borderColor: C.border, alignItems: "center", justifyContent: "center", marginRight: rs(12) },
   checkSel:    { borderColor: C.brand, backgroundColor: C.brand },
-  optLabel:    { fontSize: rf(16), color: C.textMuted, flex: 1 },
+  optLabel:    { fontSize: rf(18), color: C.textMuted, flex: 1 },
   optLabelSel: { color: C.text, fontWeight: "600" },
 
   /* Compteur absences */
@@ -715,7 +715,7 @@ const s = StyleSheet.create({
   counterVal: { fontSize: rf(42), fontWeight: "800", color: C.text, minWidth: rs(60), textAlign: "center" },
 
   /* Textarea */
-  area: { backgroundColor: C.surface, borderRadius: rs(12), borderWidth: 1, borderColor: C.border, padding: rs(12), fontSize: rf(14), color: C.text, minHeight: rs(90), marginTop: rs(4) },
+  area: { backgroundColor: C.surface, borderRadius: rs(12), borderWidth: 1, borderColor: C.border, padding: rs(12), fontSize: rf(16), color: C.text, minHeight: rs(90), marginTop: rs(4) },
 
   /* Semaine — banner */
   semBanner: {
@@ -730,9 +730,9 @@ const s = StyleSheet.create({
   },
   semBannerNum:     { fontSize: rf(20), fontWeight: "800", color: "#fff" },
   semBannerTop:     { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  semBannerLabel:   { fontSize: rf(13), fontWeight: "700", color: C.brand },
-  semBannerPct:     { fontSize: rf(11), fontWeight: "700", color: C.brand },
-  semBannerSub:     { fontSize: rf(11), color: C.textMuted, marginTop: rs(2), marginBottom: rs(6) },
+  semBannerLabel:   { fontSize: rf(15), fontWeight: "700", color: C.brand },
+  semBannerPct:     { fontSize: rf(13), fontWeight: "700", color: C.brand },
+  semBannerSub:     { fontSize: rf(13), color: C.textMuted, marginTop: rs(2), marginBottom: rs(6) },
   semProgressTrack: { height: rs(4), backgroundColor: C.brand + "25", borderRadius: rs(2), overflow: "hidden" },
   semProgressFill:  { height: "100%", backgroundColor: C.brand, borderRadius: rs(2) },
 
@@ -742,7 +742,7 @@ const s = StyleSheet.create({
     padding: rs(12), marginBottom: rs(14),
     borderWidth: 1, borderColor: C.border, borderStyle: "dashed",
   },
-  semPlaceholderTxt: { fontSize: rf(13), color: C.textMuted },
+  semPlaceholderTxt: { fontSize: rf(15), color: C.textMuted },
 
   /* Semaine — grille */
   semGrid: { gap: rs(6), marginBottom: rs(8) },
@@ -755,32 +755,32 @@ const s = StyleSheet.create({
   },
   semSel:     { backgroundColor: C.brand, borderColor: C.brand },
   semPast:    { backgroundColor: C.brandSoft, borderColor: C.brand + "40" },
-  semNum:     { fontSize: rf(14), fontWeight: "800", color: C.textMuted, lineHeight: rf(16) },
+  semNum:     { fontSize: rf(16), fontWeight: "800", color: C.textMuted, lineHeight: rf(18) },
   semNumSel:  { color: "#fff" },
   semNumPast: { color: C.brand },
-  semLbl:     { fontSize: rf(8), fontWeight: "600", color: C.textMuted, letterSpacing: 0.3 },
+  semLbl:     { fontSize: rf(10), fontWeight: "600", color: C.textMuted, letterSpacing: 0.3 },
   semLblSel:  { color: "rgba(255,255,255,0.75)" },
 
   /* Jour */
   jourRow: { flexDirection: "row", gap: rs(10) },
   jourBtn: { flex: 1, paddingVertical: rs(14), borderRadius: rs(12), borderWidth: 1.5, borderColor: C.border, alignItems: "center" },
   jourSel:    { backgroundColor: C.brand, borderColor: C.brand },
-  jourTxt:    { fontSize: rf(14), fontWeight: "600", color: C.textMuted },
+  jourTxt:    { fontSize: rf(16), fontWeight: "600", color: C.textMuted },
   jourTxtSel: { color: "#fff" },
 
   /* Photo */
   photoBtn:     { width: "100%", aspectRatio: 4/3, borderWidth: 2, borderColor: C.brand, borderStyle: "dashed", borderRadius: rs(16), alignItems: "center", justifyContent: "center", backgroundColor: C.brandSoft },
-  photoBtnTxt:  { fontSize: rf(15), fontWeight: "700", color: C.brand },
+  photoBtnTxt:  { fontSize: rf(17), fontWeight: "700", color: C.brand },
   photoPreview: { width: "100%", aspectRatio: 4/3, borderRadius: rs(14), backgroundColor: C.border },
   photoBadge:   { flexDirection: "row", alignItems: "center", gap: rs(6), backgroundColor: C.successSoft, borderRadius: rs(8), paddingHorizontal: rs(10), paddingVertical: rs(6), alignSelf: "flex-start" },
-  photoBadgeTxt:{ fontSize: rf(12), fontWeight: "600", color: C.success },
+  photoBadgeTxt:{ fontSize: rf(14), fontWeight: "600", color: C.success },
   retakeBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center",
     gap: rs(8), paddingVertical: rs(14),
     borderRadius: rs(12), borderWidth: 1.5, borderColor: C.danger + "70",
     backgroundColor: C.dangerSoft,
   },
-  retakeTxt: { fontSize: rf(14), color: C.danger, fontWeight: "700" },
+  retakeTxt: { fontSize: rf(16), color: C.danger, fontWeight: "700" },
 
   /* Boutons Oui / Non côte à côte */
   ouiNonRow: { flexDirection: "row", gap: rs(10), marginBottom: rs(8) },
@@ -793,20 +793,20 @@ const s = StyleSheet.create({
   nonBtn:        { borderColor: C.danger + "60" },
   ouiNonSel:     { backgroundColor: C.success, borderColor: C.success },
   ouiNonSelNon:  { backgroundColor: C.danger,  borderColor: C.danger  },
-  ouiNonTxt:     { fontSize: rf(15), fontWeight: "700", color: C.textMuted },
+  ouiNonTxt:     { fontSize: rf(17), fontWeight: "700", color: C.textMuted },
   ouiNonTxtSel:  { color: "#fff" },
 
   /* Navigation */
   navRow:    { paddingHorizontal: rs(16), paddingVertical: rs(14), borderTopWidth: 1, borderTopColor: C.border, backgroundColor: C.surface },
   nextBtn:   { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: C.brand, borderRadius: rs(14), paddingVertical: rs(15), shadowColor: C.brand, shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 3 },
-  nextBtnTxt:{ color: "#fff", fontWeight: "800", fontSize: rf(15) },
+  nextBtnTxt:{ color: "#fff", fontWeight: "800", fontSize: rf(17) },
   submitBtn: { backgroundColor: C.success },
   submitDis: { opacity: 0.5, elevation: 0, shadowOpacity: 0 },
 
   /* Succès */
   successWrap:  { flex: 1, alignItems: "center", justifyContent: "center", padding: rs(32) },
   successTitle: { fontSize: rf(22), fontWeight: "800", color: C.text, textAlign: "center", marginTop: rs(20), marginBottom: rs(10) },
-  successSub:   { fontSize: rf(14), color: C.textMuted, textAlign: "center", lineHeight: rf(22), marginBottom: rs(32) },
+  successSub:   { fontSize: rf(16), color: C.textMuted, textAlign: "center", lineHeight: rf(24), marginBottom: rs(32) },
   newBtn:       { flexDirection: "row", alignItems: "center", backgroundColor: C.brand, borderRadius: rs(14), paddingHorizontal: rs(28), paddingVertical: rs(14) },
-  newBtnTxt:    { color: "#fff", fontWeight: "700", fontSize: rf(15) },
+  newBtnTxt:    { color: "#fff", fontWeight: "700", fontSize: rf(17) },
 });

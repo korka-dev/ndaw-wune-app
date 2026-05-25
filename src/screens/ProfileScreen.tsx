@@ -1,13 +1,37 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from "react-native";
 import { useStore } from "../store/useStore";
 import { useRouter } from "expo-router";
 import { rs, rf } from "../utils/responsive";
 import { C } from "../utils/theme";
+import { getFailedActions, clearFailedQueue, FailedQueueItem } from "../services/db";
 
 export default function ProfileScreen() {
   const { user, syncData, lastSync, logout, isOnline } = useStore();
   const router = useRouter();
+  const [failedActions, setFailedActions] = useState<FailedQueueItem[]>([]);
+
+  useEffect(() => {
+    setFailedActions(getFailedActions());
+  }, []);
+
+  const handleClearFailed = () => {
+    Alert.alert(
+      "Effacer les erreurs",
+      "Ces actions n'ont pas pu être synchronisées. Voulez-vous les effacer définitivement ?",
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Effacer",
+          style: "destructive",
+          onPress: () => {
+            clearFailedQueue();
+            setFailedActions([]);
+          },
+        },
+      ]
+    );
+  };
 
   const handleLogout = () => {
     Alert.alert("Déconnexion", "Voulez-vous vous déconnecter ?", [
@@ -61,6 +85,27 @@ export default function ProfileScreen() {
         ))}
       </View>
 
+      {/* Erreurs de synchronisation */}
+      {failedActions.length > 0 && (
+        <View style={s.errorCard}>
+          <Text style={s.errorTitle}>⚠️ {failedActions.length} action{failedActions.length > 1 ? "s" : ""} non synchronisée{failedActions.length > 1 ? "s" : ""}</Text>
+          <Text style={s.errorBody}>
+            {failedActions.map((a) => {
+              const label = a.action === "FINISH_SEANCE"
+                ? "Fin de séance"
+                : a.action === "SUBMIT_RAPPORT"
+                  ? "Rapport de séance"
+                  : "Rapport journalier";
+              return `• ${label} (${new Date(a.failed_at).toLocaleDateString("fr")})`;
+            }).join("\n")}
+          </Text>
+          <Text style={s.errorHint}>Ces données n'ont pas pu être envoyées au serveur. Contactez l'administrateur si nécessaire.</Text>
+          <TouchableOpacity style={s.errorClear} onPress={handleClearFailed} activeOpacity={0.8}>
+            <Text style={s.errorClearTxt}>Effacer</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       <TouchableOpacity style={s.logoutBtn} onPress={handleLogout} activeOpacity={0.8}>
         <Text style={s.logoutTxt}>Se déconnecter</Text>
       </TouchableOpacity>
@@ -87,4 +132,10 @@ const s = StyleSheet.create({
   rowValue:    { fontSize: rf(13), color: C.text, fontWeight: "600", flex: 2, textAlign: "right" },
   logoutBtn:   { backgroundColor: C.dangerSoft, borderRadius: rs(14), paddingVertical: rs(14), paddingHorizontal: rs(40) },
   logoutTxt:   { color: C.danger, fontWeight: "700", fontSize: rf(15) },
+  errorCard:   { backgroundColor: "#FFF3CD", borderRadius: rs(14), width: "100%", maxWidth: 480, padding: rs(16), marginBottom: rs(20), borderWidth: 1, borderColor: "#FFCA28" },
+  errorTitle:  { fontSize: rf(14), fontWeight: "700", color: "#7B5A00", marginBottom: rs(8) },
+  errorBody:   { fontSize: rf(12), color: "#5D4400", lineHeight: 20, marginBottom: rs(8) },
+  errorHint:   { fontSize: rf(11), color: "#7B5A00", fontStyle: "italic", marginBottom: rs(12) },
+  errorClear:  { alignSelf: "flex-end", paddingVertical: rs(6), paddingHorizontal: rs(16), backgroundColor: "#FFE082", borderRadius: rs(8) },
+  errorClearTxt: { fontSize: rf(12), fontWeight: "600", color: "#5D4400" },
 });

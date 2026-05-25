@@ -1,14 +1,19 @@
 /**
  * Écran Planning — Vue hebdomadaire de l'emploi du temps de l'enseignant.
+ * Pour le jour courant, chaque créneau expose un bouton « Commencer »
+ * qui démarre une séance liée au planning_segment_id (online ou offline).
  * Compatible Android 7+ / iOS 15.1+, tous formats d'écran.
  */
 import React, { useState, useCallback } from "react";
 import {
   View, Text, StyleSheet, ScrollView,
   TouchableOpacity, RefreshControl, Platform,
+  ActivityIndicator,
 } from "react-native";
-import { useFocusEffect } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useStore } from "../store/useStore";
+import { seancesApi } from "../services/api";
 import { rs, rf } from "../utils/responsive";
 import { C } from "../utils/theme";
 
@@ -33,12 +38,15 @@ function duration(start: string, end: string): string {
 }
 
 export default function PlanningScreen() {
-  const { syncData, isOnline, syncOffline, lastSync } = useStore();
+  const router = useRouter();
+  const { syncData, isOnline, syncOffline, lastSync, activeSeance, setActiveSeance } = useStore();
   const planning      = syncData?.planning ?? [];
   const activeSession = syncData?.active_session;
 
   const [selectedDay, setSelectedDay] = useState<number>(todayIndex());
   const [refreshing,  setRefreshing]  = useState(false);
+  // ID du segment en cours de démarrage (pour le spinner)
+  const [startingSegId, setStartingSegId] = useState<string | null>(null);
 
   // Re-sync automatique à chaque focus de l'onglet Planning
   useFocusEffect(
@@ -69,6 +77,74 @@ export default function PlanningScreen() {
       })
     : null;
 
+  // ── Démarrer une séance depuis le planning ────────────────────────────────────
+  const handleStartSeg = async (seg: any) => {
+    if (startingSegId) return;
+
+    // Si une séance est déjà active, naviguer vers l'accueil pour la gérer
+    if (activeSeance) {
+      router.push("/(tabs)/home");
+      return;
+    }
+
+    setStartingSegId(seg.id);
+
+    const startedAt  = new Date().toISOString();
+    const localId    = `offline-seance-${Date.now()}`;
+    const sessionId  = syncData?.active_session?.id ?? "";
+    const classeVal  = seg.classe?.trim() || "—";
+    const matiereVal = seg.matiere ?? null;
+
+    // 1. Démarrer IMMÉDIATEMENT avec un ID local provisoire
+    setActiveSeance({
+      id:         localId,
+      classe:     classeVal,
+      matiere:    matiereVal,
+      started_at: startedAt,
+      session_id: sessionId,
+    });
+
+    // 2. Persister le payload de démarrage pour la réconciliation offline
+    const startPayload = {
+      classe:              classeVal,
+      matiere:             matiereVal,
+      planning_segment_id: seg.id ?? null,
+      session_id:          sessionId,
+      date_seance:         startedAt,
+      started_at:          startedAt,
+    };
+    AsyncStorage.setItem(`start_payload_${localId}`, JSON.stringify(startPayload)).catch(() => {});
+
+    // 3. Enregistrer sur le serveur en arrière-plan (si en ligne)
+    if (isOnline) {
+      seancesApi
+        .start({
+          classe:              classeVal,
+          matiere:             matiereVal,
+          planning_segment_id: seg.id ?? null,
+          session_id:          sessionId,
+          date_seance:         startedAt,
+          started_at:          startedAt,
+        })
+        .then(({ data }) => {
+          const current = useStore.getState().activeSeance;
+          if (current?.id === localId) {
+            setActiveSeance({ ...current, id: data.id, started_at: data.started_at ?? startedAt });
+          }
+        })
+        .catch(() => {
+          // Échec réseau → ID local conservé, réconcilié au retour en ligne
+        });
+    }
+
+    setStartingSegId(null);
+
+    // 4. Aller sur l'accueil pour afficher le timer et le bouton Terminer
+    router.push("/(tabs)/home");
+  };
+
+  const isToday = selectedDay === todayIndex();
+
   return (
     <View style={s.screen}>
       {/* En-tête */}
@@ -94,7 +170,7 @@ export default function PlanningScreen() {
           contentContainerStyle={s.dayScroll}
         >
           {JOURS_COURT.map((j, i) => {
-            const isToday    = i === todayIndex();
+            const isTodayDay = i === todayIndex();
             const isSelected = i === selectedDay;
             const count      = countByDay[i];
             return (
@@ -105,7 +181,7 @@ export default function PlanningScreen() {
                 activeOpacity={0.75}
               >
                 <Text style={[s.dayLabel, isSelected && s.dayLabelSelected]}>{j}</Text>
-                {isToday && (
+                {isTodayDay && (
                   <View style={[s.todayDot, isSelected && { backgroundColor: "#fff" }]} />
                 )}
                 {count > 0 && (
@@ -136,7 +212,14 @@ export default function PlanningScreen() {
           />
         }
       >
-        <Text style={s.dayTitle}>{JOURS_LONG[selectedDay]}</Text>
+        <View style={s.dayTitleRow}>
+          <Text style={s.dayTitle}>{JOURS_LONG[selectedDay]}</Text>
+          {isToday && (
+            <View style={s.todayPill}>
+              <Text style={s.todayPillText}>Aujourd'hui</Text>
+            </View>
+          )}
+        </View>
 
         {daySegments.length === 0 ? (
           <View style={s.emptyCard}>
@@ -144,28 +227,72 @@ export default function PlanningScreen() {
             <Text style={s.emptyText}>Aucun cours ce jour</Text>
           </View>
         ) : (
-          daySegments.map((seg) => (
-            <View key={seg.id} style={s.segCard}>
-              {/* Colonne heure */}
-              <View style={s.timeCol}>
-                <Text style={s.timeStart}>{seg.heure_debut.slice(0, 5)}</Text>
-                <View style={s.timeLine} />
-                <Text style={s.timeEnd}>{seg.heure_fin.slice(0, 5)}</Text>
-              </View>
-              {/* Colonne contenu */}
-              <View style={s.segBody}>
-                <Text style={s.segClasse}>{seg.classe}</Text>
-                {seg.matiere && (
-                  <Text style={s.segMatiere}>{seg.matiere}</Text>
-                )}
-                <View style={s.durationBadge}>
-                  <Text style={s.durationText}>
-                    {duration(seg.heure_debut, seg.heure_fin)}
-                  </Text>
+          daySegments.map((seg) => {
+            const isActiveForThisSeg =
+              activeSeance?.classe === (seg.classe ?? "") &&
+              activeSeance?.matiere === (seg.matiere ?? null);
+            const isStarting = startingSegId === seg.id;
+
+            return (
+              <View key={seg.id} style={s.segCard}>
+                {/* Colonne heure */}
+                <View style={s.timeCol}>
+                  <Text style={s.timeStart}>{seg.heure_debut.slice(0, 5)}</Text>
+                  <View style={s.timeLine} />
+                  <Text style={s.timeEnd}>{seg.heure_fin.slice(0, 5)}</Text>
+                </View>
+
+                {/* Colonne contenu */}
+                <View style={s.segBody}>
+                  <Text style={s.segClasse}>{seg.classe}</Text>
+                  {seg.matiere && (
+                    <Text style={s.segMatiere}>{seg.matiere}</Text>
+                  )}
+                  <View style={s.durationBadge}>
+                    <Text style={s.durationText}>
+                      {duration(seg.heure_debut, seg.heure_fin)}
+                    </Text>
+                  </View>
+
+                  {/* ── Bouton Commencer (jour courant uniquement) ─────────────────── */}
+                  {isToday && (
+                    <View style={s.actionRow}>
+                      {isActiveForThisSeg ? (
+                        /* Séance en cours pour ce segment → bouton "Voir le timer" */
+                        <TouchableOpacity
+                          style={[s.btn, s.btnActive]}
+                          onPress={() => router.push("/(tabs)/home")}
+                          activeOpacity={0.8}
+                        >
+                          <View style={s.activeDot} />
+                          <Text style={s.btnActiveText}>En cours — Voir le timer</Text>
+                        </TouchableOpacity>
+                      ) : activeSeance ? (
+                        /* Une autre séance est déjà active → désactivé */
+                        <View style={[s.btn, s.btnDisabled]}>
+                          <Text style={s.btnDisabledText}>Autre séance en cours</Text>
+                        </View>
+                      ) : (
+                        /* Aucune séance active → bouton Commencer */
+                        <TouchableOpacity
+                          style={[s.btn, s.btnStart, isStarting && s.btnLoading]}
+                          onPress={() => handleStartSeg(seg)}
+                          activeOpacity={0.8}
+                          disabled={isStarting}
+                        >
+                          {isStarting ? (
+                            <ActivityIndicator size="small" color="#fff" />
+                          ) : (
+                            <Text style={s.btnStartText}>▶ Commencer</Text>
+                          )}
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  )}
                 </View>
               </View>
-            </View>
-          ))
+            );
+          })
         )}
 
         {lastSyncLabel && (
@@ -187,10 +314,10 @@ const s = StyleSheet.create({
     backgroundColor: C.bg,
   },
   title:    { fontSize: rf(22), fontWeight: "bold", color: C.text },
-  subtitle: { fontSize: rf(13), color: C.brand, marginTop: rs(2) },
+  subtitle: { fontSize: rf(15), color: C.brand, marginTop: rs(2) },
 
   offlineBadge: { backgroundColor: C.warnSoft, borderRadius: rs(8), paddingHorizontal: rs(10), paddingVertical: rs(4) },
-  offlineText:  { color: C.warn, fontSize: rf(12), fontWeight: "600" },
+  offlineText:  { color: C.warn, fontSize: rf(14), fontWeight: "600" },
 
   dayBar:    { backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border },
   dayScroll: { paddingHorizontal: rs(16), paddingVertical: rs(10) },
@@ -200,7 +327,7 @@ const s = StyleSheet.create({
     marginRight: rs(6),
   },
   dayBtnSelected:    { backgroundColor: C.primary },
-  dayLabel:          { fontSize: rf(13), fontWeight: "600", color: C.textMuted },
+  dayLabel:          { fontSize: rf(15), fontWeight: "600", color: C.textMuted },
   dayLabelSelected:  { color: "#fff" },
   todayDot: { width: rs(5), height: rs(5), borderRadius: rs(3), backgroundColor: C.brand, marginTop: rs(3) },
   badge: {
@@ -208,15 +335,21 @@ const s = StyleSheet.create({
     borderRadius: rs(8), paddingHorizontal: rs(6), paddingVertical: rs(1),
   },
   badgeSelected:     { backgroundColor: "rgba(255,255,255,0.25)" },
-  badgeText:         { fontSize: rf(11), fontWeight: "700", color: C.primary },
+  badgeText:         { fontSize: rf(13), fontWeight: "700", color: C.primary },
   badgeTextSelected: { color: "#fff" },
 
-  body:     { flex: 1, paddingHorizontal: rs(20) },
-  dayTitle: { fontSize: rf(16), fontWeight: "bold", color: C.text, marginTop: rs(16), marginBottom: rs(12) },
+  body:         { flex: 1, paddingHorizontal: rs(20) },
+  dayTitleRow:  { flexDirection: "row", alignItems: "center", marginTop: rs(16), marginBottom: rs(12) },
+  dayTitle:     { fontSize: rf(18), fontWeight: "bold", color: C.text },
+  todayPill: {
+    marginLeft: rs(10), backgroundColor: C.brandSoft,
+    borderRadius: rs(20), paddingHorizontal: rs(10), paddingVertical: rs(3),
+  },
+  todayPillText: { fontSize: rf(13), fontWeight: "700", color: C.brand },
 
   emptyCard: { alignItems: "center", paddingVertical: rs(48) },
   emptyIcon: { fontSize: rf(40), marginBottom: rs(12) },
-  emptyText: { color: C.textMuted, fontSize: rf(14) },
+  emptyText: { color: C.textMuted, fontSize: rf(16) },
 
   segCard: {
     flexDirection: "row", backgroundColor: C.surface, borderRadius: rs(16),
@@ -225,18 +358,38 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: C.border,
   },
   timeCol:    { width: rs(52), alignItems: "center", marginRight: rs(14) },
-  timeStart:  { fontSize: rf(13), fontWeight: "700", color: C.primary },
+  timeStart:  { fontSize: rf(15), fontWeight: "700", color: C.primary },
   timeLine:   { flex: 1, width: 2, backgroundColor: C.border, borderRadius: 1, marginVertical: rs(4) },
-  timeEnd:    { fontSize: rf(12), color: C.textMuted },
+  timeEnd:    { fontSize: rf(14), color: C.textMuted },
 
   segBody:    { flex: 1, justifyContent: "center" },
-  segClasse:  { fontSize: rf(16), fontWeight: "bold", color: C.text },
-  segMatiere: { fontSize: rf(13), color: C.textMuted, marginTop: rs(2) },
+  segClasse:  { fontSize: rf(18), fontWeight: "bold", color: C.text },
+  segMatiere: { fontSize: rf(15), color: C.textMuted, marginTop: rs(2) },
   durationBadge: {
     marginTop: rs(8), alignSelf: "flex-start",
     backgroundColor: C.brandSoft, borderRadius: rs(8),
     paddingHorizontal: rs(8), paddingVertical: rs(3),
   },
-  durationText: { fontSize: rf(12), fontWeight: "600", color: C.brand },
-  syncNote:     { textAlign: "center", color: C.textMuted, fontSize: rf(12), marginTop: rs(16) },
+  durationText: { fontSize: rf(14), fontWeight: "600", color: C.brand },
+
+  // ── Boutons d'action ────────────────────────────────────────────────────────
+  actionRow: { marginTop: rs(12) },
+  btn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    borderRadius: rs(10), paddingVertical: rs(9), paddingHorizontal: rs(16),
+    alignSelf: "flex-start",
+  },
+  btnStart:       { backgroundColor: C.brand },
+  btnLoading:     { backgroundColor: C.brand, opacity: 0.75 },
+  btnStartText:   { color: "#fff", fontSize: rf(14), fontWeight: "700" },
+  btnActive:      { backgroundColor: C.brandSoft, borderWidth: 1, borderColor: C.brand },
+  btnActiveText:  { color: C.brand, fontSize: rf(14), fontWeight: "700", marginLeft: rs(4) },
+  activeDot: {
+    width: rs(8), height: rs(8), borderRadius: rs(4),
+    backgroundColor: C.brand, marginRight: rs(6),
+  },
+  btnDisabled:     { backgroundColor: C.surfaceAlt, borderWidth: 1, borderColor: C.border },
+  btnDisabledText: { color: C.textMuted, fontSize: rf(13), fontWeight: "600" },
+
+  syncNote: { textAlign: "center", color: C.textMuted, fontSize: rf(14), marginTop: rs(16) },
 });

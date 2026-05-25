@@ -352,7 +352,7 @@ const s = StyleSheet.create({
   scroll: { padding: rs(16), paddingBottom: rs(40) },
 
   sectionTitle: {
-    fontSize: rf(12), fontWeight: "800", color: C.brand,
+    fontSize: rf(14), fontWeight: "800", color: C.brand,
     textTransform: "uppercase", letterSpacing: 0.6,
     marginBottom: rs(12),
   },
@@ -371,8 +371,8 @@ const s = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
     marginBottom: rs(8),
   },
-  statValue: { fontSize: rf(22), fontWeight: "800", color: C.text, marginBottom: rs(2) },
-  statLabel: { fontSize: rf(11), color: C.textMuted, fontWeight: "600", textAlign: "center" },
+  statValue: { fontSize: rf(24), fontWeight: "800", color: C.text, marginBottom: rs(2) },
+  statLabel: { fontSize: rf(13), color: C.textMuted, fontWeight: "600", textAlign: "center" },
 
   /* Bouton envoyer */
   sendBtn: {
@@ -383,7 +383,7 @@ const s = StyleSheet.create({
     shadowColor: C.brand, shadowOpacity: 0.3,
     shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 4,
   },
-  sendBtnTxt: { color: "#fff", fontWeight: "800", fontSize: rf(15), letterSpacing: 0.3 },
+  sendBtnTxt: { color: "#fff", fontWeight: "800", fontSize: rf(17), letterSpacing: 0.3 },
 
   /* Historique */
   histSection: {},
@@ -399,7 +399,7 @@ const s = StyleSheet.create({
     justifyContent: "space-between", marginBottom: rs(8),
   },
   cardDate: {
-    fontSize: rf(13), fontWeight: "700", color: C.text,
+    fontSize: rf(15), fontWeight: "700", color: C.text,
     flex: 1, textTransform: "capitalize", marginRight: rs(8),
   },
   badge: {
@@ -408,28 +408,28 @@ const s = StyleSheet.create({
   },
   badgeOk:       { backgroundColor: C.successSoft },
   badgeProgress: { backgroundColor: C.brandSoft },
-  badgeTxt:      { fontSize: rf(10), fontWeight: "700" },
+  badgeTxt:      { fontSize: rf(12), fontWeight: "700" },
 
   cardRow: {
     flexDirection: "row", alignItems: "center", gap: rs(6),
     marginBottom: rs(4),
   },
-  cardMeta: { fontSize: rf(12), color: C.textMuted, flex: 1 },
+  cardMeta: { fontSize: rf(14), color: C.textMuted, flex: 1 },
 
   /* Modal détail */
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
   modalSheet:   { backgroundColor: C.surface, borderTopLeftRadius: rs(24), borderTopRightRadius: rs(24), padding: rs(20), maxHeight: "88%" },
   modalHandle:  { width: rs(40), height: rs(4), borderRadius: rs(2), backgroundColor: C.border, alignSelf: "center", marginBottom: rs(16) },
   modalHeader:  { flexDirection: "row", alignItems: "center", marginBottom: rs(16) },
-  modalTitle:   { fontSize: rf(15), fontWeight: "700", color: C.text, textTransform: "capitalize" },
-  modalSub:     { fontSize: rf(12), color: C.textMuted, marginTop: rs(2) },
+  modalTitle:   { fontSize: rf(17), fontWeight: "700", color: C.text, textTransform: "capitalize" },
+  modalSub:     { fontSize: rf(14), color: C.textMuted, marginTop: rs(2) },
   modalClose:   { padding: rs(6), marginLeft: rs(8) },
 
   /* Blocs d'info */
   detailBlock:  { backgroundColor: C.bg, borderRadius: rs(12), borderWidth: 1, borderColor: C.border, marginBottom: rs(10), overflow: "hidden" },
   infoLine:     { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: rs(14), paddingVertical: rs(11) },
-  infoLabel:    { fontSize: rf(13), color: C.textMuted, fontWeight: "500" },
-  infoValue:    { fontSize: rf(13), color: C.text, fontWeight: "600", flexShrink: 1, textAlign: "right", marginLeft: rs(16) },
+  infoLabel:    { fontSize: rf(15), color: C.textMuted, fontWeight: "500" },
+  infoValue:    { fontSize: rf(15), color: C.text, fontWeight: "600", flexShrink: 1, textAlign: "right", marginLeft: rs(16) },
 
   photoPreview: { width: "100%", height: rs(180), borderRadius: rs(12), backgroundColor: C.border, marginBottom: rs(10) },
 
@@ -440,6 +440,6 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: C.border,
   },
   emptyTxt: {
-    marginTop: rs(10), fontSize: rf(13), color: C.textMuted, textAlign: "center",
+    marginTop: rs(10), fontSize: rf(15), color: C.textMuted, textAlign: "center",
   },
 });

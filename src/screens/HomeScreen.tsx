@@ -3,7 +3,7 @@
  * Design identique à la maquette Ndaw Wune v2.
  * Adapté à tous les appareils via useSafeAreaInsets.
  */
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
   Alert, Modal, TextInput, ActivityIndicator,
@@ -23,6 +23,8 @@ import ProfileSheet                from "../components/ProfileSheet";
 import {
   notifySegmentEnd,
   scheduleSessionAlerts,
+  enableAutoReschedule,
+  updateCachedSegments,
   schedulePauseAlert,
   cancelPauseAlert,
 } from "../services/notifications";
@@ -116,8 +118,13 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       const { syncData: sd } = useStore.getState();
-      const planning = sd?.planning ?? [];
-      scheduleSessionAlerts(planning).catch(() => {});
+      const segs = sd?.planning ?? [];
+      // Planifier les notifications (skip si planning inchangé < 6h)
+      scheduleSessionAlerts(segs).catch(() => {});
+      // Activer la re-planification auto quand l'app revient au premier plan
+      enableAutoReschedule(segs);
+      // Mettre à jour le cache pour la re-planification auto
+      updateCachedSegments(segs);
     }, [])
   );
 
@@ -130,6 +137,11 @@ export default function HomeScreen() {
   const [pausedAt,      setPausedAt]      = useState<number | null>(null);
   // Durée totale des pauses accumulées (ms) — pour calculer le temps réel actif
   const [totalPausedMs, setTotalPausedMs] = useState(0);
+  // Historique des pauses pour envoi au serveur : [{paused_at, resumed_at?}]
+  const [pauseEvents, setPauseEvents] = useState<{paused_at: string; resumed_at?: string}[]>([]);
+
+  // ── Guard : évite d'envoyer la notif de fin plusieurs fois pour la même séance ──
+  const notifiedEndRef = useRef(false);
 
   // ── Restaurer l'état de pause depuis AsyncStorage au montage / changement de séance ──
   useEffect(() => {
@@ -139,6 +151,8 @@ export default function HomeScreen() {
       setIsPaused(false);
       setPausedAt(null);
       setTotalPausedMs(0);
+      setPauseEvents([]);
+      notifiedEndRef.current = false; // réinitialiser pour la prochaine séance
       return;
     }
     setSeanceStarted(true);
@@ -152,6 +166,7 @@ export default function HomeScreen() {
           setIsPaused(saved.isPaused ?? false);
           setPausedAt(saved.pausedAt ?? null);
           setTotalPausedMs(saved.totalPausedMs ?? 0);
+          setPauseEvents(saved.pauseEvents ?? []);
         } catch {}
       })
       .catch(() => {});
@@ -175,55 +190,100 @@ export default function HomeScreen() {
   const curMin = now.getHours() * 60 + now.getMinutes();
   const curSec = curMin * 60 + now.getSeconds();
 
-  // Segment actif : le premier segment de la journée non complété !
-  const activeSeg = todayPlan.find(seg => !completedSegIds.includes(seg.id)) ?? null;
+  // Segments non encore complétés — dans l'ordre du planning
+  const pendingSegs = todayPlan.filter(seg => !completedSegIds.includes(seg.id));
+  // Segment actif : le premier non complété; nextSeg : le suivant (pour la notif de fin)
+  const activeSeg = pendingSegs[0] ?? null;
+  const nextSeg   = pendingSegs[1] ?? null;
 
   const durMin  = activeSeg ? segDurMin(activeSeg.heure_debut, activeSeg.heure_fin) : 0;
   const durSec  = durMin * 60;
   const remainSec = activeSeance ? Math.max(0, durSec - elapsed) : durSec;
   const progress = durSec > 0 ? (durSec - remainSec) / durSec : 0;
 
-  /* ── Détection fin de segment → notification ── */
+  /* ── Détection fin de segment → notification (une seule fois par séance) ── */
   useEffect(() => {
-    if (activeSeance && remainSec === 0 && elapsed > 0) {
+    if (activeSeance && remainSec === 0 && elapsed > 0 && !notifiedEndRef.current) {
+      notifiedEndRef.current = true;
       notifySegmentEnd(
         activeSeg ? segTitle(activeSeg) : "Séance en cours",
-        "Le temps de l'activité est écoulé."
+        nextSeg ? segTitle(nextSeg) : undefined,
       );
     }
-  }, [remainSec, activeSeance, elapsed, activeSeg]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remainSec, activeSeance, elapsed]);
 
   const handlePause = () => {
     if (!activeSeance) return;
-    const now = Date.now();
+    const nowMs  = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+
     setIsPaused(true);
-    setPausedAt(now);
+    setPausedAt(nowMs);
+
+    // Ajouter l'événement dans la liste locale
+    const newPauseEvents = [...pauseEvents, { paused_at: nowIso }];
+    setPauseEvents(newPauseEvents);
+
     // Persister pour survie au background
     AsyncStorage.setItem(TIMER_STATE_KEY, JSON.stringify({
-      seanceId:      activeSeance.id,
-      isPaused:      true,
-      pausedAt:      now,
+      seanceId:    activeSeance.id,
+      isPaused:    true,
+      pausedAt:    nowMs,
       totalPausedMs,
+      pauseEvents: newPauseEvents,
     })).catch(() => {});
+
+    // Envoyer au serveur (fire-and-forget) — ou mettre en queue offline
+    const seanceId = activeSeance.id;
+    if (isOnline && !seanceId.startsWith("offline-")) {
+      seancesApi.pause(seanceId, nowIso).catch(() => {
+        // Échec réseau : sera réconcilié via le payload de finish
+      });
+    } else {
+      enqueueAction("PAUSE_SEANCE", { seance_id: seanceId, paused_at: nowIso }).catch?.(() => {});
+    }
+
     // Notification si toujours en pause dans 5 min
     schedulePauseAlert().catch(() => {});
   };
 
   const handleResume = () => {
     if (!activeSeance) return;
-    const now = Date.now();
-    const addedMs = pausedAt ? now - pausedAt : 0;
+    const nowMs       = Date.now();
+    const nowIso      = new Date(nowMs).toISOString();
+    const addedMs     = pausedAt ? nowMs - pausedAt : 0;
     const newTotalPausedMs = totalPausedMs + addedMs;
+
     setIsPaused(false);
     setPausedAt(null);
     setTotalPausedMs(newTotalPausedMs);
+
+    // Fermer le dernier événement de pause
+    const newPauseEvents = pauseEvents.map((e, i) =>
+      i === pauseEvents.length - 1 && !e.resumed_at
+        ? { ...e, resumed_at: nowIso }
+        : e
+    );
+    setPauseEvents(newPauseEvents);
+
     // Persister l'état repris
     AsyncStorage.setItem(TIMER_STATE_KEY, JSON.stringify({
       seanceId:      activeSeance.id,
       isPaused:      false,
       pausedAt:      null,
       totalPausedMs: newTotalPausedMs,
+      pauseEvents:   newPauseEvents,
     })).catch(() => {});
+
+    // Envoyer la reprise au serveur
+    const seanceId = activeSeance.id;
+    if (isOnline && !seanceId.startsWith("offline-")) {
+      seancesApi.resume(seanceId, nowIso).catch(() => {});
+    } else {
+      enqueueAction("RESUME_SEANCE", { seance_id: seanceId, resumed_at: nowIso }).catch?.(() => {});
+    }
+
     // Annuler l'alerte de pause
     cancelPauseAlert().catch(() => {});
   };
@@ -233,7 +293,7 @@ export default function HomeScreen() {
     const startedAt  = new Date().toISOString();
     const localId    = `offline-seance-${Date.now()}`;
     const sessionId  = syncData?.active_session?.id ?? "";
-    const classeVal  = activeSeg.classe  ?? "";
+    const classeVal  = activeSeg.classe?.trim() || "—";
     const matiereVal = activeSeg.matiere ?? null;
 
     // ── 1. Démarrer IMMÉDIATEMENT avec un ID local provisoire ───────────────
@@ -247,6 +307,7 @@ export default function HomeScreen() {
     setSeanceStarted(true);
     setElapsed(0);
     setIsPaused(false);
+    notifiedEndRef.current = false; // nouvelle séance → réinitialiser le guard
 
     // Sauvegarder le payload de démarrage pour la réconciliation offline
     const _startPayload = {
@@ -330,7 +391,10 @@ export default function HomeScreen() {
     // Durée réelle = temps écoulé depuis le démarrage, hors pauses (minimum 1 min)
     const startMs     = new Date(startedAt).getTime();
     const dureeMinutes = Math.max(1, Math.round((Date.now() - startMs - totalPausedMs) / 60000));
+    const totalPausedMin = Math.round(totalPausedMs / 60000);
     const segId = activeSeg?.id ?? null;
+    // Capturer les pauses AVANT de réinitialiser l'état
+    const snapshotPauseEvents = [...pauseEvents];
 
     // ── 1. Mise à jour locale IMMÉDIATE — ne pas attendre le serveur ────────
     // Annuler l'alerte de pause en cours + nettoyer l'état persisté
@@ -342,6 +406,7 @@ export default function HomeScreen() {
     setIsPaused(false);
     setPausedAt(null);
     setTotalPausedMs(0);
+    setPauseEvents([]);
     setElapsed(0);
 
     if (segId) {
@@ -360,7 +425,12 @@ export default function HomeScreen() {
     if (isOnline && !isOfflineSeance) {
       // Appel API sans await → l'écran s'est déjà mis à jour
       seancesApi
-        .finish(seanceId, { finished_at: finishedAt, duree_minutes: dureeMinutes })
+        .finish(seanceId, {
+          finished_at:          finishedAt,
+          duree_minutes:        dureeMinutes,
+          pauses:               snapshotPauseEvents,
+          total_paused_minutes: totalPausedMin,
+        })
         .then(() =>
           rapportsApi.submit({
             seance_id:       seanceId,
@@ -390,7 +460,11 @@ export default function HomeScreen() {
           try {
             const localId = `offline-${Date.now()}`;
             enqueueAction("FINISH_SEANCE", {
-              seance_id: seanceId, finished_at: finishedAt, duree_minutes: dureeMinutes,
+              seance_id:            seanceId,
+              finished_at:          finishedAt,
+              duree_minutes:        dureeMinutes,
+              pauses:               snapshotPauseEvents,
+              total_paused_minutes: totalPausedMin,
             });
             enqueueAction("SUBMIT_RAPPORT", {
               local_rapport_id: localId,
@@ -411,9 +485,11 @@ export default function HomeScreen() {
         AsyncStorage.removeItem(`start_payload_${seanceId}`).catch(() => {});
 
         enqueueAction("FINISH_SEANCE", {
-          seance_id:     seanceId,
-          finished_at:   finishedAt,
-          duree_minutes: dureeMinutes,
+          seance_id:            seanceId,
+          finished_at:          finishedAt,
+          duree_minutes:        dureeMinutes,
+          pauses:               snapshotPauseEvents,
+          total_paused_minutes: totalPausedMin,
           start_payload: startPayload, // pour la réconciliation dans queue.ts
         });
         enqueueAction("SUBMIT_RAPPORT", {
@@ -522,7 +598,7 @@ export default function HomeScreen() {
               <Feather name="check-circle" size={rf(20)} color="#fff" style={{ marginRight: rs(8) }} />
               <Text style={[s.segTitle, { color: "#fff", marginBottom: 0 }]}>Planning du jour effectué ✓</Text>
             </View>
-            <Text style={{ color: "rgba(255, 255, 255, 0.9)", fontSize: rf(14), marginBottom: rs(16), lineHeight: rs(20) }}>
+            <Text style={{ color: "rgba(255, 255, 255, 0.9)", fontSize: rf(16), marginBottom: rs(16), lineHeight: rs(22) }}>
               Toutes les activités de votre planning sont complétées pour aujourd'hui. Bravo !
             </Text>
             <TouchableOpacity
@@ -890,39 +966,39 @@ const s = StyleSheet.create({
   /* Layout "pas de cours" */
   centeredContent:   { flexGrow: 1, paddingHorizontal: rs(16) },
   centeredTop:       { flex: 1, alignItems: "center", justifyContent: "center", paddingTop: rs(32), paddingBottom: rs(16) },
-  dateLabelCenter:   { fontSize: rf(13), color: C.textMuted, fontWeight: "500", marginBottom: rs(4), textAlign: "center" },
-  greetingCenter:    { fontSize: rf(22), fontWeight: "700", color: C.text, marginBottom: rs(20), textAlign: "center" },
+  dateLabelCenter:   { fontSize: rf(15), color: C.textMuted, fontWeight: "500", marginBottom: rs(4), textAlign: "center" },
+  greetingCenter:    { fontSize: rf(24), fontWeight: "800", color: C.text, marginBottom: rs(20), textAlign: "center" },
 
   /* Bouton Voir Planning */
   nextCourseBtn:     { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: C.brand, paddingVertical: rs(14), borderRadius: rs(14), marginTop: rs(12), width: "100%" },
-  nextCourseBtnTxt:  { fontSize: rf(14), fontWeight: "700", color: "#fff" },
+  nextCourseBtnTxt:  { fontSize: rf(16), fontWeight: "700", color: "#fff" },
 
-  dateLabel:  { fontSize: rf(13), color: C.textMuted, fontWeight: "500", marginBottom: rs(4) },
-  greeting:   { fontSize: rf(22), fontWeight: "700", color: C.text, marginBottom: rs(16) },
+  dateLabel:  { fontSize: rf(15), color: C.textMuted, fontWeight: "500", marginBottom: rs(4) },
+  greeting:   { fontSize: rf(24), fontWeight: "800", color: C.text, marginBottom: rs(16) },
 
   /* Segment card */
   segCard:      { backgroundColor: C.brand, borderRadius: rs(18), padding: rs(18), marginBottom: rs(16) },
   segTopRow:    { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: rs(10) },
   segBadge:     { backgroundColor: "rgba(255,255,255,0.22)", paddingHorizontal: rs(10), paddingVertical: rs(4), borderRadius: rs(20), flexDirection: "row", alignItems: "center" },
-  segBadgeTxt:  { color: "#fff", fontSize: rf(11), fontWeight: "700", letterSpacing: 0.5 },
-  segTimeRange: { color: "#fff", fontSize: rf(13), fontWeight: "600", opacity: 0.9 },
-  segTitle:     { color: "#fff", fontSize: rf(18), fontWeight: "700", marginBottom: rs(14), lineHeight: rf(24) },
+  segBadgeTxt:  { color: "#fff", fontSize: rf(13), fontWeight: "700", letterSpacing: 0.5 },
+  segTimeRange: { color: "#fff", fontSize: rf(15), fontWeight: "600", opacity: 0.9 },
+  segTitle:     { color: "#fff", fontSize: rf(20), fontWeight: "800", marginBottom: rs(14), lineHeight: rf(26) },
   segTimerRow:  { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: rs(14) },
-  timerText:    { fontSize: rf(42), fontWeight: "700", color: "#fff", letterSpacing: 1.5, flexShrink: 1 },
-  timerSub:     { fontSize: rf(12), color: "rgba(255,255,255,0.75)", marginTop: rs(4) },
+  timerText:    { fontSize: rf(44), fontWeight: "700", color: "#fff", letterSpacing: 1.5, flexShrink: 1 },
+  timerSub:     { fontSize: rf(14), color: "rgba(255,255,255,0.8)", marginTop: rs(4) },
   btnAction:    { backgroundColor: "rgba(255,255,255,0.22)", borderRadius: rs(12), paddingHorizontal: rs(18), paddingVertical: rs(12), flexDirection: "row", alignItems: "center" },
   btnPause:     { backgroundColor: "rgba(0,0,0,0.22)" },
-  btnActionTxt: { color: "#fff", fontWeight: "700", fontSize: rf(13) },
+  btnActionTxt: { color: "#fff", fontWeight: "700", fontSize: rf(15) },
   btnStart:     { backgroundColor: "#fff", borderRadius: rs(14), paddingVertical: rs(16), marginTop: rs(16), flexDirection: "row", alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.12, shadowOffset: { width: 0, height: 2 }, shadowRadius: 6, elevation: 3 },
-  btnStartTxt:  { color: C.brand, fontWeight: "800", fontSize: rf(15) },
+  btnStartTxt:  { color: C.brand, fontWeight: "800", fontSize: rf(17) },
   progressBg:   { height: rs(6), backgroundColor: "rgba(255,255,255,0.25)", borderRadius: rs(3), overflow: "hidden" },
   progressFill: { height: "100%", backgroundColor: "#fff", borderRadius: rs(3) },
 
   /* ── Planning du jour — cartes séparées ── */
   planSection:       { marginBottom: rs(14) },
   planHeader:        { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: rs(10) },
-  planTitle:         { fontSize: rf(14), fontWeight: "700", color: C.text },
-  planCount:         { fontSize: rf(12), color: C.textMuted },
+  planTitle:         { fontSize: rf(16), fontWeight: "700", color: C.text },
+  planCount:         { fontSize: rf(14), color: C.textMuted },
 
   /* Carte individuelle */
   planItemCard:      {
@@ -934,37 +1010,37 @@ const s = StyleSheet.create({
     marginBottom: rs(8),
   },
   planItemBody:      { paddingHorizontal: rs(14), paddingVertical: rs(12) },
-  planItemTitle:     { fontSize: rf(15), fontWeight: "600", color: C.text, marginBottom: rs(3) },
+  planItemTitle:     { fontSize: rf(17), fontWeight: "600", color: C.text, marginBottom: rs(3) },
   planItemTitleDone: { color: C.textMuted, fontWeight: "400" },
-  planItemMeta:      { fontSize: rf(12), color: C.textMuted },
+  planItemMeta:      { fontSize: rf(14), color: C.textMuted },
 
   /* Segment card — pas de cours aujourd'hui */
   segCardEmpty:   { backgroundColor: C.surface, borderWidth: 1.5, borderColor: C.border, alignItems: "center", justifyContent: "center", paddingVertical: rs(32), width: "100%" },
-  segEmptyTitle:  { fontSize: rf(17), fontWeight: "700", color: C.text, marginBottom: rs(6) },
-  segEmptyMsg:    { fontSize: rf(13), color: C.textMuted, marginBottom: rs(20) },
+  segEmptyTitle:  { fontSize: rf(19), fontWeight: "700", color: C.text, marginBottom: rs(6) },
+  segEmptyMsg:    { fontSize: rf(15), color: C.textMuted, marginBottom: rs(20) },
   segEmptyBtn:    { flexDirection: "row", alignItems: "center", backgroundColor: C.brand, paddingHorizontal: rs(18), paddingVertical: rs(10), borderRadius: rs(20) },
-  segEmptyBtnTxt: { fontSize: rf(13), fontWeight: "700", color: "#fff" },
+  segEmptyBtnTxt: { fontSize: rf(15), fontWeight: "700", color: "#fff" },
 
   /* Modal rapport */
   overlay:       { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
   sheet:         { backgroundColor: C.surface, borderTopLeftRadius: rs(24), borderTopRightRadius: rs(24), padding: rs(20), maxHeight: "92%" },
   handle:        { width: rs(40), height: rs(4), borderRadius: rs(2), backgroundColor: C.border, alignSelf: "center", marginBottom: rs(16) },
-  sheetTitle:    { fontSize: rf(17), fontWeight: "700", color: C.text, marginBottom: rs(2) },
-  sheetSub:      { fontSize: rf(12), color: C.textMuted, marginBottom: rs(16) },
-  fieldLabel:    { fontSize: rf(13), fontWeight: "600", color: C.text, marginBottom: rs(10), marginTop: rs(4) },
+  sheetTitle:    { fontSize: rf(19), fontWeight: "700", color: C.text, marginBottom: rs(2) },
+  sheetSub:      { fontSize: rf(14), color: C.textMuted, marginBottom: rs(16) },
+  fieldLabel:    { fontSize: rf(15), fontWeight: "600", color: C.text, marginBottom: rs(10), marginTop: rs(4) },
   counterRow:    { flexDirection: "row", alignItems: "center", marginBottom: rs(16), gap: rs(16) },
   counterBtn:    { width: rs(40), height: rs(40), borderRadius: rs(20), backgroundColor: C.surfaceAlt, alignItems: "center", justifyContent: "center" },
-  counterBtnTxt: { fontSize: rf(22), color: C.text, lineHeight: rf(28) },
-  counterVal:    { fontSize: rf(28), fontWeight: "700", color: C.text, minWidth: rs(40), textAlign: "center" },
+  counterBtnTxt: { fontSize: rf(24), color: C.text, lineHeight: rf(30) },
+  counterVal:    { fontSize: rf(30), fontWeight: "700", color: C.text, minWidth: rs(40), textAlign: "center" },
   toggleRow:     { flexDirection: "row", gap: rs(10), marginBottom: rs(16) },
   toggleBtn:     { flex: 1, padding: rs(12), borderRadius: rs(12), borderWidth: 2, borderColor: C.border, backgroundColor: C.bg, alignItems: "center" },
   toggleBtnActive:{ borderColor: C.primary, backgroundColor: C.primarySoft },
-  toggleBtnTxt:  { fontSize: rf(14), fontWeight: "700", color: C.textMuted },
+  toggleBtnTxt:  { fontSize: rf(15), fontWeight: "700", color: C.textMuted },
   toggleBtnTxtActive:{ color: C.primary },
   bilanRow:      { flexDirection: "row", gap: rs(8), marginBottom: rs(16) },
   bilanBtn:      { flex: 1, padding: rs(12), borderRadius: rs(12), borderWidth: 2, borderColor: C.border, backgroundColor: C.bg, alignItems: "center" },
-  bilanBtnTxt:   { fontSize: rf(13), fontWeight: "700", color: C.textMuted },
-  textarea:      { borderWidth: 1.5, borderColor: C.border, borderRadius: rs(12), padding: rs(12), fontSize: rf(13), color: C.text, backgroundColor: C.bg, minHeight: rs(80), marginBottom: rs(16), textAlignVertical: "top" },
+  bilanBtnTxt:   { fontSize: rf(15), fontWeight: "700", color: C.textMuted },
+  textarea:      { borderWidth: 1.5, borderColor: C.border, borderRadius: rs(12), padding: rs(12), fontSize: rf(15), color: C.text, backgroundColor: C.bg, minHeight: rs(80), marginBottom: rs(16), textAlignVertical: "top" },
   sendBtn:       { backgroundColor: C.primary, borderRadius: rs(14), paddingVertical: rs(16), alignItems: "center" },
-  sendBtnTxt:    { color: "#fff", fontWeight: "700", fontSize: rf(15) },
+  sendBtnTxt:    { color: "#fff", fontWeight: "700", fontSize: rf(17) },
 });

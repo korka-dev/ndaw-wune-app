@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Stack } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import NetworkWatcher from "../src/components/NetworkWatcher";
 import { initDB } from "../src/services/db";
@@ -58,6 +59,12 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
+      {/* ── StatusBar visible sur Android : icônes sombres sur fond clair ── */}
+      <StatusBar
+        style="dark"
+        backgroundColor="#FAF7F1"
+        translucent={false}
+      />
       <NetworkWatcher />
       <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
         <Stack.Screen name="index" />

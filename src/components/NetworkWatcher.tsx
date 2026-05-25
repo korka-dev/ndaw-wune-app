@@ -20,7 +20,7 @@ import { AppState, AppStateStatus } from "react-native";
 import * as Network from "expo-network";
 import { useStore } from "../store/useStore";
 import { flushQueue } from "../services/queue";
-import { scheduleSessionAlerts } from "../services/notifications";
+import { scheduleSessionAlerts, updateCachedSegments } from "../services/notifications";
 
 const NETWORK_CHECK_MS = 15_000;   // 15 s — vérification connectivité
 const SYNC_INTERVAL_MS = 30_000;   // 30 s — sync données quand online
@@ -45,6 +45,7 @@ export default function NetworkWatcher() {
       lastSyncAt.current = Date.now();
       // Replanifier les alertes vocales avec le planning frais
       const freshPlanning = useStore.getState().syncData?.planning ?? [];
+      updateCachedSegments(freshPlanning);
       scheduleSessionAlerts(freshPlanning).catch(() => {});
     } catch (e) {
       console.warn("[Sync] Erreur :", e);
