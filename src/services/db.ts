@@ -333,6 +333,16 @@ export function getRapportsJournalier(): RapportJournalierLocal[] {
 }
 
 /**
+ * Retourne un rapport journalier par son ID local.
+ */
+export function getRapportJournalierById(id: string): RapportJournalierLocal | null {
+  return getDB().getFirstSync<RapportJournalierLocal>(
+    `SELECT * FROM rapports_journalier WHERE id = ?`,
+    [id],
+  ) ?? null;
+}
+
+/**
  * Vide la table des rapports journaliers (logout).
  */
 export function clearRapportsJournalier(): void {

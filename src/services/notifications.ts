@@ -76,10 +76,16 @@ if (isExpoGo) {
 }
 
 /* ════════════════════════════════════════════════════════════════
-   Clé AsyncStorage pour le suivi de la dernière planification
+   Clés AsyncStorage
    ════════════════════════════════════════════════════════════════ */
 const LAST_SCHEDULE_KEY = "@ndawwune:last_notification_schedule";
 const NOTIFICATION_PREFS_KEY = "@ndawwune:notification_prefs";
+
+/** Clé publique — modal de configuration (première fois) */
+export const NOTIF_SETUP_MODAL_KEY = "@ndawwune:notif_setup_done";
+
+/** Package name Android — doit correspondre à app.json android.package */
+const ANDROID_PACKAGE = "sn.aroka.ared.ndawune";
 
 /* ════════════════════════════════════════════════════════════════
    Handler global — affiche la notif même quand l'app est au premier plan
@@ -184,6 +190,66 @@ export async function checkExactAlarmPermission(): Promise<boolean> {
 }
 
 /* ════════════════════════════════════════════════════════════════
+   Gestion batterie & alarmes exactes (Android)
+   ════════════════════════════════════════════════════════════════ */
+
+/**
+ * Demande à Android d'exempter l'app de l'optimisation batterie (Doze mode).
+ * Sans cette exemption, les alarmes exactes peuvent être retardées ou silenciées
+ * lorsque le téléphone est en veille prolongée.
+ *
+ * Ouvre la boîte de dialogue système Android REQUEST_IGNORE_BATTERY_OPTIMIZATIONS.
+ * Ne fait rien sur iOS ou si expo-intent-launcher est absent.
+ */
+export async function requestIgnoreBatteryOptimization(): Promise<void> {
+  if (Platform.OS !== "android") return;
+  try {
+    const IntentLauncher = require("expo-intent-launcher");
+    // Ce dialog demande directement à l'utilisateur d'exempter l'app
+    await IntentLauncher.startActivityAsync(
+      "android.settings.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+      { data: `package:${ANDROID_PACKAGE}` },
+    );
+  } catch (primaryErr) {
+    console.warn("[Notif] Dialog batterie principal indisponible :", primaryErr);
+    // Fallback : liste des apps exemptées (l'utilisateur peut ajouter manuellement)
+    try {
+      const IntentLauncher = require("expo-intent-launcher");
+      await IntentLauncher.startActivityAsync(
+        "android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS",
+      );
+    } catch (fallbackErr) {
+      console.warn("[Notif] Fallback batterie indisponible :", fallbackErr);
+    }
+  }
+}
+
+/**
+ * Ouvre la page de paramètres pour autoriser les alarmes exactes (Android 12+, API 31+).
+ * Requis si l'utilisateur a refusé ou révoqué SCHEDULE_EXACT_ALARM.
+ */
+export async function openExactAlarmSettings(): Promise<void> {
+  if (Platform.OS !== "android" || Number(Platform.Version) < 31) return;
+  try {
+    const IntentLauncher = require("expo-intent-launcher");
+    await IntentLauncher.startActivityAsync(
+      "android.settings.REQUEST_SCHEDULE_EXACT_ALARM",
+      { data: `package:${ANDROID_PACKAGE}` },
+    );
+  } catch (e) {
+    console.warn("[Notif] Impossible d'ouvrir les paramètres alarme exacte :", e);
+    // Fallback : paramètres appli
+    try {
+      const IntentLauncher = require("expo-intent-launcher");
+      await IntentLauncher.startActivityAsync(
+        "android.settings.APPLICATION_DETAILS_SETTINGS",
+        { data: `package:${ANDROID_PACKAGE}` },
+      );
+    } catch {}
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
    TTS — lecture vocale en français
    ════════════════════════════════════════════════════════════════ */
 export function speakAlert(message: string): void {
@@ -266,13 +332,26 @@ export async function scheduleSessionAlerts(
     try {
       const lastSchedule = await AsyncStorage.getItem(LAST_SCHEDULE_KEY);
       if (lastSchedule) {
-        const { timestamp, segmentHash } = JSON.parse(lastSchedule);
-        const hoursSince = (Date.now() - timestamp) / (1000 * 60 * 60);
-        const currentHash = computeSegmentHash(segments);
-        // Re-planifier seulement si > 6h ou si le planning a changé
+        const { timestamp, segmentHash, scheduled: savedCount } = JSON.parse(lastSchedule);
+        const minutesSince = (Date.now() - timestamp) / (1000 * 60);
+        const hoursSince   = minutesSince / 60;
+        const currentHash  = computeSegmentHash(segments);
+
         if (hoursSince < 6 && currentHash === segmentHash) {
-          console.log("[Notif] Planning inchangé depuis < 6h — skip re-planification.");
-          return -1; // -1 = skip
+          // ── Cas reboot : les alarmes sont effacées au redémarrage Android.
+          // On ne fait le check live qu'après 2 min pour laisser le temps au
+          // système Android d'enregistrer les alarmes dans son registre.
+          // Avant 2 min on fait confiance au compteur sauvegardé (savedCount).
+          if (minutesSince < 2 && (savedCount ?? 0) > 0) {
+            console.log("[Notif] Planning inchangé (< 2 min) — skip re-planification.");
+            return -1;
+          }
+          const counts = await getScheduledNotificationsCount();
+          if (counts.total > 0) {
+            console.log("[Notif] Planning inchangé depuis < 6h — skip re-planification.");
+            return -1;
+          }
+          console.log("[Notif] Aucune notification trouvée (reboot ?) — re-planification forcée.");
         }
       }
     } catch {

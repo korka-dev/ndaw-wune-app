@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import * as SplashScreen from "expo-splash-screen";
 import NetworkWatcher from "../src/components/NetworkWatcher";
 import { initDB } from "../src/services/db";
 import {
@@ -12,33 +13,42 @@ import {
   addNotificationResponseReceivedListener,
 } from "../src/services/notifications";
 
+// Empêcher le splash natif de se cacher automatiquement
+SplashScreen.preventAutoHideAsync();
+
 export default function RootLayout() {
   const fgRef  = useRef<{ remove: () => void } | null>(null);
   const tapRef = useRef<{ remove: () => void } | null>(null);
 
   useEffect(() => {
-    // ── Base de données ───────────────────────────────────────
-    try {
-      initDB();
-      console.log("[DB] Base SQLite initialisée");
-    } catch (e) {
-      console.error("[DB] Erreur d'initialisation SQLite :", e);
+    async function prepare() {
+      try {
+        // ── Base de données ─────────────────────────────────────
+        try {
+          initDB();
+          console.log("[DB] Base SQLite initialisée");
+        } catch (e) {
+          console.error("[DB] Erreur d'initialisation SQLite :", e);
+        }
+
+        // ── Canal Android + permission notifications ────────────
+        const granted = await setupNotifications();
+        console.log("[Notif] Prêt :", granted ? "oui" : "permission refusée");
+      } finally {
+        // Cacher le splash natif — le LoadingScreen JS prend le relais
+        await SplashScreen.hideAsync();
+      }
     }
 
-    // ── Canal Android + permission notifications ──────────────
-    setupNotifications().then(granted => {
-      console.log("[Notif] Prêt :", granted ? "oui" : "permission refusée");
-    });
+    prepare();
 
     // ── Listener foreground : TTS + vibration quand notif arrive app ouverte ──
-    // Seules les alertes de planning parlent (alertType présent)
     fgRef.current = addNotificationReceivedListener(notification => {
       const data = notification.request.content.data as Record<string, unknown>;
       if (data?.alertType && typeof data.alertType === "string") {
         triggerAlertVibration(data.alertType);
       }
       if (data?.speechMsg && typeof data.speechMsg === "string") {
-        // Délai court pour ne pas couper le son de la notif
         setTimeout(() => speakAlert(data.speechMsg as string), 800);
       }
     });

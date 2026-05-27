@@ -9,7 +9,7 @@ export default function TabsLayout() {
   const insets = useSafeAreaInsets();
 
   // Hauteur de la tab bar : safe area bottom + contenu de la bar
-  const TAB_BAR_HEIGHT = rs(52) + insets.bottom;
+  const TAB_BAR_HEIGHT = rs(58) + insets.bottom;
 
   return (
     <Tabs
@@ -19,14 +19,14 @@ export default function TabsLayout() {
         // Chaque écran gère son propre inset top via AppHeader
         sceneStyle: { backgroundColor: C.bg },
         tabBarActiveTintColor:   C.primary,
-        tabBarInactiveTintColor: C.textMuted,
+        tabBarInactiveTintColor: C.text,
         tabBarStyle: {
           backgroundColor:  C.surface,
           borderTopColor:   C.border,
           borderTopWidth:   1,
           height:           TAB_BAR_HEIGHT,
           paddingBottom:    insets.bottom > 0 ? insets.bottom : rs(6),
-          paddingTop:       rs(6),
+          paddingTop:       rs(4),
           elevation:        8,
           shadowColor:      "#000",
           shadowOpacity:    0.06,
@@ -34,7 +34,7 @@ export default function TabsLayout() {
           shadowOffset:     { width: 0, height: -2 },
         },
         tabBarLabelStyle: {
-          fontSize:     rf(11),
+          fontSize:     rf(12),
           fontWeight:   "600",
           marginBottom: Platform.OS === "ios" ? 0 : rs(2),
         },
@@ -72,9 +72,11 @@ export default function TabsLayout() {
       />
       <Tabs.Screen
         name="profile"
-        options={{
-          href: null,
-        }}
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="rapport-detail"
+        options={{ href: null }}
       />
     </Tabs>
   );

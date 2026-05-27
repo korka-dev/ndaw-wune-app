@@ -1,20 +1,25 @@
 /**
- * Écran Rapports — Vue principale
- * - Statistiques des 4 derniers rapports
- * - Bouton "Envoyer un rapport"
- * - Historique des derniers rapports
- *   → synced = 0 : "En cours" (pas "En attente")
- *   → synced = 1 : "Envoyé"
- *   → Envoi automatique dès reconnexion
+ * Écran Rapports — Statistiques globales + Historique complet
+ * ─────────────────────────────────────────────────────────────
+ * Structure :
+ *   1. Statistiques sur TOUS les rapports de l'utilisateur
+ *   2. Bouton "Envoyer un rapport"
+ *   3. Historique complet (du plus récent au plus ancien)
+ *
+ * Badges :
+ *   synced = 1 → "Envoyé"    (vert)
+ *   synced = 0 → "En cours"  (orange)
+ *
+ * Sync auto : dès que la connexion revient, les rapports en attente
+ * sont soumis automatiquement.
  */
 import React, { useState, useCallback, useEffect, useMemo } from "react";
 import {
-  View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal,
-  Image,
+  View, Text, TouchableOpacity, StyleSheet, ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { format, parseISO } from "date-fns";
 import { fr } from "date-fns/locale";
 
@@ -33,6 +38,11 @@ function fmtDate(iso: string): string {
   catch { return iso; }
 }
 
+function fmtDateShort(iso: string): string {
+  try { return format(parseISO(iso), "d MMM yyyy", { locale: fr }); }
+  catch { return iso; }
+}
+
 function getDiffs(json: string): string {
   try {
     const arr: string[] = JSON.parse(json);
@@ -44,122 +54,27 @@ function getDiffs(json: string): string {
 // ── Carte statistique ──────────────────────────────────────────────────────
 
 function StatCard({
-  icon, value, label, color,
-}: { icon: React.ComponentProps<typeof Feather>["name"]; value: string | number; label: string; color: string }) {
+  icon, value, label, color, sub,
+}: {
+  icon:  React.ComponentProps<typeof Feather>["name"];
+  value: string | number;
+  label: string;
+  color: string;
+  sub?:  string;
+}) {
   return (
     <View style={s.statCard}>
       <View style={[s.statIconWrap, { backgroundColor: color + "18" }]}>
         <Feather name={icon} size={rf(18)} color={color} />
       </View>
-      <Text style={s.statValue}>{value}</Text>
+      <Text style={[s.statValue, { color }]}>{value}</Text>
       <Text style={s.statLabel}>{label}</Text>
+      {sub ? <Text style={s.statSub}>{sub}</Text> : null}
     </View>
   );
 }
 
 // ── Modal détail rapport (lecture seule) ──────────────────────────────────
-
-
-function RapportDetailModal({
-  item, onClose,
-}: { item: RapportJournalierLocal | null; onClose: () => void }) {
-  if (!item) return null;
-  const synced = item.synced === 1;
-
-  let diffs: string[] = [];
-  try { diffs = JSON.parse(item.difficultes); } catch {}
-  const diffsLabel = diffs.length && diffs[0] !== "Aucune"
-    ? diffs.join(", ") : "Aucune";
-
-  return (
-    <Modal visible={!!item} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={s.modalOverlay}>
-        <View style={s.modalSheet}>
-          <View style={s.modalHandle} />
-
-          {/* En-tête */}
-          <View style={s.modalHeader}>
-            <View style={{ flex: 1 }}>
-              <Text style={s.modalTitle} numberOfLines={1}>
-                {fmtDate(item.date_rapport)}
-              </Text>
-              <Text style={s.modalSub}>
-                Semaine {item.semaine}  ·  Jour {item.jour_cours}
-              </Text>
-            </View>
-            <View style={[s.badge, synced ? s.badgeOk : s.badgeProgress]}>
-              <Feather name={synced ? "check-circle" : "loader"} size={rf(10)} color={synced ? C.success : C.brand} />
-              <Text style={[s.badgeTxt, { color: synced ? C.success : C.brand }]}>
-                {synced ? "Envoyé" : "En cours"}
-              </Text>
-            </View>
-            <TouchableOpacity onPress={onClose} style={s.modalClose}>
-              <Feather name="x" size={rf(20)} color={C.textMuted} />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView showsVerticalScrollIndicator={false}>
-
-            {/* Lieu */}
-            <View style={s.detailBlock}>
-              <InfoLine label="École"      value={item.ecole} />
-              <InfoLine label="Commune"    value={item.commune} />
-              <InfoLine label="IEF"        value={item.ief} />
-              <InfoLine label="Superviseur" value={item.superviseur} />
-            </View>
-
-            {/* Absences */}
-            <View style={s.detailBlock}>
-              <InfoLine label="Absences"   value={`${item.nb_absences} élève${item.nb_absences > 1 ? "s" : ""}`} />
-              {item.absents ? <InfoLine label="Absents" value={item.absents} /> : null}
-            </View>
-
-            {/* Difficultés */}
-            <View style={s.detailBlock}>
-              <InfoLine label="Difficultés" value={diffsLabel} />
-              {item.description_difficultes
-                ? <InfoLine label="Description" value={item.description_difficultes} />
-                : null}
-            </View>
-
-            {/* Suivi */}
-            <View style={s.detailBlock}>
-              <InfoLine label="Directeur venu"  value={item.directeur_venu ? "Oui" : "Non"} />
-              <InfoLine label="Besoin d'appui"  value={item.besoin_appui  ? "Oui" : "Non"} />
-            </View>
-
-            {/* Commentaires */}
-            {item.has_observations === 1 && item.commentaires ? (
-              <View style={s.detailBlock}>
-                <InfoLine label="Commentaires" value={item.commentaires} />
-              </View>
-            ) : null}
-
-            {/* Photo */}
-            {item.photo_classe ? (
-              <Image
-                source={{ uri: item.photo_classe }}
-                style={s.photoPreview}
-                resizeMode="cover"
-              />
-            ) : null}
-
-            <View style={{ height: rs(24) }} />
-          </ScrollView>
-        </View>
-      </View>
-    </Modal>
-  );
-}
-
-function InfoLine({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={s.infoLine}>
-      <Text style={s.infoLabel}>{label}</Text>
-      <Text style={s.infoValue}>{value}</Text>
-    </View>
-  );
-}
 
 // ── Carte rapport ──────────────────────────────────────────────────────────
 
@@ -176,9 +91,9 @@ function RapportCard({ item, onPress }: { item: RapportJournalierLocal; onPress:
           <Feather
             name={synced ? "check-circle" : "loader"}
             size={rf(10)}
-            color={synced ? C.success : C.brand}
+            color={synced ? C.success : C.warn}
           />
-          <Text style={[s.badgeTxt, { color: synced ? C.success : C.brand }]}>
+          <Text style={[s.badgeTxt, { color: synced ? C.success : C.warn }]}>
             {synced ? "Envoyé" : "En cours"}
           </Text>
         </View>
@@ -210,25 +125,23 @@ function RapportCard({ item, onPress }: { item: RapportJournalierLocal; onPress:
 // ── Écran principal ────────────────────────────────────────────────────────
 
 export default function RapportsScreen() {
+  const router = useRouter();
   const { isOnline, user, syncOffline } = useStore();
-  const [showForm,        setShowForm]        = useState(false);
-  const [profileOpen,     setProfileOpen]     = useState(false);
-  const [history,         setHistory]         = useState<RapportJournalierLocal[]>([]);
-  const [selectedRapport, setSelectedRapport] = useState<RapportJournalierLocal | null>(null);
+  const [showForm,    setShowForm]    = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [history,     setHistory]     = useState<RapportJournalierLocal[]>([]);
 
-  // ── Charger + auto-sync si nécessaire ─────────────────────────────────
+  // ── Charger TOUS les rapports + auto-sync si nécessaire ───────────────
   const loadAndSync = useCallback(async () => {
     try {
-      const all = getRapportsJournalier();
-      setHistory(all.slice(0, 4));
+      const all = getRapportsJournalier(); // tous, pas de slice
+      setHistory(all);
 
-      // Vérifier TOUS les rapports (pas seulement les 4 affichés)
       const hasPending = all.some(r => r.synced === 0);
       if (isOnline && hasPending) {
         await syncOffline(true);
-        // Recharger après sync pour mettre à jour les badges
         const updated = getRapportsJournalier();
-        setHistory(updated.slice(0, 4));
+        setHistory(updated);
       }
     } catch (e) {
       console.warn("[Rapports] Erreur lecture SQLite :", e);
@@ -243,7 +156,6 @@ export default function RapportsScreen() {
   // ── Envoi automatique dès que la connexion revient ─────────────────────
   useEffect(() => {
     if (!isOnline) return;
-    // Vérifier TOUS les rapports, pas uniquement les 4 affichés
     const allReports = getRapportsJournalier();
     const hasPending = allReports.some(r => r.synced === 0);
     if (!hasPending) return;
@@ -251,19 +163,20 @@ export default function RapportsScreen() {
       .then(() => {
         try {
           const updated = getRapportsJournalier();
-          setHistory(updated.slice(0, 4));
+          setHistory(updated);
         } catch {}
       })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOnline]);
 
-  // ── Statistiques calculées sur les 4 derniers rapports ────────────────
+  // ── Statistiques globales sur TOUS les rapports ───────────────────────
   const stats = useMemo(() => {
-    if (!history.length) return null;
-    const valide    = history.filter(r => r.synced === 1).length;
-    const nonValide = history.filter(r => r.synced === 0).length;
-    return { valide, nonValide };
+    const total          = history.length;
+    const envoyes        = history.filter(r => r.synced === 1).length;
+    const enCours        = history.filter(r => r.synced === 0).length;
+    const dernierRapport = total > 0 ? history[0].date_rapport : null;
+    return { total, envoyes, enCours, dernierRapport };
   }, [history]);
 
   // ── Vue formulaire ─────────────────────────────────────────────────────
@@ -274,7 +187,7 @@ export default function RapportsScreen() {
         onSuccess={() => {
           try {
             const all = getRapportsJournalier();
-            setHistory(all.slice(0, 4));
+            setHistory(all);
           } catch {}
           setShowForm(false);
         }}
@@ -282,9 +195,9 @@ export default function RapportsScreen() {
     );
   }
 
-  // ── Vue liste ──────────────────────────────────────────────────────────
+  // ── Vue principale ──────────────────────────────────────────────────────
   return (
-    <SafeAreaView style={s.root} edges={["bottom"]}>
+    <SafeAreaView style={s.root} edges={[]}>
 
       <AppHeader
         userName={user?.name ?? ""}
@@ -292,54 +205,90 @@ export default function RapportsScreen() {
       />
       <ProfileSheet visible={profileOpen} onClose={() => setProfileOpen(false)} />
 
-      <RapportDetailModal
-        item={selectedRapport}
-        onClose={() => setSelectedRapport(null)}
-      />
-
       <ScrollView
         contentContainerStyle={s.scroll}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Statistiques ── */}
-        {stats && (
+
+        {/* ── En-tête page ── */}
+        <View style={s.pageHeader}>
+          <Text style={s.pageTitle}>Mes rapports</Text>
+          {stats.dernierRapport && (
+            <Text style={s.pageSubtitle}>
+              Dernier envoi : {fmtDateShort(stats.dernierRapport)}
+            </Text>
+          )}
+        </View>
+
+        {/* ── Statistiques globales ── */}
+        {stats.total > 0 ? (
           <View style={s.statsSection}>
-            <View style={s.statsGrid}>
-              <StatCard icon="check-circle" value={stats.valide}    label="Validé"      color={C.success} />
-              <StatCard icon="clock"        value={stats.nonValide} label="Non validé"  color={C.warn}    />
+            {/* Validés + En attente */}
+            <View style={s.statsRow}>
+              <StatCard
+                icon="check-circle"
+                value={stats.envoyes}
+                label="Validés"
+                color={C.success}
+                sub={stats.envoyes > 0 ? "synchronisés" : undefined}
+              />
+              <StatCard
+                icon="clock"
+                value={stats.enCours}
+                label="En attente"
+                color={stats.enCours > 0 ? C.warn : C.textMuted}
+                sub={stats.enCours > 0 ? "sync auto" : "aucun"}
+              />
             </View>
+
+          </View>
+        ) : (
+          /* Aucun rapport — message d'invitation */
+          <View style={s.emptyStats}>
+            <Feather name="bar-chart-2" size={rf(36)} color={C.border} />
+            <Text style={s.emptyStatsTxt}>Aucune statistique pour l'instant</Text>
+            <Text style={s.emptyStatsSub}>Envoyez votre premier rapport pour voir vos données ici.</Text>
           </View>
         )}
 
-        {/* ── Bouton Envoyer ── */}
+        {/* ── Bouton Envoyer un rapport ── */}
         <TouchableOpacity
           style={s.sendBtn}
           onPress={() => setShowForm(true)}
           activeOpacity={0.85}
         >
-          <Feather name="plus" size={rf(18)} color="#fff" style={{ marginRight: rs(8) }} />
-          <Text style={s.sendBtnTxt}>Envoyer un rapport</Text>
+          <View style={s.sendBtnInner}>
+            <View style={s.sendBtnIcon}>
+              <Feather name="plus" size={rf(20)} color={C.brand} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.sendBtnTitle}>Envoyer un rapport</Text>
+              <Text style={s.sendBtnSub}>
+                {isOnline ? "Envoi immédiat" : "Mode hors-ligne — envoi auto à la reconnexion"}
+              </Text>
+            </View>
+            <Feather name="chevron-right" size={rf(20)} color={C.brand} />
+          </View>
         </TouchableOpacity>
 
-        {/* ── Historique ── */}
-        <View style={s.histSection}>
-          <Text style={s.sectionTitle}>Derniers rapports</Text>
-
-          {history.length === 0 ? (
-            <View style={s.emptyWrap}>
-              <Feather name="inbox" size={rf(36)} color={C.border} />
-              <Text style={s.emptyTxt}>Aucun rapport envoyé pour le moment</Text>
+        {/* ── Historique complet ── */}
+        {history.length > 0 && (
+          <View style={s.histSection}>
+            <View style={s.histHeader}>
+              <Text style={s.sectionTitle}>Historique</Text>
+              <Text style={s.histCount}>{history.length} rapport{history.length > 1 ? "s" : ""}</Text>
             </View>
-          ) : (
-            history.map(item => (
+
+            {history.map(item => (
               <RapportCard
                 key={item.id}
                 item={item}
-                onPress={() => setSelectedRapport(item)}
+                onPress={() => router.push(`/rapport-detail?id=${item.id}`)}
               />
-            ))
-          )}
-        </View>
+            ))}
+          </View>
+        )}
+
       </ScrollView>
     </SafeAreaView>
   );
@@ -349,44 +298,137 @@ export default function RapportsScreen() {
 
 const s = StyleSheet.create({
   root:   { flex: 1, backgroundColor: C.bg },
-  scroll: { padding: rs(16), paddingBottom: rs(40) },
+  scroll: { padding: rs(16), paddingBottom: rs(48) },
+
+  /* En-tête page */
+  pageHeader: {
+    marginBottom: rs(20),
+  },
+  pageTitle: {
+    fontSize: rf(22),
+    fontWeight: "800",
+    color: C.text,
+    marginBottom: rs(2),
+  },
+  pageSubtitle: {
+    fontSize: rf(14),
+    color: C.textMuted,
+    fontWeight: "500",
+    textTransform: "capitalize",
+  },
 
   sectionTitle: {
     fontSize: rf(14), fontWeight: "800", color: C.brand,
     textTransform: "uppercase", letterSpacing: 0.6,
-    marginBottom: rs(12),
   },
 
   /* Statistiques */
-  statsSection: { marginBottom: rs(20) },
-  statsGrid:    { flexDirection: "row", flexWrap: "wrap", gap: rs(10) },
+  statsSection: { marginBottom: rs(24) },
+  statsRow:     { flexDirection: "row", gap: rs(10), marginBottom: rs(10) },
+
   statCard: {
-    flex: 1, minWidth: "45%",
+    flex: 1,
     backgroundColor: C.surface,
-    borderRadius: rs(14), borderWidth: 1, borderColor: C.border,
-    padding: rs(14), alignItems: "center",
+    borderRadius: rs(14),
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: rs(14),
+    alignItems: "center",
   },
   statIconWrap: {
     width: rs(40), height: rs(40), borderRadius: rs(12),
     alignItems: "center", justifyContent: "center",
     marginBottom: rs(8),
   },
-  statValue: { fontSize: rf(24), fontWeight: "800", color: C.text, marginBottom: rs(2) },
-  statLabel: { fontSize: rf(13), color: C.textMuted, fontWeight: "600", textAlign: "center" },
+  statValue: { fontSize: rf(24), fontWeight: "800", marginBottom: rs(2) },
+  statLabel: { fontSize: rf(12), color: C.textMuted, fontWeight: "600", textAlign: "center" },
+  statSub:   { fontSize: rf(11), color: C.textMuted, marginTop: rs(2), textAlign: "center" },
+
+  /* Bannière absences */
+  absenceBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: C.surface,
+    borderRadius: rs(14),
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: rs(14),
+    gap: rs(12),
+  },
+  absenceIconWrap: {
+    width: rs(44),
+    height: rs(44),
+    borderRadius: rs(12),
+    backgroundColor: C.danger + "15",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  absenceValue: { fontSize: rf(22), fontWeight: "800", color: C.danger },
+  absenceLabel: { fontSize: rf(12), color: C.textMuted, fontWeight: "600" },
+  absenceAvg:   { fontSize: rf(12), color: C.textMuted, fontWeight: "600", textAlign: "right" },
+
+  /* Empty stats */
+  emptyStats: {
+    alignItems: "center",
+    paddingVertical: rs(28),
+    backgroundColor: C.surface,
+    borderRadius: rs(14),
+    borderWidth: 1,
+    borderColor: C.border,
+    marginBottom: rs(24),
+    gap: rs(8),
+  },
+  emptyStatsTxt: { fontSize: rf(16), fontWeight: "700", color: C.textMuted },
+  emptyStatsSub: { fontSize: rf(14), color: C.textMuted, textAlign: "center", paddingHorizontal: rs(24) },
 
   /* Bouton envoyer */
   sendBtn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center",
-    backgroundColor: C.brand, borderRadius: rs(14),
-    paddingVertical: rs(16),
+    backgroundColor: C.surface,
+    borderRadius: rs(16),
+    borderWidth: 2,
+    borderColor: C.brand,
     marginBottom: rs(28),
-    shadowColor: C.brand, shadowOpacity: 0.3,
-    shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 4,
+    overflow: "hidden",
   },
-  sendBtnTxt: { color: "#fff", fontWeight: "800", fontSize: rf(17), letterSpacing: 0.3 },
+  sendBtnInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: rs(16),
+    gap: rs(14),
+  },
+  sendBtnIcon: {
+    width: rs(46),
+    height: rs(46),
+    borderRadius: rs(13),
+    backgroundColor: C.brandSoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sendBtnTitle: {
+    fontSize: rf(17),
+    fontWeight: "800",
+    color: C.brand,
+    marginBottom: rs(2),
+  },
+  sendBtnSub: {
+    fontSize: rf(13),
+    color: C.textMuted,
+    fontWeight: "500",
+  },
 
   /* Historique */
   histSection: {},
+  histHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: rs(12),
+  },
+  histCount: {
+    fontSize: rf(13),
+    color: C.textMuted,
+    fontWeight: "600",
+  },
 
   /* Carte rapport */
   card: {
@@ -407,7 +449,7 @@ const s = StyleSheet.create({
     borderRadius: rs(20), paddingHorizontal: rs(8), paddingVertical: rs(3),
   },
   badgeOk:       { backgroundColor: C.successSoft },
-  badgeProgress: { backgroundColor: C.brandSoft },
+  badgeProgress: { backgroundColor: C.warnSoft },
   badgeTxt:      { fontSize: rf(12), fontWeight: "700" },
 
   cardRow: {
@@ -416,30 +458,4 @@ const s = StyleSheet.create({
   },
   cardMeta: { fontSize: rf(14), color: C.textMuted, flex: 1 },
 
-  /* Modal détail */
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
-  modalSheet:   { backgroundColor: C.surface, borderTopLeftRadius: rs(24), borderTopRightRadius: rs(24), padding: rs(20), maxHeight: "88%" },
-  modalHandle:  { width: rs(40), height: rs(4), borderRadius: rs(2), backgroundColor: C.border, alignSelf: "center", marginBottom: rs(16) },
-  modalHeader:  { flexDirection: "row", alignItems: "center", marginBottom: rs(16) },
-  modalTitle:   { fontSize: rf(17), fontWeight: "700", color: C.text, textTransform: "capitalize" },
-  modalSub:     { fontSize: rf(14), color: C.textMuted, marginTop: rs(2) },
-  modalClose:   { padding: rs(6), marginLeft: rs(8) },
-
-  /* Blocs d'info */
-  detailBlock:  { backgroundColor: C.bg, borderRadius: rs(12), borderWidth: 1, borderColor: C.border, marginBottom: rs(10), overflow: "hidden" },
-  infoLine:     { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: rs(14), paddingVertical: rs(11) },
-  infoLabel:    { fontSize: rf(15), color: C.textMuted, fontWeight: "500" },
-  infoValue:    { fontSize: rf(15), color: C.text, fontWeight: "600", flexShrink: 1, textAlign: "right", marginLeft: rs(16) },
-
-  photoPreview: { width: "100%", height: rs(180), borderRadius: rs(12), backgroundColor: C.border, marginBottom: rs(10) },
-
-  /* Vide */
-  emptyWrap: {
-    alignItems: "center", paddingVertical: rs(32),
-    backgroundColor: C.surface, borderRadius: rs(14),
-    borderWidth: 1, borderColor: C.border,
-  },
-  emptyTxt: {
-    marginTop: rs(10), fontSize: rf(15), color: C.textMuted, textAlign: "center",
-  },
 });

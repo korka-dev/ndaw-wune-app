@@ -1,6 +1,7 @@
 import { Redirect } from "expo-router";
 import { getSecure } from "../src/services/secureStorage";
 import { useEffect, useState } from "react";
+import LoadingScreen from "../src/components/LoadingScreen";
 
 export default function Index() {
   const [ready,    setReady]    = useState(false);
@@ -18,7 +19,7 @@ export default function Index() {
     });
   }, []);
 
-  if (!ready) return null;
+  if (!ready) return <LoadingScreen />;
 
   if (__DEV__) return <Redirect href="/welcome" />;
 

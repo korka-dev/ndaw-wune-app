@@ -7,7 +7,7 @@ import { rf, rs } from "../../src/utils/responsive";
 
 export default function SupervisorTabsLayout() {
   const insets = useSafeAreaInsets();
-  const TAB_BAR_HEIGHT = rs(52) + insets.bottom;
+  const TAB_BAR_HEIGHT = rs(58) + insets.bottom;
 
   return (
     <Tabs
@@ -16,14 +16,14 @@ export default function SupervisorTabsLayout() {
         headerShown: false,
         sceneStyle: { backgroundColor: C.bg },
         tabBarActiveTintColor:   C.brand,
-        tabBarInactiveTintColor: C.textMuted,
+        tabBarInactiveTintColor: C.text,
         tabBarStyle: {
           backgroundColor: C.surface,
           borderTopColor:  C.border,
           borderTopWidth:  1,
           height:          TAB_BAR_HEIGHT,
           paddingBottom:   insets.bottom > 0 ? insets.bottom : rs(6),
-          paddingTop:      rs(6),
+          paddingTop:      rs(4),
           elevation:       8,
           shadowColor:     "#000",
           shadowOpacity:   0.06,
@@ -31,7 +31,7 @@ export default function SupervisorTabsLayout() {
           shadowOffset:    { width: 0, height: -2 },
         },
         tabBarLabelStyle: {
-          fontSize:     rf(11),
+          fontSize:     rf(12),
           fontWeight:   "600",
           marginBottom: Platform.OS === "ios" ? 0 : rs(2),
         },

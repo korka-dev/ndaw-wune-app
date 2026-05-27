@@ -27,7 +27,9 @@ import {
   updateCachedSegments,
   schedulePauseAlert,
   cancelPauseAlert,
+  NOTIF_SETUP_MODAL_KEY,
 } from "../services/notifications";
+import NotificationSetupModal from "../components/NotificationSetupModal";
 
 /* ── Utilitaires ─────────────────────────────────────────────── */
 function pad(n: number) { return String(n).padStart(2, "0"); }
@@ -99,6 +101,15 @@ export default function HomeScreen() {
   }, []);
 
   const dayCompleted = todayPlan.length > 0 && todayPlan.every(seg => completedSegIds.includes(seg.id));
+
+  /* ── Modal configuration notifications (première fois) ── */
+  const [showNotifSetup, setShowNotifSetup] = useState(false);
+  useEffect(() => {
+    AsyncStorage.getItem(NOTIF_SETUP_MODAL_KEY)
+      .then(val => { if (!val) setShowNotifSetup(true); })
+      .catch(() => {});
+  }, []);
+
   /* Sync manuelle */
   const [syncing, setSyncing] = useState(false);
 
@@ -872,6 +883,12 @@ export default function HomeScreen() {
       )}
 
       <ProfileSheet visible={showProfile} onClose={() => setShowProfile(false)} />
+
+      {/* ── Configuration notifications (1ère ouverture) ── */}
+      <NotificationSetupModal
+        visible={showNotifSetup}
+        onClose={() => setShowNotifSetup(false)}
+      />
 
       {/* Modal rapport */}
       <Modal visible={showRapport} animationType="slide" transparent onRequestClose={() => setShowRapport(false)}>
