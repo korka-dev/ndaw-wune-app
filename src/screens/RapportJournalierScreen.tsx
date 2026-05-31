@@ -106,7 +106,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
 
   // Étape 1 — Absences
   const [nbAbsences, setNbAbsences] = useState("0");
-  const [absents,    setAbsents]    = useState("");
+  const [absentIds,  setAbsentIds]  = useState<string[]>([]);
 
   // Étape 2 — Progression
   const [semaine,   setSemaine]   = useState<number | null>(null);
@@ -139,6 +139,32 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
   const isAucune  = difficultes.length === 1 && difficultes[0] === "Aucune";
   const showDesc  = difficultes.length > 0 && !isAucune;
 
+  // Liste des élèves liés à l'enseignant (filtrés par ses classes)
+  const allEleves = syncData?.eleves ?? [];
+  const elevesDisponibles = profile?.classes?.length
+    ? allEleves.filter(e => profile.classes!.includes(e.classe))
+    : allEleves;
+
+  // Nom affiché d'un élève
+  const nomEleve = (e: { nom: string; prenom: string | null }) =>
+    e.prenom ? `${e.prenom} ${e.nom}` : e.nom;
+
+  // Toggle sélection d'un absent
+  const toggleAbsent = useCallback((id: string) => {
+    setAbsentIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  }, []);
+
+  // Chaîne de noms pour la soumission
+  const absentsStr = absentIds
+    .map(id => {
+      const e = elevesDisponibles.find(el => el.id === id);
+      return e ? nomEleve(e) : null;
+    })
+    .filter(Boolean)
+    .join(", ");
+
   // ── Camera ────────────────────────────────────────────────────────────
   const openCamera = useCallback(async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -169,7 +195,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
   const validateStep = (s: number): string | null => {
     switch (s) {
       case 1: // Absences + Progression
-        if (nb > 0 && !absents.trim()) return "Veuillez indiquer les noms des absents.";
+        if (nb > 0 && absentIds.length === 0) return "Veuillez sélectionner les élèves absents.";
         if (!semaine)   return "Veuillez sélectionner la semaine.";
         if (!jourCours) return "Veuillez sélectionner le jour de cours.";
         return null;
@@ -226,7 +252,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
       insertRapportJournalier({
         id: localId, date_rapport: dateIso,
         ief, commune, ecole, superviseur: superviseur.trim(), nom_tuteur: nomTuteur,
-        nb_absences: nb, absents: nb > 0 ? absents.trim() : null,
+        nb_absences: nb, absents: nb > 0 ? absentsStr : null,
         semaine: semaine!, jour_cours: jourCours!,
         difficultes: diffsJson,
         autres_difficultes:      hasAutres ? autresDifficultes.trim() : null,
@@ -243,7 +269,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
       const apiBody = {
         local_id: localId, date_rapport: dateIso,
         ief, commune, ecole, superviseur: superviseur.trim(), nom_tuteur: nomTuteur,
-        nb_absences: nb, absents: nb > 0 ? absents.trim() : null,
+        nb_absences: nb, absents: nb > 0 ? absentsStr : null,
         semaine: semaine!, jour_cours: jourCours!,
         difficultes:             JSON.stringify(difficultes),          // ← sérialisation JSON attendue par le backend
         autres_difficultes:      hasAutres ? autresDifficultes.trim() : null,
@@ -283,7 +309,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
 
   const resetForm = () => {
     setStep(1);
-    setNbAbsences("0"); setAbsents("");
+    setNbAbsences("0"); setAbsentIds([]);
     setSemaine(null); setJourCours(null);
     setDifficultes([]); setAutresDifficultes(""); setDescriptionDifficultes("");
     setDirecteurVenu(null); setBesoinAppui(null); setDomainesAppui("");
@@ -341,12 +367,34 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
 
             {nb > 0 && (
               <>
-                <Text style={s.question}>Noms des absents</Text>
-                <TextInput
-                  style={s.area} value={absents} onChangeText={setAbsents}
-                  placeholder="Noms séparés par des virgules…"
-                  placeholderTextColor={C.textMuted} multiline textAlignVertical="top"
-                />
+                <Text style={s.question}>Élèves absents</Text>
+                {elevesDisponibles.length > 0 ? (
+                  <>
+                    {elevesDisponibles.map(eleve => (
+                      <Check
+                        key={eleve.id}
+                        label={nomEleve(eleve)}
+                        checked={absentIds.includes(eleve.id)}
+                        onPress={() => toggleAbsent(eleve.id)}
+                      />
+                    ))}
+                    {absentIds.length > 0 && (
+                      <View style={s.absentsBadge}>
+                        <Feather name="users" size={rf(13)} color={C.brand} />
+                        <Text style={s.absentsBadgeTxt}>
+                          {absentIds.length} absent{absentIds.length > 1 ? "s" : ""} sélectionné{absentIds.length > 1 ? "s" : ""}
+                        </Text>
+                      </View>
+                    )}
+                  </>
+                ) : (
+                  <View style={s.noElevesWrap}>
+                    <Feather name="info" size={rf(15)} color={C.textMuted} />
+                    <Text style={s.noElevesTxt}>
+                      Aucun élève trouvé. Synchronisez vos données pour afficher la liste.
+                    </Text>
+                  </View>
+                )}
               </>
             )}
 
@@ -708,6 +756,24 @@ const s = StyleSheet.create({
   checkSel:    { borderColor: C.brand, backgroundColor: C.brand },
   optLabel:    { fontSize: rf(18), color: C.textMuted, flex: 1 },
   optLabelSel: { color: C.text, fontWeight: "600" },
+
+  /* Badge absents sélectionnés */
+  absentsBadge: {
+    flexDirection: "row", alignItems: "center", gap: rs(6),
+    backgroundColor: C.brandSoft, borderRadius: rs(8),
+    paddingHorizontal: rs(10), paddingVertical: rs(8),
+    marginTop: rs(12),
+  },
+  absentsBadgeTxt: { fontSize: rf(14), fontWeight: "600", color: C.brand, flex: 1 },
+
+  /* Message aucun élève */
+  noElevesWrap: {
+    flexDirection: "row", alignItems: "flex-start", gap: rs(8),
+    backgroundColor: C.surface, borderRadius: rs(10),
+    borderWidth: 1, borderColor: C.border,
+    padding: rs(12), marginTop: rs(4),
+  },
+  noElevesTxt: { fontSize: rf(14), color: C.textMuted, flex: 1, lineHeight: rf(20) },
 
   /* Compteur absences */
   counterRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: rs(24), marginVertical: rs(16) },

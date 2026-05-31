@@ -29,6 +29,7 @@ export interface SyncPayload {
     classe: string; matiere: string | null;
     titre: string | null;          // titre du segment (ex: "Accueil & rituels")
   }[];
+  eleves?: { id: string; nom: string; prenom: string | null; classe: string }[];
   stats?: {
     nb_eleves?: number;
     nb_tests?: number;
