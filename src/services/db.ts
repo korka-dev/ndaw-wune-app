@@ -16,7 +16,8 @@ export type QueueAction =
   | "SUBMIT_RAPPORT"              // envoyer un rapport de séance rédigé hors-ligne
   | "SUBMIT_RAPPORT_JOURNALIER"   // envoyer un rapport journalier rédigé hors-ligne
   | "PAUSE_SEANCE"                // mettre en pause une séance (hors-ligne)
-  | "RESUME_SEANCE";              // reprendre une séance en pause (hors-ligne)
+  | "RESUME_SEANCE"               // reprendre une séance en pause (hors-ligne)
+  | "REPORT_MISSED_SEANCE";       // signaler un créneau planifié manqué
 
 export interface QueueItem {
   id:         number;

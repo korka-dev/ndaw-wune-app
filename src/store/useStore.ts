@@ -33,6 +33,7 @@ interface AppStore {
   login:             (identifier: string, password: string) => Promise<{ mustChangePassword: boolean }>;
   logout:            () => Promise<void>;
   syncOffline:       (online: boolean) => Promise<void>;
+  hydrateFromCache:  (token: string) => Promise<void>;
   setActiveSeance:   (s: ActiveSeance | null) => void;
   setIsOnline:       (v: boolean) => void;
   clearPasswordFlag: () => void;
@@ -51,6 +52,24 @@ export const useStore = create<AppStore>((set, get) => ({
   setIsOnline:       (v) => set({ isOnline: v }),
   setActiveSeance:   (s) => set({ activeSeance: s }),
   clearPasswordFlag: () => set({ mustChangePassword: false }),
+
+  /**
+   * Hydrate le store depuis le cache local au redémarrage de l'app.
+   * Appelé depuis index.tsx quand un token valide est trouvé dans SecureStore.
+   * Sans ça, Zustand repart vide et NetworkWatcher ne peut pas syncer (token null).
+   */
+  hydrateFromCache: async (token: string) => {
+    set({ token });
+    try {
+      const cached = await getCached();
+      if (cached) {
+        set({ syncData: cached, user: cached.profile, lastSync: cached.synced_at });
+        console.log("[Store] Hydraté depuis le cache local");
+      }
+    } catch (e) {
+      console.warn("[Store] Erreur lors de l'hydratation du cache :", e);
+    }
+  },
 
   login: async (identifier, password) => {
     set({ loading: true });

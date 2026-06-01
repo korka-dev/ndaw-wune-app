@@ -220,6 +220,12 @@ async function processAction(item: QueueItem): Promise<void> {
       break;
     }
 
+    case "REPORT_MISSED_SEANCE": {
+      // Idempotent côté serveur — on envoie simplement le payload
+      await seancesApi.reportMissed(payload);
+      break;
+    }
+
     default:
       console.warn(`[Queue] Action inconnue : ${(item as any).action}`);
   }

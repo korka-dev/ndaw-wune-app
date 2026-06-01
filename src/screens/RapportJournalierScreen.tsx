@@ -105,8 +105,8 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
   const [step, setStep] = useState(1);
 
   // Étape 1 — Absences
-  const [nbAbsences, setNbAbsences] = useState("0");
-  const [absentIds,  setAbsentIds]  = useState<string[]>([]);
+  const [hasAbsences, setHasAbsences] = useState<boolean | null>(null); // null = pas encore répondu
+  const [absentIds,   setAbsentIds]   = useState<string[]>([]);
 
   // Étape 2 — Progression
   const [semaine,   setSemaine]   = useState<number | null>(null);
@@ -134,7 +134,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
   const [submitted, setSubmitted] = useState(false);
 
   // ── Dérivés ────────────────────────────────────────────────────────────
-  const nb        = parseInt(nbAbsences, 10) || 0;
+  const nb        = absentIds.length;   // calculé depuis les coches, pas d'état séparé
   const hasAutres = difficultes.includes("Autres");
   const isAucune  = difficultes.length === 1 && difficultes[0] === "Aucune";
   const showDesc  = difficultes.length > 0 && !isAucune;
@@ -195,7 +195,8 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
   const validateStep = (s: number): string | null => {
     switch (s) {
       case 1: // Absences + Progression
-        if (nb > 0 && absentIds.length === 0) return "Veuillez sélectionner les élèves absents.";
+        if (hasAbsences === null) return "Veuillez indiquer s'il y a des absences.";
+        if (hasAbsences && absentIds.length === 0) return "Veuillez sélectionner au moins un élève absent.";
         if (!semaine)   return "Veuillez sélectionner la semaine.";
         if (!jourCours) return "Veuillez sélectionner le jour de cours.";
         return null;
@@ -309,7 +310,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
 
   const resetForm = () => {
     setStep(1);
-    setNbAbsences("0"); setAbsentIds([]);
+    setHasAbsences(null); setAbsentIds([]);
     setSemaine(null); setJourCours(null);
     setDifficultes([]); setAutresDifficultes(""); setDescriptionDifficultes("");
     setDirecteurVenu(null); setBesoinAppui(null); setDomainesAppui("");
@@ -353,21 +354,31 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
       case 1:
         return (
           <ScrollView style={s.stepBody} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-            {/* Absences */}
-            <Text style={s.question}>Nombre d'absences aujourd'hui</Text>
-            <View style={s.counterRow}>
-              <TouchableOpacity style={s.counterBtn} onPress={() => setNbAbsences(String(Math.max(0, nb - 1)))}>
-                <Feather name="minus" size={rf(20)} color={C.brand} />
+            {/* Absences — Oui / Non */}
+            <Text style={s.question}>Y a-t-il des absences aujourd'hui ?</Text>
+            <View style={s.toggleRow}>
+              <TouchableOpacity
+                style={[s.toggleBtn, hasAbsences === false && s.toggleBtnNo]}
+                onPress={() => { setHasAbsences(false); setAbsentIds([]); }}
+                activeOpacity={0.7}
+              >
+                <Feather name="check" size={rf(15)} color={hasAbsences === false ? "#fff" : C.textMuted} style={{ marginRight: rs(6) }} />
+                <Text style={[s.toggleBtnTxt, hasAbsences === false && s.toggleBtnTxtActive]}>Non</Text>
               </TouchableOpacity>
-              <Text style={s.counterVal}>{nb}</Text>
-              <TouchableOpacity style={s.counterBtn} onPress={() => setNbAbsences(String(nb + 1))}>
-                <Feather name="plus" size={rf(20)} color={C.brand} />
+              <TouchableOpacity
+                style={[s.toggleBtn, hasAbsences === true && s.toggleBtnYes]}
+                onPress={() => setHasAbsences(true)}
+                activeOpacity={0.7}
+              >
+                <Feather name="user-x" size={rf(15)} color={hasAbsences === true ? "#fff" : C.textMuted} style={{ marginRight: rs(6) }} />
+                <Text style={[s.toggleBtnTxt, hasAbsences === true && s.toggleBtnTxtActive]}>Oui</Text>
               </TouchableOpacity>
             </View>
 
-            {nb > 0 && (
+            {/* Liste des élèves — uniquement si "Oui" */}
+            {hasAbsences === true && (
               <>
-                <Text style={s.question}>Élèves absents</Text>
+                <Text style={[s.question, { marginTop: rs(16) }]}>Sélectionnez les élèves absents</Text>
                 {elevesDisponibles.length > 0 ? (
                   <>
                     {elevesDisponibles.map(eleve => (
@@ -378,14 +389,18 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
                         onPress={() => toggleAbsent(eleve.id)}
                       />
                     ))}
-                    {absentIds.length > 0 && (
-                      <View style={s.absentsBadge}>
-                        <Feather name="users" size={rf(13)} color={C.brand} />
-                        <Text style={s.absentsBadgeTxt}>
-                          {absentIds.length} absent{absentIds.length > 1 ? "s" : ""} sélectionné{absentIds.length > 1 ? "s" : ""}
-                        </Text>
-                      </View>
-                    )}
+                    <View style={s.absentsBadge}>
+                      <Feather
+                        name={nb > 0 ? "user-x" : "users"}
+                        size={rf(13)}
+                        color={nb > 0 ? C.danger : C.textMuted}
+                      />
+                      <Text style={[s.absentsBadgeTxt, { color: nb > 0 ? C.danger : C.textMuted }]}>
+                        {nb > 0
+                          ? `${nb} absent${nb > 1 ? "s" : ""} sélectionné${nb > 1 ? "s" : ""}`
+                          : "Aucun élève sélectionné"}
+                      </Text>
+                    </View>
                   </>
                 ) : (
                   <View style={s.noElevesWrap}>
@@ -744,8 +759,9 @@ const s = StyleSheet.create({
   /* Corps de l'étape */
   stepBody: { flex: 1, paddingHorizontal: rs(16) },
 
-  question:  { fontSize: rf(17), fontWeight: "600", color: C.text, marginBottom: rs(14), lineHeight: rf(24), marginTop: rs(4) },
-  divider:   { height: 1, backgroundColor: C.border, marginVertical: rs(20) },
+  question:    { fontSize: rf(17), fontWeight: "600", color: C.text, marginBottom: rs(6), lineHeight: rf(24), marginTop: rs(4) },
+  questionSub: { fontSize: rf(13), color: C.textMuted, marginBottom: rs(14) },
+  divider:     { height: 1, backgroundColor: C.border, marginVertical: rs(20) },
 
   /* Options */
   optRow:      { flexDirection: "row", alignItems: "center", paddingVertical: rs(11), borderBottomWidth: 1, borderBottomColor: C.border },
@@ -826,6 +842,14 @@ const s = StyleSheet.create({
   semNumPast: { color: C.brand },
   semLbl:     { fontSize: rf(10), fontWeight: "600", color: C.textMuted, letterSpacing: 0.3 },
   semLblSel:  { color: "rgba(255,255,255,0.75)" },
+
+  /* Toggle Oui/Non */
+  toggleRow:       { flexDirection: "row", gap: rs(10), marginBottom: rs(4) },
+  toggleBtn:       { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: rs(14), borderRadius: rs(12), borderWidth: 1.5, borderColor: C.border, backgroundColor: C.bg },
+  toggleBtnNo:     { backgroundColor: C.success, borderColor: C.success },
+  toggleBtnYes:    { backgroundColor: C.danger,  borderColor: C.danger  },
+  toggleBtnTxt:    { fontSize: rf(16), fontWeight: "700", color: C.textMuted },
+  toggleBtnTxtActive: { color: "#fff" },
 
   /* Jour */
   jourRow: { flexDirection: "row", gap: rs(10) },

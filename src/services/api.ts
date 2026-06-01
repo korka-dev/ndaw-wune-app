@@ -123,6 +123,17 @@ export const seancesApi = {
 
   active: () => api.get("/app/seances/active"),
   list:   () => api.get("/app/seances"),
+
+  /** Signale un créneau planifié manqué (non démarré après son heure de fin). */
+  reportMissed: (d: {
+    session_id:           string;
+    planning_segment_id?: string | null;
+    classe:               string;
+    matiere?:             string | null;
+    date_seance:          string;
+    heure_debut:          string;
+    heure_fin:            string;
+  }) => api.post("/app/seances/report-missed", d),
 };
 
 // ── Rapports de séance ────────────────────────────────────────────────────────
