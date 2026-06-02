@@ -1,10 +1,13 @@
 import { create } from "zustand";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { authApi, superviseurApi } from "../services/api";
 import { setSecure, clearAuthTokens } from "../services/secureStorage";
 import { fetchAndCache, getCached, clearCache, SyncPayload } from "../services/cache";
 import { clearAllLocalData } from "../services/db";
 import { flushQueue, clearOfflineIdMap } from "../services/queue";
 import { cancelAllSessionAlerts } from "../services/notifications";
+
+const ACTIVE_SEANCE_KEY = "active_seance";
 
 interface ActiveSeance {
   id:         string;
@@ -50,7 +53,15 @@ export const useStore = create<AppStore>((set, get) => ({
   activeSeance:       null,
 
   setIsOnline:       (v) => set({ isOnline: v }),
-  setActiveSeance:   (s) => set({ activeSeance: s }),
+  setActiveSeance:   (s) => {
+    set({ activeSeance: s });
+    // Persister dans AsyncStorage pour survie au redémarrage / background kill
+    if (s) {
+      AsyncStorage.setItem(ACTIVE_SEANCE_KEY, JSON.stringify(s)).catch(() => {});
+    } else {
+      AsyncStorage.removeItem(ACTIVE_SEANCE_KEY).catch(() => {});
+    }
+  },
   clearPasswordFlag: () => set({ mustChangePassword: false }),
 
   /**
@@ -61,10 +72,20 @@ export const useStore = create<AppStore>((set, get) => ({
   hydrateFromCache: async (token: string) => {
     set({ token });
     try {
-      const cached = await getCached();
+      const [cached, activeSeanceRaw] = await Promise.all([
+        getCached(),
+        AsyncStorage.getItem(ACTIVE_SEANCE_KEY),
+      ]);
       if (cached) {
         set({ syncData: cached, user: cached.profile, lastSync: cached.synced_at });
         console.log("[Store] Hydraté depuis le cache local");
+      }
+      if (activeSeanceRaw) {
+        try {
+          const activeSeance = JSON.parse(activeSeanceRaw);
+          set({ activeSeance });
+          console.log("[Store] Séance active restaurée :", activeSeance.id);
+        } catch {}
       }
     } catch (e) {
       console.warn("[Store] Erreur lors de l'hydratation du cache :", e);
@@ -121,6 +142,7 @@ export const useStore = create<AppStore>((set, get) => ({
     await clearCache();             // AsyncStorage : snapshot JSON de sync
     clearAllLocalData();            // SQLite : queue offline + rapports cache
     await clearOfflineIdMap();      // AsyncStorage : mapping IDs offline
+    await AsyncStorage.removeItem(ACTIVE_SEANCE_KEY).catch(() => {});
     set({
       user: null,
       token: null,

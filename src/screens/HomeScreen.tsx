@@ -188,10 +188,21 @@ export default function HomeScreen() {
         try {
           const saved = JSON.parse(raw);
           if (saved.seanceId !== activeSeance.id) return; // état d'une autre séance
+          const savedTotalPausedMs = saved.totalPausedMs ?? 0;
           setIsPaused(saved.isPaused ?? false);
           setPausedAt(saved.pausedAt ?? null);
-          setTotalPausedMs(saved.totalPausedMs ?? 0);
+          setTotalPausedMs(savedTotalPausedMs);
           setPauseEvents(saved.pauseEvents ?? []);
+
+          // Si la séance était en pause au moment du kill, recalculer
+          // l'elapsed exact à l'instant de la pause (le timer ne tourne pas en pause)
+          if (saved.isPaused && saved.pausedAt) {
+            const start = new Date(activeSeance.started_at).getTime();
+            const elapsedAtPause = Math.floor(
+              (saved.pausedAt - start - savedTotalPausedMs) / 1000
+            );
+            setElapsed(Math.max(0, elapsedAtPause));
+          }
         } catch {}
       })
       .catch(() => {});

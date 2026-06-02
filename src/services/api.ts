@@ -160,3 +160,13 @@ export const rapportJournalierApi = {
 export const superviseurApi = {
   sync: () => api.get("/app/supervisor/sync"),
 };
+
+// ── Ressources pédagogiques ───────────────────────────────────────────────────
+export const ressourcesApi = {
+  list: () => api.get("/app/ressources"),
+  /** Retourne les données binaires du fichier (responseType: 'blob'). */
+  download: (id: string) =>
+    api.get(`/app/ressources/${id}/download`, { responseType: "blob" }),
+  /** URL directe pour ouvrir via Linking (authentification par header non possible). */
+  downloadUrl: (id: string) => `${api.defaults.baseURL}/app/ressources/${id}/download`,
+};
