@@ -327,7 +327,7 @@ export default function HomeScreen() {
         // Échec réseau : sera réconcilié via le payload de finish
       });
     } else {
-      enqueueAction("PAUSE_SEANCE", { seance_id: seanceId, paused_at: nowIso }).catch?.(() => {});
+      enqueueAction("PAUSE_SEANCE", { seance_id: seanceId, paused_at: nowIso });
     }
 
     // Notification si toujours en pause dans 5 min
@@ -367,7 +367,7 @@ export default function HomeScreen() {
     if (isOnline && !seanceId.startsWith("offline-")) {
       seancesApi.resume(seanceId, nowIso).catch(() => {});
     } else {
-      enqueueAction("RESUME_SEANCE", { seance_id: seanceId, resumed_at: nowIso }).catch?.(() => {});
+      enqueueAction("RESUME_SEANCE", { seance_id: seanceId, resumed_at: nowIso });
     }
 
     // Annuler l'alerte de pause
@@ -914,7 +914,7 @@ export default function HomeScreen() {
     const timeRange = `${seg.heure_debut.slice(0, 5)} – ${seg.heure_fin.slice(0, 5)}`;
 
     return (
-      <View key={seg.id} style={[s.planItemCard, isMissed && { borderLeftWidth: 3, borderLeftColor: C.danger }]}>
+      <View key={seg.id} style={s.planItemCard}>
         <View style={s.planItemBody}>
           <Text
             style={[s.planItemTitle, isDone && s.planItemTitleDone, isMissed && { color: C.danger, opacity: 0.7 }]}

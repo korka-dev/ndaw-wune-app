@@ -199,11 +199,13 @@ async function processAction(item: QueueItem): Promise<void> {
       if (seance_id?.startsWith("offline-")) {
         const idMap = await getOfflineIdMap();
         if (!idMap[seance_id]) {
-          // La réconciliation FINISH_SEANCE n'a pas encore eu lieu (pas d'entrée idMap).
-          // On lève sans .response → traité comme erreur réseau → arrêt du flush
-          // sans incrémenter attempts. Sera retryé au prochain cycle.
+          // La réconciliation FINISH_SEANCE n'a pas encore eu lieu.
+          // On lève AVEC .response → erreur métier → le flush CONTINUE et attempts s'incrémente.
+          // Après MAX_ATTEMPTS, l'action sera archivée (orpheline irrécupérable).
           console.warn(`[Queue] SUBMIT_RAPPORT (id ${item.id}) — séance offline non encore réconciliée, report au prochain cycle`);
-          throw new Error(`Séance offline ${seance_id} pas encore réconciliée — attente de FINISH_SEANCE`);
+          const deferErr = new Error(`Séance offline ${seance_id} pas encore réconciliée — attente de FINISH_SEANCE`);
+          Object.assign(deferErr, { response: { status: 202, data: { detail: deferErr.message } } });
+          throw deferErr;
         }
         resolvedSeanceId = idMap[seance_id];
       }

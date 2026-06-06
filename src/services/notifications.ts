@@ -179,14 +179,282 @@ export async function setupNotifications(): Promise<boolean> {
 }
 
 /**
- * Vérifie si la permission exact alarm est disponible (Android 12+).
- * Retourne true si accordée ou non nécessaire.
+ * Vérifie si la permission exact alarm est réellement accordée (Android 12+).
+ *
+ * Méthode : tenter de planifier une notification test dans 1 an, puis vérifier
+ * qu'elle apparaît dans le registre système. Si la tentative échoue ou si la
+ * notification n'est pas trouvée, la permission est absente.
+ *
+ * Retourne true si non nécessaire (< Android 12 ou iOS).
  */
 export async function checkExactAlarmPermission(): Promise<boolean> {
-  if (Platform.OS !== "android") return true;
-  // Sur Android 12+ (API 31+), SCHEDULE_EXACT_ALARM est déclaré dans le manifest
-  // et normalement accordé par défaut pour les apps non-cibles de restriction.
-  return true;
+  if (Platform.OS !== "android" || Number(Platform.Version) < 31) return true;
+  const testId = `__exactalarm_probe_${Date.now()}`;
+  try {
+    await Notifications.scheduleNotificationAsync({
+      identifier: testId,
+      content: { title: "_probe_" },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+      },
+    });
+    // Vérifier que la notification a bien été enregistrée par le système
+    const scheduled = await Notifications.getAllScheduledNotificationsAsync();
+    const found = (scheduled as any[]).some((n: any) => n.identifier === testId);
+    if (found) {
+      await Notifications.cancelScheduledNotificationAsync(testId);
+    }
+    return found;
+  } catch (e: any) {
+    console.warn("[Notif] checkExactAlarmPermission — probe échoué :", e?.message);
+    return false;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Détection fabricant OEM
+   ════════════════════════════════════════════════════════════════ */
+
+export type OemBrand =
+  | "xiaomi" | "samsung" | "huawei" | "oppo" | "realme" | "vivo"
+  | "tecno" | "infinix" | "itel"                   // Transsion Holdings — très répandus en Afrique
+  | "oneplus" | "asus" | "wiko" | "zte" | "lenovo" | "motorola" | "nokia"
+  | "other";                                        // Générique — toujours traité
+
+/**
+ * Détecte le fabricant Android via Platform.constants.Manufacturer / Brand.
+ * Lit les deux champs car certains OEM peuplent l'un ou l'autre selon la version.
+ * Retourne "other" si non reconnu ou sur iOS — "other" a son propre guide générique.
+ */
+export function detectAndroidManufacturer(): OemBrand {
+  if (Platform.OS !== "android") return "other";
+  // Certains OEM mettent le nom dans Brand, d'autres dans Manufacturer
+  const mfr   = ((Platform as any).constants?.Manufacturer ?? "").toLowerCase();
+  const brand = ((Platform as any).constants?.Brand        ?? "").toLowerCase();
+  const raw   = `${mfr} ${brand}`;
+
+  if (raw.includes("xiaomi") || raw.includes("redmi") || raw.includes("poco"))   return "xiaomi";
+  if (raw.includes("samsung"))                                                     return "samsung";
+  if (raw.includes("huawei") || raw.includes("honor"))                            return "huawei";
+  if (raw.includes("realme"))                                                      return "realme";
+  if (raw.includes("oppo"))                                                        return "oppo";
+  if (raw.includes("vivo"))                                                        return "vivo";
+  if (raw.includes("tecno"))                                                       return "tecno";
+  if (raw.includes("infinix"))                                                     return "infinix";
+  if (raw.includes("itel"))                                                        return "itel";
+  if (raw.includes("oneplus") || raw.includes("one plus") || raw.includes("1+"))  return "oneplus";
+  if (raw.includes("asus"))                                                        return "asus";
+  if (raw.includes("wiko"))                                                        return "wiko";
+  if (raw.includes("zte"))                                                         return "zte";
+  if (raw.includes("motorola") || raw.includes("moto "))                          return "motorola";
+  if (raw.includes("lenovo"))                                                      return "lenovo";
+  if (raw.includes("nokia"))                                                       return "nokia";
+  return "other";
+}
+
+/**
+ * Libellé lisible du fabricant pour l'affichage dans l'UI.
+ */
+export function oemLabel(brand: OemBrand): string {
+  switch (brand) {
+    case "xiaomi":   return "Xiaomi / Redmi / POCO";
+    case "samsung":  return "Samsung";
+    case "huawei":   return "Huawei / Honor";
+    case "oppo":     return "OPPO";
+    case "realme":   return "Realme";
+    case "vivo":     return "Vivo";
+    case "tecno":    return "Tecno";
+    case "infinix":  return "Infinix";
+    case "itel":     return "itel";
+    case "oneplus":  return "OnePlus";
+    case "asus":     return "Asus";
+    case "wiko":     return "Wiko";
+    case "zte":      return "ZTE";
+    case "motorola": return "Motorola";
+    case "lenovo":   return "Lenovo";
+    case "nokia":    return "Nokia";
+    default:         return "votre appareil";
+  }
+}
+
+/**
+ * Ouvre la page de paramètres d'autostart / activité arrière-plan propre à chaque OEM.
+ *
+ * Stratégie :
+ *   1. Tenter les intents propriétaires de l'OEM (plusieurs variantes selon la version).
+ *   2. En cas d'échec total, ouvrir les détails de l'app Android (toujours disponible).
+ *
+ * Les noms de packages/classes peuvent varier selon les versions de firmware ;
+ * c'est pourquoi chaque OEM liste plusieurs alternatives.
+ */
+export async function openOemBatterySettings(): Promise<void> {
+  if (Platform.OS !== "android") return;
+  const brand = detectAndroidManufacturer();
+  let IL: any;
+  try { IL = require("expo-intent-launcher"); } catch { return; }
+
+  const tryIntent = async (action: string, params?: object): Promise<boolean> => {
+    try { await IL.startActivityAsync(action, params); return true; } catch { return false; }
+  };
+
+  switch (brand) {
+
+    // ── Xiaomi / Redmi / POCO (MIUI / HyperOS) ───────────────────────────────
+    case "xiaomi":
+      if (await tryIntent("android.intent.action.MAIN", {
+        packageName: "com.miui.securitycenter",
+        className: "com.miui.permcenter.autostart.AutoStartManagementActivity",
+      })) return;
+      if (await tryIntent("android.intent.action.MAIN", {
+        packageName: "com.miui.securitycenter",
+        className: "com.miui.permcenter.autostart.NewAutoStartManagementActivity",
+      })) return;
+      // HyperOS (MIUI 14+)
+      if (await tryIntent("android.intent.action.MAIN", {
+        packageName: "com.miui.securitycenter",
+        className: "com.miui.permcenter.autostart.AutoStartListActivity",
+      })) return;
+      break;
+
+    // ── Samsung (One UI) ──────────────────────────────────────────────────────
+    case "samsung":
+      // Ouvrir les détails de l'app → Battery → Allow background activity
+      if (await tryIntent("android.settings.APPLICATION_DETAILS_SETTINGS", {
+        data: `package:${ANDROID_PACKAGE}`,
+      })) return;
+      break;
+
+    // ── Huawei / Honor (EMUI / MagicUI) ──────────────────────────────────────
+    case "huawei":
+      if (await tryIntent("android.intent.action.MAIN", {
+        packageName: "com.huawei.systemmanager",
+        className: "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity",
+      })) return;
+      if (await tryIntent("android.intent.action.MAIN", {
+        packageName: "com.huawei.systemmanager",
+        className: "com.huawei.systemmanager.optimize.process.ProtectActivity",
+      })) return;
+      // Honor Magic UI
+      if (await tryIntent("android.intent.action.MAIN", {
+        packageName: "com.huawei.systemmanager",
+        className: "com.huawei.systemmanager.appcontrol.activity.StartupAppControlActivity",
+      })) return;
+      break;
+
+    // ── OPPO (ColorOS) ────────────────────────────────────────────────────────
+    case "oppo":
+      if (await tryIntent("android.intent.action.MAIN", {
+        packageName: "com.coloros.safecenter",
+        className: "com.coloros.safecenter.permission.startup.FakeStartupAppListActivity",
+      })) return;
+      if (await tryIntent("android.intent.action.MAIN", {
+        packageName: "com.oppo.safe",
+        className: "com.oppo.safe.permission.startup.FakeStartupAppListActivity",
+      })) return;
+      if (await tryIntent("android.intent.action.MAIN", {
+        packageName: "com.coloros.oppoguardelf",
+        className: "com.coloros.powermanager.fuelgaue.PowerUsageModelActivity",
+      })) return;
+      break;
+
+    // ── Realme (Realme UI / ColorOS) ──────────────────────────────────────────
+    case "realme":
+      if (await tryIntent("android.intent.action.MAIN", {
+        packageName: "com.coloros.safecenter",
+        className: "com.coloros.safecenter.permission.startup.FakeStartupAppListActivity",
+      })) return;
+      if (await tryIntent("android.intent.action.MAIN", {
+        packageName: "com.realme.safecenter",
+        className: "com.realme.safecenter.permission.startup.FakeStartupAppListActivity",
+      })) return;
+      break;
+
+    // ── Vivo (FuntouchOS / OriginOS) ──────────────────────────────────────────
+    case "vivo":
+      if (await tryIntent("android.intent.action.MAIN", {
+        packageName: "com.vivo.permissionmanager",
+        className: "com.vivo.permissionmanager.activity.BgStartUpManagerActivity",
+      })) return;
+      if (await tryIntent("android.intent.action.MAIN", {
+        packageName: "com.iqoo.secure",
+        className: "com.iqoo.secure.ui.phoneoptimize.BgStartUpManager",
+      })) return;
+      if (await tryIntent("android.intent.action.MAIN", {
+        packageName: "com.vivo.abe",
+        className: "com.samsung.android.lool.scenes.AppSleepSettingActivity",
+      })) return;
+      break;
+
+    // ── Tecno / Infinix / itel (Transsion Holdings — HiOS / XOS) ─────────────
+    // Très répandus en Afrique de l'Ouest. Utilisent "Phone Master" pour la batterie.
+    case "tecno":
+    case "infinix":
+    case "itel":
+      if (await tryIntent("android.intent.action.MAIN", {
+        packageName: "com.transsion.phonemaster",
+        className: "com.transsion.phonemaster.business.startupmanager.StartUpManagerActivity",
+      })) return;
+      if (await tryIntent("android.intent.action.MAIN", {
+        packageName: "com.itel.phonemaster",
+        className: "com.transsion.phonemaster.business.startupmanager.StartUpManagerActivity",
+      })) return;
+      // Fallback : gestionnaire d'applications système
+      if (await tryIntent("android.settings.APPLICATION_DETAILS_SETTINGS", {
+        data: `package:${ANDROID_PACKAGE}`,
+      })) return;
+      break;
+
+    // ── OnePlus (OxygenOS / ColorOS depuis 2021) ──────────────────────────────
+    case "oneplus":
+      if (await tryIntent("android.intent.action.MAIN", {
+        packageName: "com.oneplus.security",
+        className: "com.oneplus.security.autostart.AutoStartManagementActivity",
+      })) return;
+      // OnePlus récent = ColorOS
+      if (await tryIntent("android.intent.action.MAIN", {
+        packageName: "com.coloros.safecenter",
+        className: "com.coloros.safecenter.permission.startup.FakeStartupAppListActivity",
+      })) return;
+      break;
+
+    // ── Asus (ZenUI) ──────────────────────────────────────────────────────────
+    case "asus":
+      if (await tryIntent("android.intent.action.MAIN", {
+        packageName: "com.asus.mobilemanager",
+        className: "com.asus.mobilemanager.powersaver.PowerSaverSettings",
+      })) return;
+      if (await tryIntent("android.intent.action.MAIN", {
+        packageName: "com.asus.mobilemanager",
+        className: "com.asus.mobilemanager.entry.FunctionActivity",
+      })) return;
+      break;
+
+    // ── ZTE (MiFavor UI) ──────────────────────────────────────────────────────
+    case "zte":
+      if (await tryIntent("android.intent.action.MAIN", {
+        packageName: "com.zte.zdm",
+        className: "com.sec.android.app.zdm.ui.batterysettings.ui.BatterySettingFragment",
+      })) return;
+      break;
+
+    // ── Motorola / Lenovo / Nokia / Wiko ─────────────────────────────────────
+    // Ces OEM sont proches d'Android stock. Le dialog batterie standard est suffisant,
+    // mais on ouvre les détails de l'app pour guider vers la section Batterie.
+    case "motorola":
+    case "lenovo":
+    case "nokia":
+    case "wiko":
+      if (await tryIntent("android.settings.APPLICATION_DETAILS_SETTINGS", {
+        data: `package:${ANDROID_PACKAGE}`,
+      })) return;
+      break;
+  }
+
+  // ── Fallback universel (OEM inconnu ou tous les intents ont échoué) ────────
+  await tryIntent("android.settings.APPLICATION_DETAILS_SETTINGS", {
+    data: `package:${ANDROID_PACKAGE}`,
+  });
 }
 
 /* ════════════════════════════════════════════════════════════════

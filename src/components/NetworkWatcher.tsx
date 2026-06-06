@@ -21,6 +21,7 @@ import * as Network from "expo-network";
 import { useStore } from "../store/useStore";
 import { flushQueue } from "../services/queue";
 import { scheduleSessionAlerts, updateCachedSegments } from "../services/notifications";
+import { syncRessourcesOffline } from "../services/ressources";
 
 const NETWORK_CHECK_MS = 15_000;   // 15 s — vérification connectivité
 const SYNC_INTERVAL_MS = 30_000;   // 30 s — sync données quand online
@@ -47,6 +48,8 @@ export default function NetworkWatcher() {
       const freshPlanning = useStore.getState().syncData?.planning ?? [];
       updateCachedSegments(freshPlanning);
       scheduleSessionAlerts(freshPlanning).catch(() => {});
+      // Téléchargement automatique des ressources en arrière-plan
+      syncRessourcesOffline().catch(() => {});
     } catch (e) {
       console.warn("[Sync] Erreur :", e);
     } finally {

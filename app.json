@@ -64,7 +64,8 @@
           ]
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-file-system"
     ],
     "scheme": "ared-ndawune",
     "runtimeVersion": {
