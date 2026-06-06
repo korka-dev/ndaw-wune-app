@@ -2,10 +2,11 @@
  * Écran Ressources FLN
  * ─────────────────────────────────────────────────────────────────
  * - Liste les documents uploadés par l'admin (PDF, Excel, CSV, Word…)
- * - Téléchargement explicite → stockage persistant (documentDirectory)
+ * - Téléchargement automatique au sync + explicite (bouton ↓)
  * - Viewer inline (AppHeader + tabs toujours visibles)
- *     PDF   : react-native-pdf (rendu natif iOS + Android, hors-ligne, tout format)
- *     Image : React Native <Image>
+ *     PDF (iOS)   : react-native-webview (rendu PDF natif WebKit, hors-ligne)
+ *     PDF (Android) : viewer système via IntentLauncher
+ *     Image       : React Native <Image>
  * - Word / Excel / CSV → app native (IntentLauncher / Share)
  * - Guard hors-ligne
  */
@@ -27,7 +28,7 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import Pdf from "react-native-pdf";
+import { WebView } from "react-native-webview";
 import * as FileSystem from "expo-file-system/legacy";
 import * as IntentLauncher from "expo-intent-launcher";
 
@@ -58,8 +59,8 @@ type Document = {
 type DownloadState = "none" | "downloading" | "ready";
 
 type ViewerSource =
-  | { kind: "pdf";   uri: string }   // react-native-pdf (iOS + Android natif)
-  | { kind: "image"; uri: string };  // Image React Native
+  | { kind: "webview"; uri: string }  // WebView PDF (iOS natif WebKit, hors-ligne)
+  | { kind: "image";   uri: string }; // Image React Native
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -120,8 +121,7 @@ function InlineViewer({
   onClose: () => void;
   onOpenExternal: () => void;
 }) {
-  const [loading,  setLoading]  = useState(source.kind === "pdf");
-  const [pageInfo, setPageInfo] = useState({ current: 1, total: 0 });
+  const [loading, setLoading] = useState(source.kind === "webview");
 
   return (
     <View style={vw.wrap}>
@@ -133,11 +133,6 @@ function InlineViewer({
         </TouchableOpacity>
 
         <Text style={vw.barTitle} numberOfLines={1}>{doc.title}</Text>
-
-        {/* Compteur de pages PDF */}
-        {source.kind === "pdf" && pageInfo.total > 1 && (
-          <Text style={vw.pageCounter}>{pageInfo.current} / {pageInfo.total}</Text>
-        )}
 
         {/* Ouvrir avec une autre app */}
         <TouchableOpacity style={vw.extBtn} onPress={onOpenExternal}
@@ -158,23 +153,18 @@ function InlineViewer({
                 <Text style={vw.overlayTxt}>Chargement du document…</Text>
               </View>
             )}
-            <Pdf
-              source={{ uri: source.uri, cache: false }}
+            <WebView
+              source={{ uri: source.uri }}
               style={vw.pdf}
-              fitPolicy={0}
-              spacing={8}
-              onLoadComplete={(numPages) => {
-                setPageInfo({ current: 1, total: numPages });
-                setLoading(false);
-              }}
-              onPageChanged={(page) => {
-                setPageInfo(p => ({ ...p, current: page }));
-              }}
-              onError={(err) => {
-                console.error("[Ressources] PDF render:", err);
+              onLoadEnd={() => setLoading(false)}
+              onError={() => {
                 setLoading(false);
                 Alert.alert("Erreur", "Impossible d'afficher ce document.");
               }}
+              allowFileAccess
+              allowFileAccessFromFileURLs
+              allowUniversalAccessFromFileURLs
+              originWhitelist={["*"]}
             />
           </>
         )}
@@ -415,11 +405,16 @@ export default function RessourcesScreen() {
       return;
     }
 
-    // PDF → react-native-pdf (rendu natif, iOS + Android, hors-ligne)
-    // Assure le préfixe file:// requis par react-native-pdf
+    // PDF :
+    //   iOS   → WebView (WebKit affiche les PDF file:// nativement, hors-ligne)
+    //   Android → viewer système via IntentLauncher (plus fiable que WebView)
     const pdfUri = localUri.startsWith("file://") ? localUri : `file://${localUri}`;
-    setViewerSource({ kind: "pdf", uri: pdfUri });
-    setActiveDoc(doc);
+    if (Platform.OS === "ios") {
+      setViewerSource({ kind: "webview", uri: pdfUri });
+      setActiveDoc(doc);
+    } else {
+      await handleOpenExternal(doc);
+    }
   }, [downloads, handleOpenExternal]);
 
   const closeViewer = useCallback(() => {
@@ -537,7 +532,6 @@ const vw = StyleSheet.create({
     backgroundColor: C.surfaceAlt, alignItems: "center", justifyContent: "center",
   },
   barTitle:    { flex: 1, fontSize: rf(15), fontWeight: "700", color: C.text },
-  pageCounter: { fontSize: rf(12), color: C.textMuted, fontWeight: "600" },
   content:     { flex: 1 },
   image:       { flex: 1, backgroundColor: "#000" },
   pdf:         { flex: 1, width: "100%" },
