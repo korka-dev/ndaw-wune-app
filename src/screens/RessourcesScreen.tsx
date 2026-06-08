@@ -4,8 +4,8 @@
  * - Liste les documents uploadés par l'admin (PDF, Excel, CSV, Word…)
  * - Téléchargement automatique au sync + explicite (bouton ↓)
  * - Viewer inline (AppHeader + tabs toujours visibles)
- *     PDF (iOS)   : react-native-webview (rendu PDF natif WebKit, hors-ligne)
- *     PDF (Android) : viewer système via IntentLauncher
+ *     PDF (iOS)     : react-native-webview (rendu PDF natif WebKit, hors-ligne)
+ *     PDF (Android) : react-native-pdf (rendu natif intégré, hors-ligne, gros fichiers OK)
  *     Image       : React Native <Image>
  * - Word / Excel / CSV → app native (IntentLauncher / Share)
  * - Guard hors-ligne
@@ -29,6 +29,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
+import Pdf from "react-native-pdf";
 import * as FileSystem from "expo-file-system/legacy";
 import * as IntentLauncher from "expo-intent-launcher";
 
@@ -60,6 +61,7 @@ type DownloadState = "none" | "downloading" | "ready";
 
 type ViewerSource =
   | { kind: "webview"; uri: string }  // WebView PDF (iOS natif WebKit, hors-ligne)
+  | { kind: "pdf";     uri: string }  // react-native-pdf (Android, rendu natif intégré, hors-ligne)
   | { kind: "image";   uri: string }; // Image React Native
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -121,7 +123,7 @@ function InlineViewer({
   onClose: () => void;
   onOpenExternal: () => void;
 }) {
-  const [loading, setLoading] = useState(source.kind === "webview");
+  const [loading, setLoading] = useState(source.kind === "webview" || source.kind === "pdf");
 
   return (
     <View style={vw.wrap}>
@@ -145,6 +147,24 @@ function InlineViewer({
       <View style={vw.content}>
         {source.kind === "image" ? (
           <Image source={{ uri: source.uri }} style={vw.image} resizeMode="contain" />
+        ) : source.kind === "pdf" ? (
+          <>
+            {loading && (
+              <View style={vw.overlay}>
+                <ActivityIndicator size="large" color={C.brand} />
+                <Text style={vw.overlayTxt}>Chargement du document…</Text>
+              </View>
+            )}
+            <Pdf
+              source={{ uri: source.uri }}
+              style={vw.pdf}
+              onLoadComplete={() => setLoading(false)}
+              onError={() => {
+                setLoading(false);
+                Alert.alert("Erreur", "Impossible d'afficher ce document.");
+              }}
+            />
+          </>
         ) : (
           <>
             {loading && (
@@ -407,15 +427,15 @@ export default function RessourcesScreen() {
     }
 
     // PDF :
-    //   iOS   → WebView (WebKit affiche les PDF file:// nativement, hors-ligne)
-    //   Android → viewer système via IntentLauncher (plus fiable que WebView)
+    //   iOS     → WebView (WebKit affiche les PDF file:// nativement, hors-ligne)
+    //   Android → react-native-pdf (rendu natif intégré, hors-ligne, gère les gros fichiers)
     const pdfUri = localUri.startsWith("file://") ? localUri : `file://${localUri}`;
     if (Platform.OS === "ios") {
       setViewerSource({ kind: "webview", uri: pdfUri });
-      setActiveDoc(doc);
     } else {
-      await handleOpenExternal(doc);
+      setViewerSource({ kind: "pdf", uri: pdfUri });
     }
+    setActiveDoc(doc);
   }, [downloads, handleOpenExternal]);
 
   const closeViewer = useCallback(() => {

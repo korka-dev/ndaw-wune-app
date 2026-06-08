@@ -39,6 +39,7 @@
       "expo-router",
       "expo-splash-screen",
       "expo-font",
+      "@config-plugins/react-native-pdf",
       [
         "expo-image-picker",
         {
