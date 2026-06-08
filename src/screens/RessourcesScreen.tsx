@@ -249,6 +249,7 @@ function DocCard({
 
 export default function RessourcesScreen() {
   const isOnline = useStore(st => st.isOnline);
+  const user     = useStore(st => st.user);
 
   const [docs,        setDocs]        = useState<Document[]>([]);
   const [loading,     setLoading]     = useState(true);
@@ -432,6 +433,7 @@ export default function RessourcesScreen() {
   return (
     <SafeAreaView style={s.safe} edges={[]}>
       <AppHeader
+        userName={user?.name ?? ""}
         onAvatarPress={() => setProfileOpen(true)}
         onSyncPress={() => { setRefreshing(true); fetchDocs(true); }}
         syncing={refreshing}

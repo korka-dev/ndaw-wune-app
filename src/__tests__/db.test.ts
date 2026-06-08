@@ -71,19 +71,23 @@ describe("offline_queue", () => {
 
   test("markActionFailed → incrémente attempts et enregistre l'erreur", () => {
     const id = enqueueAction("FINISH_SEANCE", { seance_id: "abc" });
-    markActionFailed(id, "Timeout réseau");
-    markActionFailed(id, "Erreur serveur");
+    const future = new Date(Date.now() + 60_000).toISOString();
+    markActionFailed(id, "Timeout réseau", future);
+    markActionFailed(id, "Erreur serveur", future);
     const pending = getPendingActions();
     expect(pending[0].attempts).toBe(2);
     expect(pending[0].last_error).toBe("Erreur serveur");
+    expect(pending[0].next_retry_at).toBe(future);
   });
 
-  test("resetFailedActions → remet attempts à 0 pour les actions bloquées", () => {
+  test("resetFailedActions → remet attempts à 0 et efface le backoff pour les actions bloquées", () => {
     const id = enqueueAction("FINISH_SEANCE", { seance_id: "abc" });
-    for (let i = 0; i < 5; i++) markActionFailed(id, "erreur");
+    const future = new Date(Date.now() + 60_000).toISOString();
+    for (let i = 0; i < 5; i++) markActionFailed(id, "erreur", future);
     expect(getPendingActions()[0].attempts).toBe(5);
     resetFailedActions();
     expect(getPendingActions()[0].attempts).toBe(0);
+    expect(getPendingActions()[0].next_retry_at).toBeNull();
   });
 
   test("clearQueue → vide entièrement la file", () => {
@@ -184,6 +188,30 @@ describe("failed_queue", () => {
     });
     clearFailedQueue();
     expect(getFailedActions()).toHaveLength(0);
+  });
+});
+
+// ── Migrations versionnées (PRAGMA user_version) ─────────────────────────────
+
+describe("migrations", () => {
+  test("initDB() amène la base à la dernière version sans erreur", () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const sqlite = require("expo-sqlite") as { openDatabaseSync: () => { getFirstSync: <T>(sql: string) => T | null } };
+    const db = sqlite.openDatabaseSync();
+    const row = db.getFirstSync<{ user_version: number }>("PRAGMA user_version");
+    expect(row?.user_version).toBeGreaterThan(0);
+  });
+
+  test("initDB() est idempotent — un second appel ne change rien", () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const sqlite = require("expo-sqlite") as { openDatabaseSync: () => { getFirstSync: <T>(sql: string) => T | null } };
+    const db = sqlite.openDatabaseSync();
+    const before = db.getFirstSync<{ user_version: number }>("PRAGMA user_version")?.user_version;
+
+    initDB();
+
+    const after = db.getFirstSync<{ user_version: number }>("PRAGMA user_version")?.user_version;
+    expect(after).toBe(before);
   });
 });
 

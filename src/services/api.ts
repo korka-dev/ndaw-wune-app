@@ -159,6 +159,36 @@ export const rapportJournalierApi = {
 // ── Superviseur ───────────────────────────────────────────────────────────────
 export const superviseurApi = {
   sync: () => api.get("/app/supervisor/sync"),
+
+  /** Élèves par classe pour les enseignants assignés à ce superviseur. */
+  eleves: () => api.get("/app/supervisor/eleves"),
+
+  /** Liste les évaluations soumises par ce superviseur. */
+  listEvaluations: (params?: { date_debut?: string; date_fin?: string; classe?: string }) =>
+    api.get("/app/supervisor/evaluations", { params }),
+
+  /**
+   * Soumet un lot d'évaluations.
+   * evaluations[] : { eleve_id, competence, resultat, date_eval, commentaire? }
+   */
+  submitEvaluations: (evaluations: {
+    eleve_id:    string;
+    competence:  string;
+    resultat:    string;   // "acquis" | "en_cours" | "a_aider"
+    date_eval:   string;   // YYYY-MM-DD
+    commentaire?: string;
+  }[]) => api.post("/app/supervisor/evaluations", { evaluations }),
+
+  /** Pointage de présence des enseignants déjà enregistré pour une date (par défaut aujourd'hui). */
+  getPresenceCheck: (date_jour?: string) =>
+    api.get("/app/supervisor/presences", { params: date_jour ? { date_jour } : undefined }),
+
+  /** Enregistre/valide le pointage de présence du jour (batch). */
+  submitPresenceCheck: (date_jour: string, entries: {
+    teacher_id: string;
+    present:    boolean;
+    motif?:     string | null;
+  }[]) => api.post("/app/supervisor/presences", { date_jour, entries }),
 };
 
 // ── Ressources pédagogiques ───────────────────────────────────────────────────

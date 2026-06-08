@@ -199,13 +199,14 @@ const s = StyleSheet.create({
     paddingBottom: rs(48),
   },
 
-  /* En-tête */
+  /* En-tête — remonté par rapport au login (écran avec moins de contenu,
+     on évite que le logo/titre paraissent trop bas sur l'écran) */
   header: {
     alignItems: "center",
-    marginTop: rs(8),
-    marginBottom: rs(32),
+    marginTop: 0,
+    marginBottom: rs(20),
   },
-  title:    { marginTop: rs(16), fontSize: rf(26), fontWeight: "800", color: C.text },
+  title:    { marginTop: rs(12), fontSize: rf(26), fontWeight: "800", color: C.text },
   subtitle: { marginTop: rs(6),  fontSize: rf(16), color: C.textMuted, textAlign: "center", lineHeight: rf(23) },
 
   /* Champs */

@@ -20,12 +20,13 @@ export type QueueAction =
   | "REPORT_MISSED_SEANCE";       // signaler un créneau planifié manqué
 
 export interface QueueItem {
-  id:         number;
-  action:     QueueAction;
-  payload:    string;        // JSON sérialisé
-  attempts:   number;        // nombre de tentatives échouées
-  last_error: string | null; // dernier message d'erreur
-  created_at: string;        // ISO 8601
+  id:            number;
+  action:        QueueAction;
+  payload:       string;        // JSON sérialisé
+  attempts:      number;        // nombre de tentatives échouées
+  last_error:    string | null; // dernier message d'erreur
+  next_retry_at: string | null; // ISO 8601 — ne pas rejouer avant cette date (backoff exponentiel)
+  created_at:    string;        // ISO 8601
 }
 
 export interface FailedQueueItem {
@@ -48,6 +49,58 @@ export interface RapportCache {
   difficultes:     string | null;
   synced:          number; // 0 = hors-ligne, 1 = synchronisé
   created_at:      string;
+}
+
+// ── Migrations versionnées (PRAGMA user_version) ─────────────────────────────
+//
+// Chaque migration porte le numéro de version qu'elle amène la base à atteindre.
+// Elles sont appliquées dans l'ordre, une seule fois, en partant de la version
+// courante stockée dans PRAGMA user_version. Le corps reste idempotent (try/catch
+// sur les ALTER TABLE) afin de ne jamais bloquer le démarrage si une base a déjà
+// été migrée manuellement par une version antérieure de l'app.
+
+interface Migration {
+  version: number;
+  up: (db: SQLite.SQLiteDatabase) => void;
+}
+
+const MIGRATIONS: Migration[] = [
+  {
+    // Ajout de la colonne photo_classe (URI locale de la photo prise par le tuteur)
+    version: 1,
+    up: (db) => {
+      try {
+        db.execSync(`ALTER TABLE rapports_journalier ADD COLUMN photo_classe TEXT`);
+      } catch { /* colonne déjà présente — base créée avec le schéma à jour */ }
+    },
+  },
+  {
+    // Ajout de next_retry_at — permet le backoff exponentiel avec jitter dans flushQueue
+    version: 2,
+    up: (db) => {
+      try {
+        db.execSync(`ALTER TABLE offline_queue ADD COLUMN next_retry_at TEXT`);
+      } catch { /* colonne déjà présente — base créée avec le schéma à jour */ }
+    },
+  },
+];
+
+const CURRENT_DB_VERSION = MIGRATIONS.reduce((max, m) => Math.max(max, m.version), 0);
+
+function runMigrations(db: SQLite.SQLiteDatabase): void {
+  const row = db.getFirstSync<{ user_version: number }>("PRAGMA user_version");
+  let version = row?.user_version ?? 0;
+
+  for (const migration of MIGRATIONS) {
+    if (migration.version <= version) continue;
+    migration.up(db);
+    db.execSync(`PRAGMA user_version = ${migration.version}`);
+    version = migration.version;
+  }
+
+  if (version !== CURRENT_DB_VERSION) {
+    db.execSync(`PRAGMA user_version = ${CURRENT_DB_VERSION}`);
+  }
 }
 
 // ── Initialisation ────────────────────────────────────────────────────────────
@@ -78,6 +131,7 @@ export function initDB(): void {
       payload    TEXT    NOT NULL,
       attempts   INTEGER NOT NULL DEFAULT 0,
       last_error TEXT,
+      next_retry_at TEXT,
       created_at TEXT    NOT NULL DEFAULT (datetime('now'))
     );
   `);
@@ -126,11 +180,6 @@ export function initDB(): void {
       created_at               TEXT    NOT NULL DEFAULT (datetime('now'))
     );
   `);
-  // Migration douce : ajouter la colonne photo_classe si elle n'existe pas encore
-  try {
-    getDB().execSync(`ALTER TABLE rapports_journalier ADD COLUMN photo_classe TEXT`);
-  } catch { /* colonne déjà présente */ }
-
   // Archive des actions qui ont dépassé MAX_ATTEMPTS — consultables dans le profil
   db.execSync(`
     CREATE TABLE IF NOT EXISTS failed_queue (
@@ -142,6 +191,9 @@ export function initDB(): void {
       failed_at   TEXT    NOT NULL DEFAULT (datetime('now'))
     );
   `);
+
+  // Migrations versionnées — n'appliquent que les changements de schéma manquants
+  runMigrations(db);
 }
 
 // ── Offline Queue — écriture ──────────────────────────────────────────────────
@@ -179,13 +231,14 @@ export function deleteAction(id: number): void {
 }
 
 /**
- * Incrémente le compteur d'erreurs et enregistre le dernier message.
+ * Incrémente le compteur d'erreurs, enregistre le dernier message et programme
+ * la prochaine tentative (backoff exponentiel + jitter, calculé par l'appelant).
  * Permet de détecter les actions bloquées (ex : serveur rejette en dur).
  */
-export function markActionFailed(id: number, error: string): void {
+export function markActionFailed(id: number, error: string, nextRetryAt: string): void {
   getDB().runSync(
-    `UPDATE offline_queue SET attempts = attempts + 1, last_error = ? WHERE id = ?`,
-    [error, id],
+    `UPDATE offline_queue SET attempts = attempts + 1, last_error = ?, next_retry_at = ? WHERE id = ?`,
+    [error, nextRetryAt, id],
   );
 }
 
@@ -195,7 +248,7 @@ export function markActionFailed(id: number, error: string): void {
  */
 export function resetFailedActions(): void {
   getDB().runSync(
-    `UPDATE offline_queue SET attempts = 0, last_error = NULL WHERE attempts >= ?`,
+    `UPDATE offline_queue SET attempts = 0, last_error = NULL, next_retry_at = NULL WHERE attempts >= ?`,
     [5],
   );
 }

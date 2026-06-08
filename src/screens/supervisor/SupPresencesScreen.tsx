@@ -56,26 +56,39 @@ export default function SupPresencesScreen() {
   const [locked,       setLocked]       = useState(false);
   const [profileOpen,  setProfileOpen]  = useState(false);
 
-  /* ── Chargement des enseignants assignés depuis l'API ── */
+  /* ── Chargement des enseignants assignés + du pointage déjà enregistré aujourd'hui ── */
   const fetchTeachers = useCallback(async () => {
     try {
       setError(null);
-      const { data } = await superviseurApi.sync();
-      const teachers: Teacher[] = data.teachers ?? [];
+      const [{ data }, presenceRes] = await Promise.all([
+        superviseurApi.sync(),
+        superviseurApi.getPresenceCheck().catch(() => null),
+      ]);
+      const teachers: Teacher[] = data.assigned_teachers ?? [];
 
       if (teachers.length === 0) {
         setProfs([]);
         return;
       }
 
-      setProfs(teachers.map(t => ({
-        id:        t.id,
-        nom:       t.name,
-        classe:    (t.classes ?? [])[0] ?? "—",
-        present:   null,
-        motif:     null,
-        initiales: makeInitials(t.name),
-      })));
+      /* Pointage déjà validé aujourd'hui — on le réaffiche après reconnexion */
+      const saved = new Map<string, { present: boolean; motif: string | null }>();
+      for (const e of presenceRes?.data?.entries ?? []) {
+        saved.set(e.teacher_id, { present: e.present, motif: e.motif ?? null });
+      }
+
+      setProfs(teachers.map(t => {
+        const s = saved.get(t.id);
+        return {
+          id:        t.id,
+          nom:       t.name,
+          classe:    (t.classes ?? [])[0] ?? "—",
+          present:   s ? s.present : null,
+          motif:     s ? s.motif   : null,
+          initiales: makeInitials(t.name),
+        };
+      }));
+      setLocked(saved.size > 0);
     } catch (e: any) {
       setError("Impossible de charger les enseignants. Vérifiez votre connexion.");
     }
@@ -87,8 +100,6 @@ export default function SupPresencesScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    setLocked(false);
-    setProfs(p => p.map(x => ({ ...x, present: null, motif: null })));
     await fetchTeachers();
     setRefreshing(false);
   };
@@ -108,14 +119,24 @@ export default function SupPresencesScreen() {
     setMotifChoice(null);
   };
 
-  const handleValidate = () => {
+  const handleValidate = async () => {
     setValidating(true);
-    setTimeout(() => {
-      setValidating(false);
+    try {
+      const todayIso = new Date().toISOString().slice(0, 10);
+      const entries = profs
+        .filter(p => p.present !== null)
+        .map(p => ({ teacher_id: p.id, present: p.present as boolean, motif: p.motif }));
+
+      await superviseurApi.submitPresenceCheck(todayIso, entries);
+
       setValidated(true);
       setLocked(true);
       setTimeout(() => setValidated(false), 2500);
-    }, 1000);
+    } catch {
+      setError("Impossible d'enregistrer les présences. Vérifiez votre connexion.");
+    } finally {
+      setValidating(false);
+    }
   };
 
   /* ── Stats ── */
@@ -255,14 +276,14 @@ export default function SupPresencesScreen() {
           </ScrollView>
         </View>
 
-        {/* Bouton valider — collé en bas */}
+        {/* Bouton valider — juste au-dessus du menu (barre d'onglets) */}
         <TouchableOpacity
           onPress={locked ? undefined : handleValidate}
           disabled={validating || defined === 0 || locked}
           style={[
             styles.validateBtn,
             (validating || defined === 0 || locked) && styles.validateBtnDisabled,
-            { marginBottom: insets.bottom + rs(16) },
+            { marginBottom: rs(10) },
           ]}
         >
           {validating ? (

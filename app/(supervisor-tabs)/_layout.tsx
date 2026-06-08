@@ -47,6 +47,15 @@ export default function SupervisorTabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="evaluation"
+        options={{
+          title: "Évaluation",
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="list" size={size ?? 22} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="rapports"
         options={{
           title: "Rapports",

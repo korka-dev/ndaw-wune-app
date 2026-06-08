@@ -8,10 +8,12 @@ type Row = Record<string, unknown>;
 
 class MockDatabase {
   private tables: Map<string, Row[]> = new Map();
+  private userVersion = 0;
 
   /** Réinitialise toutes les tables — à appeler dans beforeEach. */
   reset(): void {
     this.tables.clear();
+    this.userVersion = 0;
   }
 
   execSync(sql: string): void {
@@ -28,7 +30,11 @@ class MockDatabase {
     const delAll = trimmed.match(/^DELETE\s+FROM\s+(\w+)\s*;?\s*$/i);
     if (delAll) { this.tables.set(delAll[1], []); return; }
 
-    // ALTER TABLE / PRAGMA → ignorés
+    // PRAGMA user_version = N
+    const setVersion = trimmed.match(/^PRAGMA\s+user_version\s*=\s*(\d+)/i);
+    if (setVersion) { this.userVersion = Number(setVersion[1]); return; }
+
+    // ALTER TABLE / autres PRAGMA → ignorés
   }
 
   runSync(sql: string, params: unknown[] = []): { lastInsertRowId: number; changes: number } {
@@ -42,6 +48,16 @@ class MockDatabase {
   getAllSync<T = Row>(sql: string, _params: unknown[] = []): T[] {
     const table = this._table(sql);
     return table ? [...(this.tables.get(table) ?? [])] as T[] : [];
+  }
+
+  getFirstSync<T = Row>(sql: string, _params: unknown[] = []): T | null {
+    if (/^PRAGMA\s+user_version/i.test(sql.trim())) {
+      return { user_version: this.userVersion } as unknown as T;
+    }
+    const table = this._table(sql);
+    if (!table) return null;
+    const rows = this.tables.get(table) ?? [];
+    return (rows[0] as unknown as T) ?? null;
   }
 
   // ── Handlers ──────────────────────────────────────────────────────────────
@@ -79,13 +95,13 @@ class MockDatabase {
     const rows = this.tables.get(table) ?? [];
     let changes = 0;
 
-    // SET attempts = attempts + 1, last_error = ? WHERE id = ?
+    // SET attempts = attempts + 1, last_error = ?, next_retry_at = ? WHERE id = ?
     if (/attempts\s*=\s*attempts\s*\+\s*1/i.test(sql)) {
-      const [lastError, id] = params as [string, unknown];
+      const [lastError, nextRetryAt, id] = params as [string, string, unknown];
       const updated = rows.map(r => {
         if (String(r['id']) === String(id)) {
           changes++;
-          return { ...r, attempts: (Number(r['attempts']) || 0) + 1, last_error: lastError };
+          return { ...r, attempts: (Number(r['attempts']) || 0) + 1, last_error: lastError, next_retry_at: nextRetryAt };
         }
         return r;
       });
@@ -104,13 +120,13 @@ class MockDatabase {
       return { lastInsertRowId: 0, changes };
     }
 
-    // SET attempts = 0, last_error = NULL WHERE attempts >= ?
+    // SET attempts = 0, last_error = NULL, next_retry_at = NULL WHERE attempts >= ?
     if (/attempts\s*=\s*0/i.test(sql)) {
       const [threshold] = params as [number];
       const updated = rows.map(r => {
         if ((Number(r['attempts']) || 0) >= threshold) {
           changes++;
-          return { ...r, attempts: 0, last_error: null };
+          return { ...r, attempts: 0, last_error: null, next_retry_at: null };
         }
         return r;
       });
@@ -163,6 +179,7 @@ class MockDatabase {
     if (row['attempts']   == null) row['attempts']   = 0;
     if (row['synced']     == null) row['synced']     = 0;
     if (row['last_error'] == null && !('last_error' in row)) row['last_error'] = null;
+    if (row['next_retry_at'] == null && !('next_retry_at' in row)) row['next_retry_at'] = null;
     if (!row['created_at']) row['created_at'] = new Date().toISOString();
     if (!row['failed_at'])  row['failed_at']  = new Date().toISOString();
   }

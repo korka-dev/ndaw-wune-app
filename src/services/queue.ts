@@ -35,6 +35,30 @@ export { resetFailedActions };
 
 export const MAX_ATTEMPTS = 5;
 
+// ── Backoff exponentiel avec jitter ───────────────────────────────────────────
+//
+// Évite l'effet "thundering herd" : si plusieurs appareils retrouvent la
+// connexion en même temps, ils ne doivent pas tous rejouer leurs actions
+// échouées au même instant ni au même rythme. Le délai croît avec le nombre
+// de tentatives (5s, 10s, 20s, 40s, …, plafonné à 5 min) et reçoit un jitter
+// aléatoire de ±30 % pour désynchroniser les appareils entre eux.
+
+const BASE_DELAY_MS = 5_000;
+const MAX_DELAY_MS  = 5 * 60_000;
+const JITTER_RATIO  = 0.3;
+
+function computeNextRetryAt(attempts: number): string {
+  const exponential = Math.min(BASE_DELAY_MS * 2 ** attempts, MAX_DELAY_MS);
+  const jitter = exponential * JITTER_RATIO * (Math.random() * 2 - 1);
+  const delayMs = Math.max(0, Math.round(exponential + jitter));
+  return new Date(Date.now() + delayMs).toISOString();
+}
+
+function isDueForRetry(item: QueueItem): boolean {
+  if (!item.next_retry_at) return true;
+  return new Date(item.next_retry_at).getTime() <= Date.now();
+}
+
 const OFFLINE_ID_MAP_KEY = "offline_seance_id_map";
 
 async function getOfflineIdMap(): Promise<Record<string, string>> {
@@ -76,6 +100,13 @@ export async function flushQueue(): Promise<number> {
         last_error: item.last_error,
       });
       deleteAction(item.id);
+      continue;
+    }
+
+    // Backoff exponentiel : une action déjà en échec attend son créneau avant
+    // d'être rejouée, pour ne pas marteler le serveur à chaque flush (30 s).
+    if (item.attempts > 0 && !isDueForRetry(item)) {
+      console.log(`[Queue] Action ${item.id} (${item.action}) en attente de backoff — prochaine tentative à ${item.next_retry_at}`);
       continue;
     }
 
@@ -131,8 +162,9 @@ export async function flushQueue(): Promise<number> {
         console.warn(`[Queue] Erreur réseau — arrêt du flush`);
         break;
       } else {
-        markActionFailed(item.id, errMsg);
-        console.warn(`[Queue] ❌ ${item.action} (id ${item.id}) [HTTP ${httpStatus}] échoué : ${errMsg}`);
+        const nextRetryAt = computeNextRetryAt(item.attempts + 1);
+        markActionFailed(item.id, errMsg, nextRetryAt);
+        console.warn(`[Queue] ❌ ${item.action} (id ${item.id}) [HTTP ${httpStatus}] échoué : ${errMsg} — prochaine tentative à ${nextRetryAt}`);
       }
     }
   }

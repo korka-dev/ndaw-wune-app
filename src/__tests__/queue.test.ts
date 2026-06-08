@@ -250,7 +250,7 @@ describe("flushQueue — gestion des erreurs", () => {
     });
 
     for (let i = 0; i < MAX_ATTEMPTS; i++) {
-      markActionFailed(id, "Erreur serveur persistante");
+      markActionFailed(id, "Erreur serveur persistante", new Date(Date.now() - 1000).toISOString());
     }
 
     // L'action a maintenant MAX_ATTEMPTS tentatives → elle doit être archivée
@@ -266,6 +266,52 @@ describe("flushQueue — gestion des erreurs", () => {
     expect(failed[0].last_error).toBe("Erreur serveur persistante");
     // L'API n'a pas été appelée (action retirée avant l'appel)
     expect(seancesApi.finish).not.toHaveBeenCalled();
+  });
+
+  test("backoff exponentiel : une action en échec programme next_retry_at dans le futur", async () => {
+    (seancesApi.finish as jest.Mock)
+      .mockRejectedValue({ response: { status: 409, data: { detail: "Conflit" } } });
+
+    enqueueAction("FINISH_SEANCE", { seance_id: SERVER_UUID, finished_at: "2026-05-23T10:00:00Z", duree_minutes: 30 });
+
+    const before = Date.now();
+    await flushQueue();
+
+    const pending = getPendingActions();
+    expect(pending[0].attempts).toBe(1);
+    expect(pending[0].next_retry_at).not.toBeNull();
+    // La prochaine tentative est programmée dans le futur (backoff > 0)
+    expect(new Date(pending[0].next_retry_at as string).getTime()).toBeGreaterThan(before);
+  });
+
+  test("backoff exponentiel : une action pas encore due n'est pas rejouée", async () => {
+    (seancesApi.finish as jest.Mock).mockResolvedValue({ data: {} });
+
+    const id = enqueueAction("FINISH_SEANCE", { seance_id: SERVER_UUID, finished_at: "2026-05-23T10:00:00Z", duree_minutes: 30 });
+    // Simuler un échec récent avec un prochain essai programmé dans 10 minutes
+    markActionFailed(id, "Erreur serveur", new Date(Date.now() + 10 * 60_000).toISOString());
+
+    const count = await flushQueue();
+
+    // L'action est ignorée tant que son créneau de backoff n'est pas atteint
+    expect(count).toBe(0);
+    expect(seancesApi.finish).not.toHaveBeenCalled();
+    expect(getPendingActions()).toHaveLength(1);
+    expect(getPendingActions()[0].attempts).toBe(1);
+  });
+
+  test("backoff exponentiel : une action dont le créneau est passé est rejouée", async () => {
+    (seancesApi.finish as jest.Mock).mockResolvedValue({ data: {} });
+
+    const id = enqueueAction("FINISH_SEANCE", { seance_id: SERVER_UUID, finished_at: "2026-05-23T10:00:00Z", duree_minutes: 30 });
+    // Le créneau de backoff est déjà passé
+    markActionFailed(id, "Erreur serveur", new Date(Date.now() - 1000).toISOString());
+
+    const count = await flushQueue();
+
+    expect(count).toBe(1);
+    expect(seancesApi.finish).toHaveBeenCalled();
+    expect(getPendingActions()).toHaveLength(0);
   });
 
   test("queue vide : retourne 0 sans appels API", async () => {
