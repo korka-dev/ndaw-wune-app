@@ -2,13 +2,14 @@
  * Écran Ressources FLN
  * ─────────────────────────────────────────────────────────────────
  * - Liste les documents uploadés par l'admin (PDF, Excel, CSV, Word…)
- * - Téléchargement automatique au sync + explicite (bouton ↓)
+ * - Téléchargement avec barre de progression (fichiers ~20 Mo)
+ * - Mode hors-ligne : la liste est mise en cache, les docs téléchargés
+ *   restent consultables sans connexion
  * - Viewer inline (AppHeader + tabs toujours visibles)
- *     PDF (iOS)     : react-native-webview (rendu PDF natif WebKit, hors-ligne)
- *     PDF (Android) : react-native-pdf (rendu natif intégré, hors-ligne, gros fichiers OK)
- *     Image       : React Native <Image>
+ *     PDF (iOS)     : react-native-webview (rendu PDF natif WebKit)
+ *     PDF (Android) : react-native-pdf (rendu natif intégré)
+ *     Image         : React Native <Image>
  * - Word / Excel / CSV → app native (IntentLauncher / Share)
- * - Guard hors-ligne
  */
 import React, { useState, useCallback, useEffect } from "react";
 import {
@@ -43,7 +44,13 @@ import { useStore } from "../store/useStore";
 
 // ── Constantes ─────────────────────────────────────────────────────────────────
 
-const DOWNLOADS_KEY = "@ressources_offline_v1";
+const DOWNLOADS_KEY  = "@ressources_offline_v1";
+const DOCS_CACHE_KEY = "@ressources_docs_list_v1";
+
+// Timeout de stagnation : si aucun octet n'arrive pendant cette durée → connexion morte.
+// NE PAS utiliser un timeout total fixe : sur réseau 2G sénégalais (~150 kbps),
+// 20 Mo peut prendre 15-20 minutes. On annule uniquement si le transfert est bloqué.
+const STALL_TIMEOUT_MS = 30_000; // 30 s sans aucune activité réseau
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -57,12 +64,12 @@ type Document = {
   created_at: string;
 };
 
-type DownloadState = "none" | "downloading" | "ready";
+type DownloadState = "none" | "downloading" | "ready" | "unavailable";
 
 type ViewerSource =
-  | { kind: "webview"; uri: string }  // WebView PDF (iOS natif WebKit, hors-ligne)
-  | { kind: "pdf";     uri: string }  // react-native-pdf (Android, rendu natif intégré, hors-ligne)
-  | { kind: "image";   uri: string }; // Image React Native
+  | { kind: "webview"; uri: string }
+  | { kind: "pdf";     uri: string }
+  | { kind: "image";   uri: string };
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -127,23 +134,18 @@ function InlineViewer({
 
   return (
     <View style={vw.wrap}>
-      {/* Barre retour */}
       <View style={vw.bar}>
         <TouchableOpacity style={vw.backBtn} onPress={onClose}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Feather name="arrow-left" size={rf(18)} color={C.text} />
         </TouchableOpacity>
-
         <Text style={vw.barTitle} numberOfLines={1}>{doc.title}</Text>
-
-        {/* Ouvrir avec une autre app */}
         <TouchableOpacity style={vw.extBtn} onPress={onOpenExternal}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Feather name="external-link" size={rf(16)} color={C.textMuted} />
         </TouchableOpacity>
       </View>
 
-      {/* Contenu */}
       <View style={vw.content}>
         {source.kind === "image" ? (
           <Image source={{ uri: source.uri }} style={vw.image} resizeMode="contain" />
@@ -159,10 +161,7 @@ function InlineViewer({
               source={{ uri: source.uri }}
               style={vw.pdf}
               onLoadComplete={() => setLoading(false)}
-              onError={() => {
-                setLoading(false);
-                Alert.alert("Erreur", "Impossible d'afficher ce document.");
-              }}
+              onError={() => { setLoading(false); Alert.alert("Erreur", "Impossible d'afficher ce document."); }}
             />
           </>
         ) : (
@@ -177,10 +176,7 @@ function InlineViewer({
               source={{ uri: source.uri }}
               style={vw.pdf}
               onLoadEnd={() => setLoading(false)}
-              onError={() => {
-                setLoading(false);
-                Alert.alert("Erreur", "Impossible d'afficher ce document.");
-              }}
+              onError={() => { setLoading(false); Alert.alert("Erreur", "Impossible d'afficher ce document."); }}
               allowFileAccess
               allowFileAccessFromFileURLs
               allowUniversalAccessFromFileURLs
@@ -198,27 +194,32 @@ function InlineViewer({
 function DocCard({
   doc,
   dlState,
+  progress,
   onDownload,
   onOpen,
   onDeleteLocal,
 }: {
   doc: Document;
   dlState: DownloadState;
+  progress: number;           // 0–1, significatif quand dlState === "downloading"
   onDownload: () => void;
   onOpen: () => void;
   onDeleteLocal: () => void;
 }) {
   const cat  = getCategory(doc.mime_type, doc.original_filename);
   const meta = CAT_META[cat];
+  const pct  = Math.round(progress * 100);
 
   return (
-    <View style={s.card}>
-      <View style={[s.cardIcon, { backgroundColor: meta.bg }]}>
+    <View style={[s.card, dlState === "unavailable" && s.cardUnavailable]}>
+      <View style={[s.cardIcon, { backgroundColor: meta.bg, opacity: dlState === "unavailable" ? 0.45 : 1 }]}>
         <Feather name={meta.icon} size={22} color={meta.color} />
       </View>
 
       <View style={s.cardBody}>
-        <Text style={s.cardTitle} numberOfLines={2}>{doc.title}</Text>
+        <Text style={[s.cardTitle, dlState === "unavailable" && s.cardTitleMuted]} numberOfLines={2}>
+          {doc.title}
+        </Text>
         <View style={s.cardRow}>
           <View style={[s.badge, { backgroundColor: meta.bg }]}>
             <Text style={[s.badgeTxt, { color: meta.color }]}>{meta.label}</Text>
@@ -230,10 +231,28 @@ function DocCard({
         {doc.description ? (
           <Text style={s.cardDesc} numberOfLines={1}>{doc.description}</Text>
         ) : null}
+
+        {/* Barre de progression — visible uniquement pendant le téléchargement */}
+        {dlState === "downloading" && (
+          <View style={s.progressRow}>
+            <View style={s.progressTrack}>
+              <View style={[s.progressFill, { width: `${pct}%` as any }]} />
+            </View>
+            <Text style={s.progressPct}>{pct} %</Text>
+          </View>
+        )}
+
         {dlState === "ready" && (
           <View style={s.offlineBadge}>
             <Feather name="check-circle" size={rf(11)} color={C.success} />
             <Text style={s.offlineBadgeTxt}>Disponible hors-ligne</Text>
+          </View>
+        )}
+
+        {dlState === "unavailable" && (
+          <View style={s.offlineBadge}>
+            <Feather name="wifi-off" size={rf(11)} color={C.textMuted} />
+            <Text style={s.unavailableTxt}>Non disponible hors-ligne</Text>
           </View>
         )}
       </View>
@@ -251,8 +270,14 @@ function DocCard({
             </TouchableOpacity>
           </>
         ) : dlState === "downloading" ? (
+          /* Spinner pendant le transfert — la progression est dans la barre */
           <View style={[s.actionBtn, { backgroundColor: C.brandSoft }]}>
             <ActivityIndicator size="small" color={C.brand} />
+          </View>
+        ) : dlState === "unavailable" ? (
+          /* Pas de connexion et pas encore téléchargé */
+          <View style={[s.actionBtn, { backgroundColor: C.surfaceAlt }]}>
+            <Feather name="wifi-off" size={15} color={C.textMuted} />
           </View>
         ) : (
           <TouchableOpacity style={[s.actionBtn, { backgroundColor: C.brandSoft }]}
@@ -272,11 +297,13 @@ export default function RessourcesScreen() {
   const user     = useStore(st => st.user);
 
   const [docs,        setDocs]        = useState<Document[]>([]);
+  const [fromCache,   setFromCache]   = useState(false);   // liste chargée depuis le cache
   const [loading,     setLoading]     = useState(true);
   const [refreshing,  setRefreshing]  = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [downloads,   setDownloads]   = useState<Record<string, string>>({});
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [progress,    setProgress]    = useState<Record<string, number>>({});
 
   // Viewer
   const [activeDoc,    setActiveDoc]    = useState<Document | null>(null);
@@ -310,14 +337,28 @@ export default function RessourcesScreen() {
     await AsyncStorage.setItem(DOWNLOADS_KEY, JSON.stringify(updated));
   }, []);
 
-  // ── Liste ─────────────────────────────────────────────────────────────────
+  // ── Liste — avec cache hors-ligne ─────────────────────────────────────────
   const fetchDocs = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
       const { data } = await ressourcesApi.list();
       setDocs(data);
+      setFromCache(false);
+      // Mettre en cache pour la prochaine fois hors-ligne
+      AsyncStorage.setItem(DOCS_CACHE_KEY, JSON.stringify(data)).catch(() => {});
     } catch {
-      if (!silent) Alert.alert("Erreur", "Impossible de charger les ressources.");
+      // Réseau indisponible → fallback cache
+      try {
+        const cached = await AsyncStorage.getItem(DOCS_CACHE_KEY);
+        if (cached) {
+          setDocs(JSON.parse(cached));
+          setFromCache(true);
+        } else if (!silent) {
+          Alert.alert("Erreur", "Impossible de charger les ressources. Vérifiez votre connexion.");
+        }
+      } catch {
+        if (!silent) Alert.alert("Erreur", "Impossible de charger les ressources.");
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -331,32 +372,82 @@ export default function RessourcesScreen() {
     fetchDocs(true);
   }, [fetchDocs]);
 
-  // ── Téléchargement ────────────────────────────────────────────────────────
+  // ── Téléchargement avec progression ──────────────────────────────────────
   const handleDownload = useCallback(async (doc: Document) => {
     if (!isOnline) {
       Alert.alert("Hors-ligne", "Connectez-vous pour télécharger ce document.");
       return;
     }
     setDownloading(doc.id);
+    setProgress(prev => ({ ...prev, [doc.id]: 0 }));
     const localUri = persistentUri(doc);
+
+    let resumable: ReturnType<typeof FileSystem.createDownloadResumable> | null = null;
+    // Timer de stagnation — réinitialisé à chaque chunk réseau reçu.
+    // Permet de télécharger sur connexion 2G lente sans jamais annuler prématurément,
+    // tout en détectant une connexion morte en 30 secondes.
+    let stallTimer: ReturnType<typeof setTimeout> | null = null;
+    let stallReject: ((e: Error) => void) | null = null;
+
+    const resetStall = () => {
+      if (stallTimer) clearTimeout(stallTimer);
+      stallTimer = setTimeout(() => {
+        resumable?.pauseAsync().catch(() => {});
+        stallReject?.(new Error("stall"));
+      }, STALL_TIMEOUT_MS);
+    };
+
     try {
       const token = await getSecure("access_token");
       if (!token) { Alert.alert("Session expirée", "Reconnectez-vous."); return; }
-      const result = await FileSystem.downloadAsync(
-        ressourcesApi.downloadUrl(doc.id), localUri,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      if (result.status !== 200) {
+
+      const result = await new Promise<FileSystem.FileSystemDownloadResult>((resolve, reject) => {
+        stallReject = reject;
+
+        resumable = FileSystem.createDownloadResumable(
+          ressourcesApi.downloadUrl(doc.id),
+          localUri,
+          { headers: { Authorization: `Bearer ${token}` } },
+          // Callback de progression — chaque chunk réinitialise le timer de stagnation
+          (downloadProgress) => {
+            resetStall(); // connexion active → on repart pour 30 s
+            const total = downloadProgress.totalBytesExpectedToWrite;
+            if (total > 0) {
+              setProgress(prev => ({
+                ...prev,
+                [doc.id]: downloadProgress.totalBytesWritten / total,
+              }));
+            }
+          },
+        );
+
+        // Démarre le timer : couvre aussi la phase de connexion initiale (DNS, handshake)
+        resetStall();
+
+        resumable.downloadAsync()
+          .then(r => { if (stallTimer) clearTimeout(stallTimer); if (r) resolve(r); else reject(new Error("no_result")); })
+          .catch(e => { if (stallTimer) clearTimeout(stallTimer); reject(e); });
+      });
+
+      if (!result || result.status !== 200) {
         await FileSystem.deleteAsync(localUri, { idempotent: true });
-        Alert.alert("Erreur", `Téléchargement échoué (code ${result.status}).`);
+        Alert.alert("Erreur", `Téléchargement échoué (code ${result?.status ?? "?"}).`);
         return;
       }
       await saveDownloads({ ...downloads, [doc.id]: localUri });
     } catch (err: any) {
-      console.error("[Ressources] download:", err);
+      resumable?.pauseAsync().catch(() => {});
       await FileSystem.deleteAsync(localUri, { idempotent: true }).catch(() => {});
-      Alert.alert("Erreur réseau", "Impossible de télécharger le document.");
+      const isStall = (err as Error)?.message === "stall";
+      Alert.alert(
+        "Téléchargement interrompu",
+        isStall
+          ? "La connexion semble inactive (30 s sans activité). Réessayez dans une zone avec un meilleur réseau."
+          : "Impossible de télécharger le document. Vérifiez votre connexion.",
+      );
     } finally {
+      if (stallTimer) clearTimeout(stallTimer);
+      setProgress(prev => { const n = { ...prev }; delete n[doc.id]; return n; });
       setDownloading(null);
     }
   }, [isOnline, downloads, saveDownloads]);
@@ -382,7 +473,7 @@ export default function RessourcesScreen() {
     );
   }, [downloads, saveDownloads]);
 
-  // ── Ouverture externe (IntentLauncher / URL serveur) ──────────────────────
+  // ── Ouverture externe ─────────────────────────────────────────────────────
   const handleOpenExternal = useCallback(async (doc: Document) => {
     const localUri = downloads[doc.id];
     if (!localUri) return;
@@ -408,8 +499,6 @@ export default function RessourcesScreen() {
     if (!localUri) return;
 
     const cat = getCategory(doc.mime_type, doc.original_filename);
-
-    // Word / Excel / CSV → application native
     if (cat === "word" || cat === "excel" || cat === "csv") {
       if (Platform.OS === "ios") {
         await Share.share({ url: localUri, title: doc.title }).catch(() => {});
@@ -418,23 +507,16 @@ export default function RessourcesScreen() {
       }
       return;
     }
-
-    // Image → affichage React Native
     if (cat === "image") {
       setViewerSource({ kind: "image", uri: localUri });
       setActiveDoc(doc);
       return;
     }
-
-    // PDF :
-    //   iOS     → WebView (WebKit affiche les PDF file:// nativement, hors-ligne)
-    //   Android → react-native-pdf (rendu natif intégré, hors-ligne, gère les gros fichiers)
     const pdfUri = localUri.startsWith("file://") ? localUri : `file://${localUri}`;
-    if (Platform.OS === "ios") {
-      setViewerSource({ kind: "webview", uri: pdfUri });
-    } else {
-      setViewerSource({ kind: "pdf", uri: pdfUri });
-    }
+    setViewerSource(Platform.OS === "ios"
+      ? { kind: "webview", uri: pdfUri }
+      : { kind: "pdf",     uri: pdfUri }
+    );
     setActiveDoc(doc);
   }, [downloads, handleOpenExternal]);
 
@@ -444,10 +526,13 @@ export default function RessourcesScreen() {
   }, []);
 
   const dlStateOf = useCallback((id: string): DownloadState => {
-    if (downloading === id) return "downloading";
-    if (downloads[id])      return "ready";
+    if (downloading === id)       return "downloading";
+    if (downloads[id])            return "ready";
+    if (!isOnline)                return "unavailable";  // offline + non téléchargé
     return "none";
-  }, [downloading, downloads]);
+  }, [downloading, downloads, isOnline]);
+
+  const nbOffline = Object.keys(downloads).length;
 
   // ── Rendu ─────────────────────────────────────────────────────────────────
   return (
@@ -482,7 +567,20 @@ export default function RessourcesScreen() {
             <Text style={s.pageSubtitle}>Bibliothèque pédagogique ARED</Text>
           </View>
 
-          {!loading && docs.length > 0 && (
+          {/* Bandeau hors-ligne */}
+          {!isOnline && (
+            <View style={s.offlineBanner}>
+              <Feather name="wifi-off" size={rf(13)} color={C.textMuted} />
+              <Text style={s.offlineBannerTxt}>
+                {nbOffline > 0
+                  ? `Mode hors-ligne · ${nbOffline} document${nbOffline > 1 ? "s" : ""} disponible${nbOffline > 1 ? "s" : ""}`
+                  : "Mode hors-ligne · Aucun document téléchargé"}
+              </Text>
+            </View>
+          )}
+
+          {/* Indice téléchargement — uniquement en ligne */}
+          {isOnline && !loading && docs.length > 0 && (
             <View style={s.hintRow}>
               <Feather name="info" size={rf(11)} color={C.textMuted} />
               <Text style={s.hintTxt}>
@@ -500,26 +598,30 @@ export default function RessourcesScreen() {
           ) : docs.length === 0 ? (
             <View style={s.empty}>
               <View style={[s.emptyIcon, { backgroundColor: C.surfaceAlt }]}>
-                <Feather name="inbox" size={36} color={C.textMuted} />
+                <Feather name={isOnline ? "inbox" : "wifi-off"} size={36} color={C.textMuted} />
               </View>
-              <Text style={s.emptyTitle}>Aucun document disponible</Text>
+              <Text style={s.emptyTitle}>
+                {isOnline ? "Aucun document disponible" : "Aucun document hors-ligne"}
+              </Text>
               <Text style={s.emptySub}>
-                Les ressources partagées par l'équipe ARED apparaîtront ici.
+                {isOnline
+                  ? "Les ressources partagées par l'équipe ARED apparaîtront ici."
+                  : "Connectez-vous et téléchargez des documents pour les consulter sans connexion."}
               </Text>
             </View>
           ) : (
             <>
               <Text style={s.countLabel}>
                 {docs.length} document{docs.length > 1 ? "s" : ""}
-                {Object.keys(downloads).length > 0
-                  ? `  ·  ${Object.keys(downloads).length} hors-ligne`
-                  : ""}
+                {nbOffline > 0 ? `  ·  ${nbOffline} hors-ligne` : ""}
+                {fromCache && !isOnline ? "  ·  cache local" : ""}
               </Text>
               {docs.map(doc => (
                 <DocCard
                   key={doc.id}
                   doc={doc}
                   dlState={dlStateOf(doc.id)}
+                  progress={progress[doc.id] ?? 0}
                   onDownload={() => handleDownload(doc)}
                   onOpen={() => handleOpen(doc)}
                   onDeleteLocal={() => handleDeleteLocal(doc)}
@@ -538,31 +640,31 @@ export default function RessourcesScreen() {
 // ── Styles viewer ──────────────────────────────────────────────────────────────
 
 const vw = StyleSheet.create({
-  wrap:        { flex: 1, backgroundColor: C.bg },
-  bar:         {
+  wrap:       { flex: 1, backgroundColor: C.bg },
+  bar:        {
     flexDirection: "row", alignItems: "center",
     backgroundColor: C.surface,
     paddingHorizontal: rs(12), paddingVertical: rs(10),
     borderBottomWidth: 1, borderBottomColor: C.border, gap: rs(8),
   },
-  backBtn:     {
+  backBtn:    {
     width: rs(36), height: rs(36), borderRadius: rs(10),
     backgroundColor: C.surfaceAlt, alignItems: "center", justifyContent: "center",
   },
-  extBtn:      {
+  extBtn:     {
     width: rs(36), height: rs(36), borderRadius: rs(10),
     backgroundColor: C.surfaceAlt, alignItems: "center", justifyContent: "center",
   },
-  barTitle:    { flex: 1, fontSize: rf(15), fontWeight: "700", color: C.text },
-  content:     { flex: 1 },
-  image:       { flex: 1, backgroundColor: "#000" },
-  pdf:         { flex: 1, width: "100%" },
-  overlay:     {
+  barTitle:   { flex: 1, fontSize: rf(15), fontWeight: "700", color: C.text },
+  content:    { flex: 1 },
+  image:      { flex: 1, backgroundColor: "#000" },
+  pdf:        { flex: 1, width: "100%" },
+  overlay:    {
     ...StyleSheet.absoluteFillObject,
     alignItems: "center", justifyContent: "center",
     backgroundColor: C.bg, zIndex: 10, gap: rs(12),
   },
-  overlayTxt:  { fontSize: rf(13), color: C.textMuted, textAlign: "center" },
+  overlayTxt: { fontSize: rf(13), color: C.textMuted, textAlign: "center" },
 });
 
 // ── Styles écran ───────────────────────────────────────────────────────────────
@@ -576,6 +678,15 @@ const s = StyleSheet.create({
   pageTitle:    { fontSize: rf(22), fontWeight: "800", color: C.text },
   pageSubtitle: { fontSize: rf(14), color: C.textMuted, marginTop: rs(2) },
 
+  offlineBanner: {
+    flexDirection: "row", alignItems: "center", gap: rs(8),
+    backgroundColor: C.surfaceAlt, borderRadius: rs(10),
+    paddingHorizontal: rs(12), paddingVertical: rs(8),
+    marginBottom: rs(14),
+    borderWidth: 1, borderColor: C.border,
+  },
+  offlineBannerTxt: { flex: 1, fontSize: rf(12), color: C.textMuted, fontWeight: "600" },
+
   hintRow: { flexDirection: "row", alignItems: "center", gap: rs(6), marginBottom: rs(14) },
   hintTxt: { flex: 1, fontSize: rf(12), color: C.textMuted, lineHeight: rf(17) },
 
@@ -584,25 +695,43 @@ const s = StyleSheet.create({
     textTransform: "uppercase", letterSpacing: 0.5, marginBottom: rs(10),
   },
 
+  // ── Carte ──
   card: {
     flexDirection: "row", alignItems: "center", gap: rs(12),
     backgroundColor: C.surface, borderRadius: rs(14),
     padding: rs(14), marginBottom: rs(10),
     borderWidth: 1, borderColor: C.border,
   },
+  cardUnavailable: { opacity: 0.6 },
   cardIcon:        { width: rs(46), height: rs(46), borderRadius: rs(12), alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  cardBody:        { flex: 1, gap: rs(5) },
+  cardBody:        { flex: 1, gap: rs(4) },
   cardTitle:       { fontSize: rf(14), fontWeight: "600", color: C.text, lineHeight: rf(20) },
+  cardTitleMuted:  { color: C.textMuted },
   cardRow:         { flexDirection: "row", alignItems: "center", gap: rs(6), flexWrap: "wrap" },
   badge:           { paddingHorizontal: rs(7), paddingVertical: rs(2), borderRadius: rs(5) },
   badgeTxt:        { fontSize: rf(11), fontWeight: "700" },
   cardMeta:        { fontSize: rf(12), color: C.textMuted },
   sep:             { fontSize: rf(12), color: C.border },
   cardDesc:        { fontSize: rf(12), color: C.textMuted },
+
+  // Barre de progression
+  progressRow:  { flexDirection: "row", alignItems: "center", gap: rs(8), marginTop: rs(4) },
+  progressTrack: {
+    flex: 1, height: rs(5), borderRadius: rs(3),
+    backgroundColor: C.border, overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%", borderRadius: rs(3),
+    backgroundColor: C.brand,
+  },
+  progressPct: { fontSize: rf(11), fontWeight: "700", color: C.brand, minWidth: rs(30), textAlign: "right" },
+
   offlineBadge:    { flexDirection: "row", alignItems: "center", gap: rs(4), marginTop: rs(2) },
   offlineBadgeTxt: { fontSize: rf(11), color: C.success, fontWeight: "600" },
-  cardActions:     { flexDirection: "column", gap: rs(6), flexShrink: 0 },
-  actionBtn:       { width: rs(36), height: rs(36), borderRadius: rs(10), alignItems: "center", justifyContent: "center" },
+  unavailableTxt:  { fontSize: rf(11), color: C.textMuted, fontWeight: "500" },
+
+  cardActions: { flexDirection: "column", gap: rs(6), flexShrink: 0 },
+  actionBtn:   { width: rs(36), height: rs(36), borderRadius: rs(10), alignItems: "center", justifyContent: "center" },
 
   centered:   { alignItems: "center", justifyContent: "center", paddingVertical: rs(60), gap: rs(12) },
   loadingTxt: { fontSize: rf(14), color: C.textMuted },

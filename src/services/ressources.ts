@@ -17,6 +17,7 @@ import { ressourcesApi } from "./api";
 import { getSecure } from "./secureStorage";
 
 export const RESSOURCES_DOWNLOADS_KEY = "@ressources_offline_v1";
+export const RESSOURCES_DOCS_CACHE_KEY = "@ressources_docs_list_v1";
 
 function buildLocalUri(doc: { id: string; original_filename: string }): string {
   const ext = doc.original_filename.split(".").pop()?.toLowerCase() ?? "bin";
@@ -28,6 +29,9 @@ export async function syncRessourcesOffline(): Promise<void> {
     // 1. Liste serveur (métadonnées uniquement — léger)
     const { data: docs } = await ressourcesApi.list();
     if (!Array.isArray(docs) || docs.length === 0) return;
+
+    // Mettre à jour le cache de la liste (utilisé par l'écran Ressources hors-ligne)
+    AsyncStorage.setItem(RESSOURCES_DOCS_CACHE_KEY, JSON.stringify(docs)).catch(() => {});
 
     // 2. Téléchargements persistés
     const raw = await AsyncStorage.getItem(RESSOURCES_DOWNLOADS_KEY);
