@@ -17,7 +17,8 @@ export type QueueAction =
   | "SUBMIT_RAPPORT_JOURNALIER"   // envoyer un rapport journalier rédigé hors-ligne
   | "PAUSE_SEANCE"                // mettre en pause une séance (hors-ligne)
   | "RESUME_SEANCE"               // reprendre une séance en pause (hors-ligne)
-  | "REPORT_MISSED_SEANCE";       // signaler un créneau planifié manqué
+  | "REPORT_MISSED_SEANCE"        // signaler un créneau planifié manqué
+  | "SUBMIT_PRESENCE_CHECK";      // pointage de présence des enseignants (superviseur)
 
 export interface QueueItem {
   id:            number;
@@ -81,6 +82,35 @@ const MIGRATIONS: Migration[] = [
       try {
         db.execSync(`ALTER TABLE offline_queue ADD COLUMN next_retry_at TEXT`);
       } catch { /* colonne déjà présente — base créée avec le schéma à jour */ }
+    },
+  },
+  {
+    // Cache local de pointage superviseur — consultable et modifiable hors-ligne
+    version: 3,
+    up: (db) => {
+      db.execSync(`
+        CREATE TABLE IF NOT EXISTS supervisor_presence_local (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          date_jour    TEXT    NOT NULL,
+          teacher_id   TEXT    NOT NULL,
+          teacher_nom  TEXT    NOT NULL,
+          teacher_cls  TEXT    NOT NULL,
+          present      INTEGER,
+          motif        TEXT,
+          synced       INTEGER NOT NULL DEFAULT 0,
+          updated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+          UNIQUE(date_jour, teacher_id)
+        );
+      `);
+      db.execSync(`
+        CREATE TABLE IF NOT EXISTS supervisor_teachers_cache (
+          teacher_id   TEXT    NOT NULL,
+          teacher_nom  TEXT    NOT NULL,
+          teacher_cls  TEXT    NOT NULL,
+          cached_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+          PRIMARY KEY (teacher_id)
+        );
+      `);
     },
   },
 ];
@@ -189,6 +219,32 @@ export function initDB(): void {
       attempts    INTEGER NOT NULL,
       last_error  TEXT,
       failed_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
+  // Cache enseignants et pointage superviseur (créés ici pour les nouvelles installs,
+  // la migration v3 les crée aussi pour les mises à jour)
+  db.execSync(`
+    CREATE TABLE IF NOT EXISTS supervisor_teachers_cache (
+      teacher_id   TEXT    NOT NULL,
+      teacher_nom  TEXT    NOT NULL,
+      teacher_cls  TEXT    NOT NULL,
+      cached_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (teacher_id)
+    );
+  `);
+  db.execSync(`
+    CREATE TABLE IF NOT EXISTS supervisor_presence_local (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      date_jour    TEXT    NOT NULL,
+      teacher_id   TEXT    NOT NULL,
+      teacher_nom  TEXT    NOT NULL,
+      teacher_cls  TEXT    NOT NULL,
+      present      INTEGER,
+      motif        TEXT,
+      synced       INTEGER NOT NULL DEFAULT 0,
+      updated_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(date_jour, teacher_id)
     );
   `);
 
@@ -403,6 +459,100 @@ export function clearRapportsJournalier(): void {
   getDB().execSync(`DELETE FROM rapports_journalier`);
 }
 
+// ── Superviseur — Cache local des enseignants ─────────────────────────────────
+
+export interface SupervisorTeacherCache {
+  teacher_id:  string;
+  teacher_nom: string;
+  teacher_cls: string;
+  cached_at:   string;
+}
+
+export function upsertSupervisorTeachers(
+  teachers: { id: string; nom: string; cls: string }[],
+): void {
+  const db = getDB();
+  for (const t of teachers) {
+    db.runSync(
+      `INSERT OR REPLACE INTO supervisor_teachers_cache (teacher_id, teacher_nom, teacher_cls, cached_at)
+       VALUES (?, ?, ?, datetime('now'))`,
+      [t.id, t.nom, t.cls],
+    );
+  }
+}
+
+export function getSupervisorTeachersCache(): SupervisorTeacherCache[] {
+  return getDB().getAllSync<SupervisorTeacherCache>(
+    `SELECT * FROM supervisor_teachers_cache ORDER BY teacher_nom ASC`,
+  );
+}
+
+export function clearSupervisorTeachersCache(): void {
+  getDB().execSync(`DELETE FROM supervisor_teachers_cache`);
+}
+
+// ── Superviseur — Cache local du pointage ─────────────────────────────────────
+
+export interface SupervisorPresenceLocal {
+  id:          number;
+  date_jour:   string;
+  teacher_id:  string;
+  teacher_nom: string;
+  teacher_cls: string;
+  present:     number | null; // SQLite stores booleans as 0/1/null
+  motif:       string | null;
+  synced:      number;
+  updated_at:  string;
+}
+
+export function upsertSupervisorPresence(entry: {
+  date_jour:   string;
+  teacher_id:  string;
+  teacher_nom: string;
+  teacher_cls: string;
+  present:     boolean | null;
+  motif:       string | null;
+  synced?:     number;
+}): void {
+  getDB().runSync(
+    `INSERT INTO supervisor_presence_local
+       (date_jour, teacher_id, teacher_nom, teacher_cls, present, motif, synced, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(date_jour, teacher_id) DO UPDATE SET
+       present    = excluded.present,
+       motif      = excluded.motif,
+       synced     = excluded.synced,
+       updated_at = excluded.updated_at`,
+    [
+      entry.date_jour,
+      entry.teacher_id,
+      entry.teacher_nom,
+      entry.teacher_cls,
+      entry.present === null ? null : (entry.present ? 1 : 0),
+      entry.motif ?? null,
+      entry.synced ?? 0,
+    ],
+  );
+}
+
+export function getSupervisorPresenceForDate(dateJour: string): SupervisorPresenceLocal[] {
+  return getDB().getAllSync<SupervisorPresenceLocal>(
+    `SELECT * FROM supervisor_presence_local WHERE date_jour = ? ORDER BY teacher_nom ASC`,
+    [dateJour],
+  );
+}
+
+export function markSupervisorPresenceSynced(dateJour: string): void {
+  getDB().runSync(
+    `UPDATE supervisor_presence_local SET synced = 1 WHERE date_jour = ?`,
+    [dateJour],
+  );
+}
+
+export function clearSupervisorPresenceCache(): void {
+  getDB().execSync(`DELETE FROM supervisor_presence_local`);
+}
+
 // ── Failed Queue — actions dépassant MAX_ATTEMPTS ─────────────────────────────
 
 /**
@@ -440,4 +590,6 @@ export function clearAllLocalData(): void {
   clearRapportsCache();
   clearRapportsJournalier();
   clearFailedQueue();
+  clearSupervisorTeachersCache();
+  clearSupervisorPresenceCache();
 }

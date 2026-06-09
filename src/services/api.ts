@@ -1,6 +1,7 @@
 import axios from "axios";
 import Constants from "expo-constants";
 import { getSecure, setSecure, clearAuthTokens } from "./secureStorage";
+import { dispatchAuthFailure } from "./authEvents";
 
 /**
  * URL de base de l'API.
@@ -44,8 +45,9 @@ api.interceptors.response.use(
           original.headers.Authorization = `Bearer ${data.access_token}`;
           return api(original);
         } catch {
-          // Refresh expiré → effacer les tokens et forcer le login
+          // Refresh expiré → effacer les tokens et forcer le retour au login
           await clearAuthTokens();
+          dispatchAuthFailure();
         }
       }
     }

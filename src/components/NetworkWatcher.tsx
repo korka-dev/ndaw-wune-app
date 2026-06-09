@@ -18,10 +18,12 @@
 import { useEffect, useRef } from "react";
 import { AppState, AppStateStatus } from "react-native";
 import * as Network from "expo-network";
+import { router } from "expo-router";
 import { useStore } from "../store/useStore";
 import { flushQueue } from "../services/queue";
 import { scheduleSessionAlerts, updateCachedSegments } from "../services/notifications";
 import { syncRessourcesOffline } from "../services/ressources";
+import { onAuthFailure } from "../services/authEvents";
 
 const NETWORK_CHECK_MS = 15_000;   // 15 s — vérification connectivité
 const SYNC_INTERVAL_MS = 30_000;   // 30 s — sync données quand online
@@ -58,6 +60,21 @@ export default function NetworkWatcher() {
   };
 
   useEffect(() => {
+    // ── 0. Auth failure — refresh token expiré ────────────────────────────────
+    // Quand l'intercepteur axios ne peut plus rafraîchir le token, il émet un
+    // événement plutôt que de naviguer directement (pas d'accès au router depuis
+    // axios). On réagit ici : on vide le store et on renvoie vers l'accueil.
+    onAuthFailure(() => {
+      useStore.setState({
+        user:               null,
+        token:              null,
+        syncData:           null,
+        activeSeance:       null,
+        mustChangePassword: false,
+      });
+      router.replace("/welcome");
+    });
+
     // ── 1. AppState — sync quand l'app revient au premier plan ────────────────
     const appStateSub = AppState.addEventListener(
       "change",

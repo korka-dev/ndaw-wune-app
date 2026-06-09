@@ -79,6 +79,16 @@ export const useStore = create<AppStore>((set, get) => ({
       if (cached) {
         set({ syncData: cached, user: cached.profile, lastSync: cached.synced_at });
         console.log("[Store] Hydraté depuis le cache local");
+      } else {
+        // Pas de cache enseignant (ex : superviseur) — on récupère le profil
+        // directement pour que user ne soit pas null après un redémarrage.
+        try {
+          const { data: me } = await authApi.me();
+          set({ user: me });
+          console.log("[Store] Profil récupéré via /auth/me (pas de cache)");
+        } catch {
+          console.warn("[Store] Impossible de récupérer le profil au démarrage");
+        }
       }
       if (activeSeanceRaw) {
         try {
@@ -159,10 +169,12 @@ export const useStore = create<AppStore>((set, get) => ({
         const payload = await fetchAndCache();
         set({ syncData: payload, user: payload.profile, lastSync: payload.synced_at });
       } catch {
-        // Réseau défaillant → fallback cache local
+        // Réseau défaillant OU endpoint inaccessible (ex : 403 pour les superviseurs
+        // qui n'ont pas accès à /app/sync) → fallback cache local.
+        // On ne sort PAS ici : si l'appareil est en ligne, la queue doit quand
+        // même être vidée (flushQueue détecte lui-même les vraies erreurs réseau).
         const cached = await getCached();
         if (cached) set({ syncData: cached, user: cached.profile });
-        return;
       }
 
       // 2. Vider la queue offline — toute la logique est dans queue.ts (source unique)

@@ -7,26 +7,20 @@ import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useStore } from "../../store/useStore";
 import { superviseurApi } from "../../services/api";
+import { enqueueAction,
+         upsertSupervisorTeachers, getSupervisorTeachersCache,
+         upsertSupervisorPresence, getSupervisorPresenceForDate } from "../../services/db";
 import { C } from "../../utils/theme";
 import { rf, rs } from "../../utils/responsive";
 import AppHeader from "../../components/AppHeader";
 import ProfileSheet from "../../components/ProfileSheet";
 
-interface Teacher {
-  id: string;
-  name: string;
-  phone?: string;
-  classes?: string[];
-  school_id?: string;
-  status: string;
-}
-
 interface Prof {
-  id: string;
-  nom: string;
-  classe: string;
-  present: boolean | null;
-  motif: string | null;
+  id:        string;
+  nom:       string;
+  classe:    string;
+  present:   boolean | null;
+  motif:     string | null;
   initiales: string;
 }
 
@@ -40,59 +34,134 @@ function makeInitials(name: string) {
   return name.split(" ").map(w => w[0] ?? "").join("").slice(0, 2).toUpperCase();
 }
 
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
 export default function SupPresencesScreen() {
   const insets = useSafeAreaInsets();
-  const { user } = useStore();
+  const { user, isOnline, syncOffline } = useStore();
 
-  const [profs,        setProfs]        = useState<Prof[]>([]);
-  const [loading,      setLoading]      = useState(true);
-  const [refreshing,   setRefreshing]   = useState(false);
-  const [error,        setError]        = useState<string | null>(null);
-  const [search,       setSearch]       = useState("");
-  const [motifModal,   setMotifModal]   = useState<Prof | null>(null);
-  const [motifChoice,  setMotifChoice]  = useState<string | null>(null);
-  const [validated,    setValidated]    = useState(false);
-  const [validating,   setValidating]   = useState(false);
-  const [locked,       setLocked]       = useState(false);
-  const [profileOpen,  setProfileOpen]  = useState(false);
+  const [profs,       setProfs]       = useState<Prof[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [refreshing,  setRefreshing]  = useState(false);
+  const [syncing,     setSyncing]     = useState(false);
+  const [error,       setError]       = useState<string | null>(null);
+  const [search,      setSearch]      = useState("");
+  const [motifModal,  setMotifModal]  = useState<Prof | null>(null);
+  const [motifChoice, setMotifChoice] = useState<string | null>(null);
+  const [validated,   setValidated]   = useState(false);
+  const [validating,  setValidating]  = useState(false);
+  const [locked,      setLocked]      = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
 
-  /* ── Chargement des enseignants assignés + du pointage déjà enregistré aujourd'hui ── */
+  /* ── Chargement : en ligne → API, hors-ligne → SQLite local ── */
   const fetchTeachers = useCallback(async () => {
-    try {
-      setError(null);
-      const [{ data }, presenceRes] = await Promise.all([
-        superviseurApi.sync(),
-        superviseurApi.getPresenceCheck().catch(() => null),
-      ]);
-      const teachers: Teacher[] = data.assigned_teachers ?? [];
+    setError(null);
+    const dateJour = todayIso();
 
-      if (teachers.length === 0) {
-        setProfs([]);
-        return;
+    if (isOnline) {
+      try {
+        const [{ data }, presenceRes] = await Promise.all([
+          superviseurApi.sync(),
+          superviseurApi.getPresenceCheck().catch(() => null),
+        ]);
+
+        const rawTeachers: { id: string; name: string; classes?: string[] }[] =
+          data.assigned_teachers ?? [];
+
+        if (rawTeachers.length === 0) {
+          setProfs([]);
+          return;
+        }
+
+        // Persister la liste des enseignants pour usage hors-ligne
+        upsertSupervisorTeachers(
+          rawTeachers.map(t => ({
+            id:  t.id,
+            nom: t.name,
+            cls: (t.classes ?? [])[0] ?? "—",
+          })),
+        );
+
+        // Pointage déjà enregistré côté serveur pour aujourd'hui
+        const saved = new Map<string, { present: boolean; motif: string | null }>();
+        for (const e of presenceRes?.data?.entries ?? []) {
+          // Conversion explicite en boolean pour éviter toute ambiguïté
+          saved.set(e.teacher_id, {
+            present: e.present === true,
+            motif:   e.motif ?? null,
+          });
+        }
+
+        const builtProfs = rawTeachers.map(t => {
+          const s = saved.get(t.id);
+          return {
+            id:        t.id,
+            nom:       t.name,
+            classe:    (t.classes ?? [])[0] ?? "—",
+            present:   s !== undefined ? (s.present === true) : null,
+            motif:     s ? s.motif : null,
+            initiales: makeInitials(t.name),
+          };
+        });
+
+        // Synchroniser le cache local avec les données serveur
+        for (const p of builtProfs) {
+          upsertSupervisorPresence({
+            date_jour:   dateJour,
+            teacher_id:  p.id,
+            teacher_nom: p.nom,
+            teacher_cls: p.classe,
+            present:     p.present,
+            motif:       p.motif,
+            synced:      saved.has(p.id) ? 1 : 0,
+          });
+        }
+
+        setProfs(builtProfs);
+        setLocked(saved.size > 0);
+      } catch {
+        setError("Impossible de charger les enseignants. Passage en mode hors-ligne.");
+        loadFromLocalCache(dateJour);
       }
-
-      /* Pointage déjà validé aujourd'hui — on le réaffiche après reconnexion */
-      const saved = new Map<string, { present: boolean; motif: string | null }>();
-      for (const e of presenceRes?.data?.entries ?? []) {
-        saved.set(e.teacher_id, { present: e.present, motif: e.motif ?? null });
-      }
-
-      setProfs(teachers.map(t => {
-        const s = saved.get(t.id);
-        return {
-          id:        t.id,
-          nom:       t.name,
-          classe:    (t.classes ?? [])[0] ?? "—",
-          present:   s ? s.present : null,
-          motif:     s ? s.motif   : null,
-          initiales: makeInitials(t.name),
-        };
-      }));
-      setLocked(saved.size > 0);
-    } catch (e: any) {
-      setError("Impossible de charger les enseignants. Vérifiez votre connexion.");
+    } else {
+      // Hors-ligne : lecture depuis SQLite
+      loadFromLocalCache(dateJour);
     }
-  }, []);
+  }, [isOnline]);
+
+  function loadFromLocalCache(dateJour: string) {
+    const localEntries = getSupervisorPresenceForDate(dateJour);
+
+    if (localEntries.length > 0) {
+      // Reconstruire profs depuis le cache existant pour aujourd'hui
+      setProfs(localEntries.map(r => ({
+        id:        r.teacher_id,
+        nom:       r.teacher_nom,
+        classe:    r.teacher_cls,
+        present:   r.present === null ? null : r.present === 1,
+        motif:     r.motif,
+        initiales: makeInitials(r.teacher_nom),
+      })));
+      const hasSubmitted = localEntries.some(r => r.synced === 1);
+      setLocked(hasSubmitted);
+    } else {
+      // Pas de données pour aujourd'hui — charger la liste des enseignants du cache
+      const teachers = getSupervisorTeachersCache();
+      setProfs(teachers.map(t => ({
+        id:        t.teacher_id,
+        nom:       t.teacher_nom,
+        classe:    t.teacher_cls,
+        present:   null,
+        motif:     null,
+        initiales: makeInitials(t.teacher_nom),
+      })));
+      setLocked(false);
+    }
+
+    if (!isOnline) {
+      setError("Hors-ligne — les modifications seront synchronisées à la reconnexion.");
+    }
+  }
 
   useEffect(() => {
     fetchTeachers().finally(() => setLoading(false));
@@ -104,39 +173,122 @@ export default function SupPresencesScreen() {
     setRefreshing(false);
   };
 
-  /* ── Actions ── */
+  /* ── Sync manuelle (bouton header) ── */
+  const handleManualSync = async () => {
+    if (syncing || !isOnline) return;
+    setSyncing(true);
+    try {
+      await syncOffline(true);
+      await fetchTeachers();
+    } catch {}
+    finally { setSyncing(false); }
+  };
+
+  /* ── Actions de marquage — mise à jour UI + cache local immédiat ── */
   const markPresent = (id: string) => {
     if (locked) return;
-    setProfs(list => list.map(p => p.id === id ? { ...p, present: true, motif: null } : p));
+    const dateJour = todayIso();
+    setProfs(list => {
+      const updated = list.map(p =>
+        p.id === id ? { ...p, present: true as const, motif: null } : p
+      );
+      // Persister immédiatement dans SQLite
+      const prof = updated.find(p => p.id === id);
+      if (prof) {
+        upsertSupervisorPresence({
+          date_jour: dateJour, teacher_id: prof.id,
+          teacher_nom: prof.nom, teacher_cls: prof.classe,
+          present: true, motif: null, synced: 0,
+        });
+      }
+      return updated;
+    });
   };
 
   const confirmAbsent = () => {
     if (!motifModal || !motifChoice) return;
-    setProfs(list => list.map(p =>
-      p.id === motifModal.id ? { ...p, present: false, motif: motifChoice } : p
-    ));
+    const dateJour = todayIso();
+    setProfs(list => {
+      const updated = list.map(p =>
+        p.id === motifModal.id ? { ...p, present: false as const, motif: motifChoice } : p
+      );
+      const prof = updated.find(p => p.id === motifModal.id);
+      if (prof) {
+        upsertSupervisorPresence({
+          date_jour: dateJour, teacher_id: prof.id,
+          teacher_nom: prof.nom, teacher_cls: prof.classe,
+          present: false, motif: motifChoice, synced: 0,
+        });
+      }
+      return updated;
+    });
     setMotifModal(null);
     setMotifChoice(null);
   };
 
+  /* ── Validation ── */
   const handleValidate = async () => {
     setValidating(true);
-    try {
-      const todayIso = new Date().toISOString().slice(0, 10);
-      const entries = profs
-        .filter(p => p.present !== null)
-        .map(p => ({ teacher_id: p.id, present: p.present as boolean, motif: p.motif }));
+    const dateJour = todayIso();
 
-      await superviseurApi.submitPresenceCheck(todayIso, entries);
+    // Construire les entrées avec boolean explicite (pas de cast TypeScript)
+    const entries = profs
+      .filter(p => p.present !== null)
+      .map(p => ({
+        teacher_id: p.id,
+        present:    p.present === true,   // boolean explicite — jamais null/undefined
+        motif:      p.present === true ? null : (p.motif ?? null),
+      }));
 
+    if (entries.length === 0) {
+      setError("Marquez au moins un enseignant avant de valider.");
+      setValidating(false);
+      return;
+    }
+
+    if (isOnline) {
+      try {
+        await superviseurApi.submitPresenceCheck(dateJour, entries);
+        // Marquer comme synchronisé dans le cache local
+        for (const e of entries) {
+          upsertSupervisorPresence({
+            date_jour:   dateJour,
+            teacher_id:  e.teacher_id,
+            teacher_nom: profs.find(p => p.id === e.teacher_id)?.nom ?? "",
+            teacher_cls: profs.find(p => p.id === e.teacher_id)?.classe ?? "",
+            present:     e.present,
+            motif:       e.motif,
+            synced:      1,
+          });
+        }
+        setValidated(true);
+        setLocked(true);
+        setTimeout(() => setValidated(false), 2500);
+      } catch {
+        setError("Impossible d'enregistrer les présences. Réessayez ou soumettez hors-ligne.");
+      }
+    } else {
+      // Hors-ligne : mettre en file d'attente
+      enqueueAction("SUBMIT_PRESENCE_CHECK", { date_jour: dateJour, entries });
+      // Marquer localement comme "soumis hors-ligne" (synced reste 0 jusqu'au flush)
+      for (const e of entries) {
+        upsertSupervisorPresence({
+          date_jour:   dateJour,
+          teacher_id:  e.teacher_id,
+          teacher_nom: profs.find(p => p.id === e.teacher_id)?.nom ?? "",
+          teacher_cls: profs.find(p => p.id === e.teacher_id)?.classe ?? "",
+          present:     e.present,
+          motif:       e.motif,
+          synced:      0,
+        });
+      }
       setValidated(true);
       setLocked(true);
+      setError("Pointage enregistré hors-ligne — sera synchronisé à la reconnexion.");
       setTimeout(() => setValidated(false), 2500);
-    } catch {
-      setError("Impossible d'enregistrer les présences. Vérifiez votre connexion.");
-    } finally {
-      setValidating(false);
     }
+
+    setValidating(false);
   };
 
   /* ── Stats ── */
@@ -156,7 +308,6 @@ export default function SupPresencesScreen() {
   const today = new Date().toLocaleDateString("fr-FR", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
   const todayCapital = today.charAt(0).toUpperCase() + today.slice(1);
 
-  /* ── Écran de chargement ── */
   if (loading) {
     return (
       <View style={[styles.center, { paddingTop: insets.top }]}>
@@ -169,10 +320,13 @@ export default function SupPresencesScreen() {
   return (
     <View style={styles.root}>
 
-      {/* ── AppHeader (logo ARED + avatar) ── */}
+      {/* ── AppHeader identique à l'écran enseignant ── */}
       <AppHeader
         userName={user?.name ?? ""}
         onAvatarPress={() => setProfileOpen(true)}
+        onSyncPress={handleManualSync}
+        syncing={syncing}
+        isOnline={isOnline}
       />
 
       {/* ── Contenu principal ── */}
@@ -212,18 +366,27 @@ export default function SupPresencesScreen() {
           )}
         </View>
 
-        {/* Erreur */}
+        {/* Erreur / info hors-ligne */}
         {error && (
-          <View style={styles.errorBanner}>
-            <Feather name="alert-circle" size={rs(14)} color={C.danger} />
-            <Text style={styles.errorText}>{error}</Text>
-            <TouchableOpacity onPress={() => { setLoading(true); fetchTeachers().finally(() => setLoading(false)); }}>
-              <Text style={styles.retryText}>Réessayer</Text>
-            </TouchableOpacity>
+          <View style={[
+            styles.errorBanner,
+            !isOnline && styles.warnBanner,
+          ]}>
+            <Feather
+              name={isOnline ? "alert-circle" : "wifi-off"}
+              size={rs(14)}
+              color={isOnline ? C.danger : C.warn}
+            />
+            <Text style={[styles.errorText, !isOnline && styles.warnText]}>{error}</Text>
+            {isOnline && (
+              <TouchableOpacity onPress={() => { setLoading(true); fetchTeachers().finally(() => setLoading(false)); }}>
+                <Text style={styles.retryText}>Réessayer</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
 
-        {/* Liste enseignants (flex:1 → occupe tout l'espace restant) */}
+        {/* Liste enseignants */}
         <View style={styles.listCard}>
           <Text style={styles.listTitle}>
             Présences aujourd'hui
@@ -276,7 +439,7 @@ export default function SupPresencesScreen() {
           </ScrollView>
         </View>
 
-        {/* Bouton valider — juste au-dessus du menu (barre d'onglets) */}
+        {/* Bouton valider */}
         <TouchableOpacity
           onPress={locked ? undefined : handleValidate}
           disabled={validating || defined === 0 || locked}
@@ -292,13 +455,15 @@ export default function SupPresencesScreen() {
             <Text style={[styles.validateText, (defined === 0 || locked) && styles.validateTextDisabled]}>
               {locked
                 ? "✓ Présences validées"
-                : `✓ Valider les présences${defined > 0 ? ` (${defined}/${profs.length})` : ""}`}
+                : isOnline
+                  ? `✓ Valider les présences${defined > 0 ? ` (${defined}/${profs.length})` : ""}`
+                  : `↑ Enregistrer hors-ligne${defined > 0 ? ` (${defined}/${profs.length})` : ""}`}
             </Text>
           )}
         </TouchableOpacity>
       </View>
 
-      {/* ── Profile sheet (slide depuis le bas) ── */}
+      {/* ── Profile sheet ── */}
       <ProfileSheet visible={profileOpen} onClose={() => setProfileOpen(false)} />
 
       {/* ── Modal succès ── */}
@@ -306,9 +471,11 @@ export default function SupPresencesScreen() {
         <View style={styles.overlay}>
           <View style={styles.successCard}>
             <View style={styles.successIcon}>
-              <Feather name="check" size={rs(28)} color={C.success} />
+              <Feather name={isOnline ? "check" : "clock"} size={rs(28)} color={C.success} />
             </View>
-            <Text style={styles.successTitle}>Présences validées !</Text>
+            <Text style={styles.successTitle}>
+              {isOnline ? "Présences validées !" : "Enregistré hors-ligne !"}
+            </Text>
             <Text style={styles.successSub}>
               {presentsCount} présent{presentsCount !== 1 ? "s" : ""} · {absentsCount} absent{absentsCount !== 1 ? "s" : ""}
             </Text>
@@ -372,7 +539,9 @@ const styles = StyleSheet.create({
   searchInput:  { flex:1, color:C.text, fontSize:rf(16) },
 
   errorBanner:  { flexDirection:"row", alignItems:"center", gap:rs(8), backgroundColor:C.dangerSoft, borderRadius:rs(10), padding:rs(12), marginBottom:rs(10) },
+  warnBanner:   { backgroundColor:"#FFF8E6", borderColor:"#F5D87A", borderWidth:1 },
   errorText:    { flex:1, fontSize:rf(14), color:C.danger },
+  warnText:     { color:C.warn },
   retryText:    { fontSize:rf(14), fontWeight:"700", color:C.danger, textDecorationLine:"underline" },
 
   listCard:     { flex:1, backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:rs(14), overflow:"hidden", marginBottom:rs(10) },

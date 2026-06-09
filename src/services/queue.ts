@@ -19,7 +19,7 @@
  * Le mapping offline-id → server-uuid est persisté dans AsyncStorage.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { seancesApi, rapportsApi, rapportJournalierApi } from "./api";
+import { seancesApi, rapportsApi, rapportJournalierApi, superviseurApi } from "./api";
 import {
   getPendingActions,
   deleteAction,
@@ -27,6 +27,7 @@ import {
   resetFailedActions,
   markRapportSynced,
   markRapportJournalierSynced,
+  markSupervisorPresenceSynced,
   archiveFailedAction,
   QueueItem,
 } from "./db";
@@ -257,6 +258,17 @@ async function processAction(item: QueueItem): Promise<void> {
     case "REPORT_MISSED_SEANCE": {
       // Idempotent côté serveur — on envoie simplement le payload
       await seancesApi.reportMissed(payload);
+      break;
+    }
+
+    case "SUBMIT_PRESENCE_CHECK": {
+      // Idempotent côté serveur (upsert) — le serveur accepte les re-soumissions
+      const { date_jour, entries } = payload as {
+        date_jour: string;
+        entries: { teacher_id: string; present: boolean; motif: string | null }[];
+      };
+      await superviseurApi.submitPresenceCheck(date_jour, entries);
+      markSupervisorPresenceSynced(date_jour);
       break;
     }
 
