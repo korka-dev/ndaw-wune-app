@@ -21,6 +21,8 @@ import { C } from "../utils/theme";
 
 const SCREEN_H = Dimensions.get("window").height;
 
+const LANGUES_ENSEIGNEMENT = ["Wolof", "Sereer", "Pulaar"];
+
 interface Props {
   visible: boolean;
   onClose: () => void;
@@ -37,10 +39,11 @@ function initials(name: string): string {
 }
 
 export default function ProfileSheet({ visible, onClose }: Props) {
-  const { user, syncData, logout } = useStore();
+  const { user, syncData, logout, setLangueEnseignement } = useStore();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [darkMode, setDarkMode] = useState(false);
+  const [langueModalVisible, setLangueModalVisible] = useState(false);
 
   if (!user) return null;
 
@@ -157,7 +160,11 @@ export default function ProfileSheet({ visible, onClose }: Props) {
               </TouchableOpacity>
 
               {/* Langue d'enseignement */}
-              <TouchableOpacity style={[s.menuRow, s.menuBorder]} activeOpacity={0.6}>
+              <TouchableOpacity
+                style={[s.menuRow, s.menuBorder]}
+                activeOpacity={0.6}
+                onPress={() => setLangueModalVisible(true)}
+              >
                 <View style={s.menuIconBox}>
                   <Feather name="globe" size={22} color={C.brand} />
                 </View>
@@ -209,6 +216,39 @@ export default function ProfileSheet({ visible, onClose }: Props) {
           </ScrollView>
         </View>
       </View>
+
+      {/* ── Modal sélection langue d'enseignement ── */}
+      <Modal
+        visible={langueModalVisible}
+        animationType="fade"
+        transparent
+        statusBarTranslucent
+        onRequestClose={() => setLangueModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={s.langueOverlay}
+          activeOpacity={1}
+          onPress={() => setLangueModalVisible(false)}
+        >
+          <View style={s.langueCard} onStartShouldSetResponder={() => true}>
+            <Text style={s.langueTitle}>Langue d'enseignement</Text>
+            {LANGUES_ENSEIGNEMENT.map(opt => (
+              <TouchableOpacity
+                key={opt}
+                style={[s.langueOption, langue === opt && s.langueOptionSel]}
+                activeOpacity={0.7}
+                onPress={async () => {
+                  await setLangueEnseignement(opt);
+                  setLangueModalVisible(false);
+                }}
+              >
+                <Text style={[s.langueOptionTxt, langue === opt && s.langueOptionTxtSel]}>{opt}</Text>
+                {langue === opt && <Feather name="check" size={20} color={C.brand} />}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </Modal>
   );
 }
@@ -333,5 +373,33 @@ const s = StyleSheet.create({
   },
   logoutTxt: {
     color: "#C0392B", fontWeight: "800", fontSize: 18, marginLeft: 10,
+  },
+
+  /* ── Modal langue d'enseignement ── */
+  langueOverlay: {
+    flex: 1, backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center", justifyContent: "center", padding: 24,
+  },
+  langueCard: {
+    width: "100%", maxWidth: 360,
+    backgroundColor: "#FFFFFF", borderRadius: 18, padding: 18,
+  },
+  langueTitle: {
+    fontSize: 18, fontWeight: "800", color: "#1A1A1A", marginBottom: 12,
+  },
+  langueOption: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingVertical: 14, paddingHorizontal: 14,
+    borderRadius: 12, marginBottom: 8,
+    borderWidth: 1.5, borderColor: "#E8E0CC",
+  },
+  langueOptionSel: {
+    borderColor: C.brand, backgroundColor: "#F5EDDA",
+  },
+  langueOptionTxt: {
+    fontSize: 16, fontWeight: "600", color: "#1A1A1A",
+  },
+  langueOptionTxtSel: {
+    color: C.brand, fontWeight: "800",
   },
 });

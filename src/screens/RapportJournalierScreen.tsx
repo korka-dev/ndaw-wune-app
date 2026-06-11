@@ -194,11 +194,11 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
   // ── Validation par étape ───────────────────────────────────────────────
   const validateStep = (s: number): string | null => {
     switch (s) {
-      case 1: // Absences + Progression
-        if (hasAbsences === null) return "Veuillez indiquer s'il y a des absences.";
-        if (hasAbsences && absentIds.length === 0) return "Veuillez sélectionner au moins un élève absent.";
+      case 1: // Progression + Absences
         if (!semaine)   return "Veuillez sélectionner la semaine.";
         if (!jourCours) return "Veuillez sélectionner le jour de cours.";
+        if (hasAbsences === null) return "Veuillez indiquer s'il y a des absences.";
+        if (hasAbsences && absentIds.length === 0) return "Veuillez sélectionner au moins un élève absent.";
         return null;
       case 2: // Difficultés
         if (difficultes.length === 0) return "Veuillez sélectionner au moins une difficulté.";
@@ -354,67 +354,6 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
       case 1:
         return (
           <ScrollView style={s.stepBody} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-            {/* Absences — Oui / Non */}
-            <Text style={s.question}>Y a-t-il des absences aujourd'hui ?</Text>
-            <View style={s.toggleRow}>
-              <TouchableOpacity
-                style={[s.toggleBtn, hasAbsences === false && s.toggleBtnNo]}
-                onPress={() => { setHasAbsences(false); setAbsentIds([]); }}
-                activeOpacity={0.7}
-              >
-                <Feather name="check" size={rf(15)} color={hasAbsences === false ? "#fff" : C.textMuted} style={{ marginRight: rs(6) }} />
-                <Text style={[s.toggleBtnTxt, hasAbsences === false && s.toggleBtnTxtActive]}>Non</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[s.toggleBtn, hasAbsences === true && s.toggleBtnYes]}
-                onPress={() => setHasAbsences(true)}
-                activeOpacity={0.7}
-              >
-                <Feather name="user-x" size={rf(15)} color={hasAbsences === true ? "#fff" : C.textMuted} style={{ marginRight: rs(6) }} />
-                <Text style={[s.toggleBtnTxt, hasAbsences === true && s.toggleBtnTxtActive]}>Oui</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Liste des élèves — uniquement si "Oui" */}
-            {hasAbsences === true && (
-              <>
-                <Text style={[s.question, { marginTop: rs(16) }]}>Sélectionnez les élèves absents</Text>
-                {elevesDisponibles.length > 0 ? (
-                  <>
-                    {elevesDisponibles.map(eleve => (
-                      <Check
-                        key={eleve.id}
-                        label={nomEleve(eleve)}
-                        checked={absentIds.includes(eleve.id)}
-                        onPress={() => toggleAbsent(eleve.id)}
-                      />
-                    ))}
-                    <View style={s.absentsBadge}>
-                      <Feather
-                        name={nb > 0 ? "user-x" : "users"}
-                        size={rf(13)}
-                        color={nb > 0 ? C.danger : C.textMuted}
-                      />
-                      <Text style={[s.absentsBadgeTxt, { color: nb > 0 ? C.danger : C.textMuted }]}>
-                        {nb > 0
-                          ? `${nb} absent${nb > 1 ? "s" : ""} sélectionné${nb > 1 ? "s" : ""}`
-                          : "Aucun élève sélectionné"}
-                      </Text>
-                    </View>
-                  </>
-                ) : (
-                  <View style={s.noElevesWrap}>
-                    <Feather name="info" size={rf(15)} color={C.textMuted} />
-                    <Text style={s.noElevesTxt}>
-                      Aucun élève trouvé. Synchronisez vos données pour afficher la liste.
-                    </Text>
-                  </View>
-                )}
-              </>
-            )}
-
-            <View style={s.divider} />
-
             {/* Progression */}
             <Text style={s.question}>Semaine de progression</Text>
 
@@ -477,6 +416,68 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
                 </TouchableOpacity>
               ))}
             </View>
+
+            <View style={s.divider} />
+
+            {/* Absences — Oui / Non */}
+            <Text style={s.question}>Y a-t-il des absences aujourd'hui ?</Text>
+            <View style={s.toggleRow}>
+              <TouchableOpacity
+                style={[s.toggleBtn, hasAbsences === false && s.toggleBtnNo]}
+                onPress={() => { setHasAbsences(false); setAbsentIds([]); }}
+                activeOpacity={0.7}
+              >
+                <Feather name="check" size={rf(15)} color={hasAbsences === false ? "#fff" : C.textMuted} style={{ marginRight: rs(6) }} />
+                <Text style={[s.toggleBtnTxt, hasAbsences === false && s.toggleBtnTxtActive]}>Non</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.toggleBtn, hasAbsences === true && s.toggleBtnYes]}
+                onPress={() => setHasAbsences(true)}
+                activeOpacity={0.7}
+              >
+                <Feather name="user-x" size={rf(15)} color={hasAbsences === true ? "#fff" : C.textMuted} style={{ marginRight: rs(6) }} />
+                <Text style={[s.toggleBtnTxt, hasAbsences === true && s.toggleBtnTxtActive]}>Oui</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Liste des élèves — uniquement si "Oui" */}
+            {hasAbsences === true && (
+              <>
+                <Text style={[s.question, { marginTop: rs(16) }]}>Sélectionnez les élèves absents</Text>
+                {elevesDisponibles.length > 0 ? (
+                  <>
+                    {elevesDisponibles.map(eleve => (
+                      <Check
+                        key={eleve.id}
+                        label={nomEleve(eleve)}
+                        checked={absentIds.includes(eleve.id)}
+                        onPress={() => toggleAbsent(eleve.id)}
+                      />
+                    ))}
+                    <View style={s.absentsBadge}>
+                      <Feather
+                        name={nb > 0 ? "user-x" : "users"}
+                        size={rf(13)}
+                        color={nb > 0 ? C.danger : C.textMuted}
+                      />
+                      <Text style={[s.absentsBadgeTxt, { color: nb > 0 ? C.danger : C.textMuted }]}>
+                        {nb > 0
+                          ? `${nb} absent${nb > 1 ? "s" : ""} sélectionné${nb > 1 ? "s" : ""}`
+                          : "Aucun élève sélectionné"}
+                      </Text>
+                    </View>
+                  </>
+                ) : (
+                  <View style={s.noElevesWrap}>
+                    <Feather name="info" size={rf(15)} color={C.textMuted} />
+                    <Text style={s.noElevesTxt}>
+                      Aucun élève trouvé. Synchronisez vos données pour afficher la liste.
+                    </Text>
+                  </View>
+                )}
+              </>
+            )}
+
             <View style={{ height: rs(24) }} />
           </ScrollView>
         );

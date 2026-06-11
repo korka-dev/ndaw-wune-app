@@ -54,6 +54,14 @@ export async function getLastSyncDate(): Promise<string | null> {
   return AsyncStorage.getItem(SYNC_DATE_KEY);
 }
 
+/** Met à jour la langue d'enseignement dans le cache local (préférence appareil). */
+export async function setCachedLangueEnseignement(langue: string): Promise<void> {
+  const cached = await getCached();
+  if (!cached) return;
+  cached.profile.langue_enseignement = langue;
+  await AsyncStorage.setItem(SYNC_KEY, JSON.stringify(cached));
+}
+
 export async function clearCache(): Promise<void> {
   await AsyncStorage.multiRemove([SYNC_KEY, SYNC_DATE_KEY, "access_token", "refresh_token", "user_role"]);
 }

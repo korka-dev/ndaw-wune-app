@@ -11,6 +11,7 @@ import { C } from "../../utils/theme";
 import { rf, rs } from "../../utils/responsive";
 import AppHeader from "../../components/AppHeader";
 import ProfileSheet from "../../components/ProfileSheet";
+import { ASER_CONTENT, ASER_COMPETENCES, getAserSupport, normaliseLangue } from "../../constants/aserContent";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -33,71 +34,6 @@ type Resultat = "acquis" | "en_cours" | "a_aider";
 interface EleveEval {
   eleve: EleveItem;
   resultat: Resultat | null;
-}
-
-// ── Compétences par niveau de classe ─────────────────────────────────────────
-
-const COMPETENCES_PAR_NIVEAU: Record<string, { id: string; label: string }[]> = {
-  CI:  [
-    { id: "distinguer_b_d",      label: "Distinguer b et d" },
-    { id: "reconnaitre_les_sons", label: "Reconnaître les sons" },
-    { id: "associer_lettre_son",  label: "Associer lettre et son" },
-    { id: "lire_syllabes",        label: "Lire des syllabes" },
-    { id: "lire_mots",            label: "Lire des mots" },
-  ],
-  CP:  [
-    { id: "distinguer_b_d",      label: "Distinguer b et d" },
-    { id: "reconnaitre_les_sons", label: "Reconnaître les sons" },
-    { id: "associer_lettre_son",  label: "Associer lettre et son" },
-    { id: "lire_syllabes",        label: "Lire des syllabes" },
-    { id: "lire_mots",            label: "Lire des mots" },
-    { id: "lire_phrases",         label: "Lire des phrases" },
-  ],
-  CE1: [
-    { id: "distinguer_b_d",      label: "Distinguer b et d" },
-    { id: "reconnaitre_les_sons", label: "Reconnaître les sons" },
-    { id: "associer_lettre_son",  label: "Associer lettre et son" },
-    { id: "lire_syllabes",        label: "Lire des syllabes" },
-    { id: "lire_mots",            label: "Lire des mots" },
-    { id: "lire_phrases",         label: "Lire des phrases" },
-    { id: "comprendre_texte",     label: "Comprendre un texte court" },
-  ],
-  CE2: [
-    { id: "lire_mots",            label: "Lire des mots" },
-    { id: "lire_phrases",         label: "Lire des phrases" },
-    { id: "comprendre_texte",     label: "Comprendre un texte court" },
-    { id: "calcul_mental",        label: "Calcul mental" },
-    { id: "operations_base",      label: "Opérations de base" },
-  ],
-  CM1: [
-    { id: "lire_texte_long",      label: "Lire un texte long" },
-    { id: "comprendre_texte",     label: "Comprendre un texte" },
-    { id: "redaction",            label: "Rédaction simple" },
-    { id: "calcul_mental",        label: "Calcul mental" },
-    { id: "operations_base",      label: "Opérations de base" },
-    { id: "problemes",            label: "Résolution de problèmes" },
-  ],
-  CM2: [
-    { id: "lire_texte_long",      label: "Lire un texte long" },
-    { id: "comprendre_texte",     label: "Comprendre un texte" },
-    { id: "redaction",            label: "Rédaction" },
-    { id: "calcul_mental",        label: "Calcul mental" },
-    { id: "operations_base",      label: "Opérations de base" },
-    { id: "problemes",            label: "Résolution de problèmes" },
-    { id: "geometrie",            label: "Géométrie" },
-  ],
-};
-
-const DEFAULT_COMPETENCES = [
-  { id: "lire_mots",    label: "Lire des mots" },
-  { id: "calcul_mental", label: "Calcul mental" },
-  { id: "comprendre",   label: "Comprendre un texte" },
-];
-
-function getCompetences(classe: string) {
-  // Normalise : "CE 1" → "CE1"
-  const key = classe.replace(/\s+/g, "").toUpperCase();
-  return COMPETENCES_PAR_NIVEAU[key] ?? DEFAULT_COMPETENCES;
 }
 
 // ── Labels résultats ──────────────────────────────────────────────────────────
@@ -252,7 +188,10 @@ export default function SupEvaluationScreen() {
 
   // ── Rendu ──────────────────────────────────────────────────────────────────
 
-  const competences = selectedClasse ? getCompetences(selectedClasse.classe) : [];
+  const competences = selectedClasse ? ASER_COMPETENCES : [];
+  const langue = normaliseLangue(user?.langue_enseignement);
+  const aserSupport = evalModal ? getAserSupport(evalModal.competenceId) : null;
+  const aserContent = ASER_CONTENT[langue];
 
   return (
     <View style={styles.root}>
@@ -410,6 +349,30 @@ export default function SupEvaluationScreen() {
               </View>
             </View>
 
+            {/* Support ASER (référence par langue d'enseignement) */}
+            {aserSupport && (
+              <View style={styles.aserCard}>
+                <View style={styles.aserHeader}>
+                  <Feather name="book-open" size={rs(14)} color={C.primary} />
+                  <Text style={styles.aserTitle}>
+                    Support ASER · {langue}
+                  </Text>
+                </View>
+                {aserSupport === "lettres" && (
+                  <Text style={styles.aserText}>{aserContent.lettres}</Text>
+                )}
+                {aserSupport === "syllabes" && (
+                  <Text style={styles.aserText}>{aserContent.syllabes}</Text>
+                )}
+                {aserSupport === "mots" && (
+                  <Text style={styles.aserText}>{aserContent.mots}</Text>
+                )}
+                {aserSupport === "operations" && (
+                  <Text style={styles.aserText}>{aserContent.operations.join("    ")}</Text>
+                )}
+              </View>
+            )}
+
             {/* Légende */}
             <View style={styles.legend}>
               {RESULTATS.map(r => (
@@ -535,6 +498,12 @@ const styles = StyleSheet.create({
   sheetIconWrap:  { width: rs(44), height: rs(44), borderRadius: rs(22), backgroundColor: C.primarySoft, alignItems: "center", justifyContent: "center" },
   sheetTitle:     { fontSize: rf(17), fontWeight: "700", color: C.text },
   sheetSub:       { fontSize: rf(13), color: C.textMuted, marginTop: rs(1) },
+
+  // Support ASER
+  aserCard:       { backgroundColor: C.primarySoft, borderRadius: rs(12), padding: rs(12), gap: rs(6) },
+  aserHeader:     { flexDirection: "row", alignItems: "center", gap: rs(6) },
+  aserTitle:      { fontSize: rf(12), fontWeight: "700", color: C.primary },
+  aserText:       { fontSize: rf(16), fontWeight: "600", color: C.text, letterSpacing: 1 },
 
   // Légende
   legend:         { flexDirection: "row", gap: rs(6) },

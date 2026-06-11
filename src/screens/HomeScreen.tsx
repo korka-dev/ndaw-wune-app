@@ -249,7 +249,8 @@ export default function HomeScreen() {
     for (const seg of todayPlan) {
       if (completedSegIds.includes(seg.id)) continue;
       if (missedSegIds.includes(seg.id))    continue;
-      if (toMin(seg.heure_fin) > curMin)    break; // trié par heure → on peut s'arrêter
+      if (toMin(seg.heure_debut) > curMin)  break; // pas encore commencé → ne peut pas être manqué
+      if (toMin(seg.heure_fin) > curMin)    break; // en cours → pas encore manqué
       newlyMissed.push(seg.id);
     }
     if (newlyMissed.length === 0) return;
