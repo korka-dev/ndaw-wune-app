@@ -18,7 +18,8 @@ export type QueueAction =
   | "PAUSE_SEANCE"                // mettre en pause une séance (hors-ligne)
   | "RESUME_SEANCE"               // reprendre une séance en pause (hors-ligne)
   | "REPORT_MISSED_SEANCE"        // signaler un créneau planifié manqué
-  | "SUBMIT_PRESENCE_CHECK";      // pointage de présence des enseignants (superviseur)
+  | "SUBMIT_PRESENCE_CHECK"       // pointage de présence des enseignants (superviseur)
+  | "SUBMIT_EVALUATIONS";         // évaluations élèves soumises hors-ligne (superviseur)
 
 export interface QueueItem {
   id:            number;

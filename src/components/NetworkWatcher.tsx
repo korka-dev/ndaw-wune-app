@@ -72,7 +72,7 @@ export default function NetworkWatcher() {
         activeSeance:       null,
         mustChangePassword: false,
       });
-      router.replace("/welcome");
+      router.replace("/login");
     });
 
     // ── 1. AppState — sync quand l'app revient au premier plan ────────────────

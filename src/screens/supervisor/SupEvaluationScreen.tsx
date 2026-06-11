@@ -7,6 +7,8 @@ import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useStore } from "../../store/useStore";
 import { superviseurApi } from "../../services/api";
+import { getCachedEvaluations, setCachedEvaluations, getCachedSupEleves, setCachedSupEleves } from "../../services/cache";
+import { enqueueAction } from "../../services/db";
 import { C } from "../../utils/theme";
 import { rf, rs } from "../../utils/responsive";
 import AppHeader from "../../components/AppHeader";
@@ -48,7 +50,7 @@ const RESULTATS: { value: Resultat; label: string; color: string; bg: string }[]
 
 export default function SupEvaluationScreen() {
   const insets = useSafeAreaInsets();
-  const { user } = useStore();
+  const { user, isOnline } = useStore();
 
   const [classes,       setClasses]       = useState<ClasseGroup[]>([]);
   const [loading,       setLoading]       = useState(true);
@@ -74,6 +76,7 @@ export default function SupEvaluationScreen() {
       const { data } = await superviseurApi.eleves();
       const grouped: ClasseGroup[] = data.classes ?? [];
       setClasses(grouped);
+      await setCachedSupEleves(grouped).catch(() => {});
       if (grouped.length > 0 && !selectedClasse) {
         setSelectedClasse(grouped[0]);
       } else if (grouped.length > 0 && selectedClasse) {
@@ -82,7 +85,14 @@ export default function SupEvaluationScreen() {
         if (updated) setSelectedClasse(updated);
       }
     } catch {
-      setError("Impossible de charger les élèves. Vérifiez votre connexion.");
+      // Hors-ligne ou erreur réseau → fallback sur le cache local
+      const cached = await getCachedSupEleves();
+      if (cached && cached.length > 0) {
+        setClasses(cached);
+        if (!selectedClasse) setSelectedClasse(cached[0]);
+      } else {
+        setError("Impossible de charger les élèves. Vérifiez votre connexion.");
+      }
     }
   }, []);
 
@@ -90,14 +100,19 @@ export default function SupEvaluationScreen() {
     fetchEleves().finally(() => setLoading(false));
   }, [fetchEleves]);
 
-  // Charger les évaluations existantes
+  // Charger les évaluations existantes (cache local d'abord, puis serveur si en ligne)
   useEffect(() => {
+    getCachedEvaluations().then(entries => {
+      if (entries.length > 0) setSavedEvals(new Map(entries as [string, Resultat][]));
+    }).catch(() => {});
+
     superviseurApi.listEvaluations().then(({ data }) => {
       const map = new Map<string, Resultat>();
       for (const ev of data.evaluations ?? []) {
         map.set(`${ev.competence}:${ev.eleve_id}`, ev.resultat as Resultat);
       }
       setSavedEvals(map);
+      setCachedEvaluations(Array.from(map.entries())).catch(() => {});
     }).catch(() => {});
   }, []);
 
@@ -155,21 +170,45 @@ export default function SupEvaluationScreen() {
     }
 
     setSubmitting(true);
-    try {
-      await superviseurApi.submitEvaluations(payload);
-      // Mettre à jour le cache local
+
+    const applyLocally = () => {
       setSavedEvals(prev => {
         const next = new Map(prev);
         for (const p of payload) {
           next.set(`${p.competence}:${p.eleve_id}`, p.resultat);
         }
+        setCachedEvaluations(Array.from(next.entries())).catch(() => {});
         return next;
       });
+    };
+
+    if (!isOnline) {
+      // Hors-ligne : on enregistre localement et on met en file pour synchro ultérieure
+      enqueueAction("SUBMIT_EVALUATIONS", { evaluations: payload });
+      applyLocally();
       setEvalModal(null);
       setSubmitSuccess(true);
       setTimeout(() => setSubmitSuccess(false), 2500);
-    } catch {
-      // Conserver la sheet ouverte, l'utilisateur peut réessayer
+      setSubmitting(false);
+      return;
+    }
+
+    try {
+      await superviseurApi.submitEvaluations(payload);
+      applyLocally();
+      setEvalModal(null);
+      setSubmitSuccess(true);
+      setTimeout(() => setSubmitSuccess(false), 2500);
+    } catch (err: any) {
+      if (!err?.response) {
+        // Erreur réseau malgré isOnline (ex: bascule juste avant l'envoi) → file d'attente
+        enqueueAction("SUBMIT_EVALUATIONS", { evaluations: payload });
+        applyLocally();
+        setEvalModal(null);
+        setSubmitSuccess(true);
+        setTimeout(() => setSubmitSuccess(false), 2500);
+      }
+      // Erreur métier (4xx) : conserver la sheet ouverte, l'utilisateur peut réessayer
     } finally {
       setSubmitting(false);
     }

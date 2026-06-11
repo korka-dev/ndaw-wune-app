@@ -42,7 +42,7 @@ export default function ProfileScreen() {
         text: "Se déconnecter", style: "destructive",
         onPress: async () => {
           await logout();
-          router.replace("/welcome");
+          router.replace("/login");
         },
       },
     ]);

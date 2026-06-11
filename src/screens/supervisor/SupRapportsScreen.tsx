@@ -268,7 +268,9 @@ export default function SupRapportsScreen() {
     );
   }
 
-  /* ── Page principale : statistiques + historique ── */
+  /* ── Page principale : statistiques + historique (même design que la partie enseignant) ── */
+  const dernierRapport = history.length > 0 ? history[0].date : null;
+
   return (
     <View style={styles.root}>
       <AppHeader
@@ -276,55 +278,112 @@ export default function SupRapportsScreen() {
         onAvatarPress={() => setProfileOpen(true)}
       />
 
-      <ScrollView contentContainerStyle={[styles.scroll, { paddingTop: rs(12) }]} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.scrollPage} showsVerticalScrollIndicator={false}>
         {sent && (
           <View style={styles.sentBanner}>
             <Feather name="check" size={rs(16)} color={C.success} />
             <Text style={styles.sentText}>Rapport envoyé avec succès !</Text>
           </View>
         )}
-        <View style={styles.statsRow}>
-          <View style={[styles.statCard, { backgroundColor:C.successSoft }]}>
-            <Text style={[styles.statValue, { color:C.success }]}>{okCount}</Text>
-            <Text style={[styles.statLabel, { color:C.success }]}>Envoyé avec succès</Text>
-          </View>
-          <View style={[styles.statCard, { backgroundColor:C.dangerSoft }]}>
-            <Text style={[styles.statValue, { color:C.danger }]}>{failCount}</Text>
-            <Text style={[styles.statLabel, { color:C.danger }]}>Non envoyé</Text>
-          </View>
+
+        {/* ── En-tête page ── */}
+        <View style={styles.pageHeader}>
+          <Text style={styles.pageTitle}>Mes rapports</Text>
+          {dernierRapport && (
+            <Text style={styles.pageSubtitle}>Dernier envoi : {dernierRapport}</Text>
+          )}
         </View>
 
-        <TouchableOpacity onPress={startForm} style={styles.sendBtn}>
-          <Feather name="send" size={rs(16)} color="#fff" />
-          <Text style={styles.sendBtnText}>Envoyer le rapport du jour</Text>
+        {/* ── Statistiques globales ── */}
+        {history.length > 0 ? (
+          <View style={styles.statsSection}>
+            <View style={styles.statsRow}>
+              <View style={styles.statCard}>
+                <View style={[styles.statIconWrap, { backgroundColor: C.success + "18" }]}>
+                  <Feather name="check-circle" size={rf(18)} color={C.success} />
+                </View>
+                <Text style={[styles.statValue, { color: C.success }]}>{okCount}</Text>
+                <Text style={styles.statLabel}>Envoyés</Text>
+              </View>
+              <View style={styles.statCard}>
+                <View style={[styles.statIconWrap, { backgroundColor: C.danger + "18" }]}>
+                  <Feather name="alert-triangle" size={rf(18)} color={C.danger} />
+                </View>
+                <Text style={[styles.statValue, { color: C.danger }]}>{failCount}</Text>
+                <Text style={styles.statLabel}>Non envoyés</Text>
+              </View>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.emptyStats}>
+            <Feather name="bar-chart-2" size={rf(36)} color={C.border} />
+            <Text style={styles.emptyStatsTxt}>Aucune statistique pour l'instant</Text>
+            <Text style={styles.emptyStatsSub}>Envoyez votre premier rapport pour voir vos données ici.</Text>
+          </View>
+        )}
+
+        {/* ── Bouton Envoyer un rapport ── */}
+        <TouchableOpacity style={styles.sendBtnCard} onPress={startForm} activeOpacity={0.85}>
+          <View style={styles.sendBtnInner}>
+            <View style={styles.sendBtnIcon}>
+              <Feather name="plus" size={rf(20)} color={C.brand} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.sendBtnTitle}>Envoyer un rapport</Text>
+              <Text style={styles.sendBtnSub}>Rapport de votre tournée du jour</Text>
+            </View>
+            <Feather name="chevron-right" size={rf(20)} color={C.brand} />
+          </View>
         </TouchableOpacity>
 
-        <View style={styles.histCard}>
-          <Text style={styles.histTitle}>5 derniers rapports</Text>
-          {history.length === 0 && (
-            <View style={styles.emptyWrap}>
-              <Feather name="inbox" size={rs(22)} color={C.textMuted} />
-              <Text style={styles.emptyTxt}>Aucun rapport envoyé pour le moment.</Text>
-              <Text style={styles.emptySub}>Vos rapports envoyés apparaîtront ici.</Text>
+        {/* ── Historique ── */}
+        {history.length > 0 && (
+          <View style={styles.histSection}>
+            <View style={styles.histHeader}>
+              <Text style={styles.sectionTitle}>Historique</Text>
+              <Text style={styles.histCount}>{history.length} rapport{history.length > 1 ? "s" : ""}</Text>
             </View>
-          )}
-          {history.slice(0, 5).map((r, i) => {
-            const ok = r.status === "ok";
-            return (
-              <TouchableOpacity key={r.id} onPress={() => setDetail(r)}
-                style={[styles.histRow, i < Math.min(history.length, 5) - 1 && styles.histBorder, !ok && styles.histFail]}>
-                <View style={[styles.histIcon, !ok && styles.histIconFail]}>
-                  <Feather name={ok ? "check" : "alert-triangle"} size={rs(13)} color={ok ? C.success : "#EF4444"} />
-                </View>
-                <View style={{ flex:1 }}>
-                  <Text style={[styles.histDate, !ok && { color:"#B91C1C" }]}>{r.date}</Text>
-                  <Text style={[styles.histSub, !ok && { color:"#EF4444" }]}>{ok ? `Rapport envoyé · ${r.heure}` : "⚠ Envoi échoué — à renvoyer"}</Text>
-                </View>
-                <Text style={[styles.histBtn, !ok && { color:"#EF4444" }]}>Détail</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+
+            {history.map((r, i) => {
+              const ok = r.status === "ok";
+              return (
+                <TouchableOpacity key={r.id} style={styles.card} onPress={() => setDetail(r)} activeOpacity={0.75}>
+                  <View style={styles.cardTop}>
+                    <Text style={styles.cardDate} numberOfLines={1}>{r.date}</Text>
+                    <View style={[styles.badge, ok ? styles.badgeOk : styles.badgeProgress]}>
+                      <Feather name={ok ? "check-circle" : "alert-triangle"} size={rf(10)} color={ok ? C.success : C.danger} />
+                      <Text style={[styles.badgeTxt, { color: ok ? C.success : C.danger }]}>{ok ? "Envoyé" : "Échoué"}</Text>
+                    </View>
+                  </View>
+                  {ok && (
+                    <>
+                      <View style={styles.cardRow}>
+                        <Feather name="users" size={rf(13)} color={C.brand} />
+                        <Text style={styles.cardMeta}>Professeurs présents : {r.profsPresents}</Text>
+                      </View>
+                      <View style={styles.cardRow}>
+                        <Feather name="check-square" size={rf(13)} color={C.brand} />
+                        <Text style={styles.cardMeta}>Classes terminées : {r.classesTerminees}</Text>
+                      </View>
+                      <View style={[styles.cardRow, { marginTop: rs(2) }]}>
+                        <Feather name="alert-circle" size={rf(13)} color={C.textMuted} />
+                        <Text style={[styles.cardMeta, { color: C.textMuted }]} numberOfLines={1}>
+                          {r.incidents ? "Incident signalé" : "Aucun incident"} · Bilan {r.bilan}
+                        </Text>
+                      </View>
+                    </>
+                  )}
+                  {!ok && (
+                    <View style={styles.cardRow}>
+                      <Feather name="alert-circle" size={rf(13)} color={C.danger} />
+                      <Text style={[styles.cardMeta, { color: C.danger }]}>Envoi échoué — à renvoyer</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
       </ScrollView>
 
       {/* Detail modal */}
@@ -367,27 +426,58 @@ export default function SupRapportsScreen() {
 const styles = StyleSheet.create({
   root:       { flex:1, backgroundColor:C.bg },
   scroll:     { gap:rs(12), paddingHorizontal:rs(14), paddingBottom:rs(24) },
-  sentBanner: { flexDirection:"row", alignItems:"center", gap:rs(8), backgroundColor:C.successSoft, borderWidth:1, borderColor:C.success, borderRadius:rs(12), padding:rs(12) },
+  scrollPage: { padding: rs(16), paddingBottom: rs(48) },
+  sentBanner: { flexDirection:"row", alignItems:"center", gap:rs(8), backgroundColor:C.successSoft, borderWidth:1, borderColor:C.success, borderRadius:rs(12), padding:rs(12), marginBottom: rs(16) },
   sentText:   { fontSize:rf(15), fontWeight:"700", color:C.success },
+
+  /* En-tête page (même design que la partie enseignant) */
+  pageHeader:   { marginBottom: rs(20) },
+  pageTitle:    { fontSize: rf(22), fontWeight: "800", color: C.text, marginBottom: rs(2) },
+  pageSubtitle: { fontSize: rf(14), color: C.textMuted, fontWeight: "500", textTransform: "capitalize" },
+
+  sectionTitle: { fontSize: rf(14), fontWeight: "800", color: C.brand, textTransform: "uppercase", letterSpacing: 0.6 },
+
+  /* Statistiques */
+  statsSection: { marginBottom: rs(24) },
   statsRow:   { flexDirection:"row", gap:rs(10) },
-  statCard:   { flex:1, borderRadius:rs(12), padding:rs(14), alignItems:"center" },
-  statValue:  { fontSize:rf(22), fontWeight:"700" },
-  statLabel:  { fontSize:rf(14), fontWeight:"600", marginTop:rs(2) },
-  sendBtn:    { backgroundColor:C.brand, padding:rs(15), borderRadius:rs(14), flexDirection:"row", alignItems:"center", justifyContent:"center", gap:rs(9) },
-  sendBtnText:{ color:"#fff", fontSize:rf(17), fontWeight:"700" },
-  histCard:   { backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:rs(14), overflow:"hidden" },
-  histTitle:  { fontSize:rf(15), fontWeight:"700", color:C.text, padding:rs(14), borderBottomWidth:1, borderBottomColor:C.border },
-  histRow:    { flexDirection:"row", alignItems:"center", gap:rs(10), padding:rs(12), paddingHorizontal:rs(14) },
-  histBorder: { borderBottomWidth:1, borderBottomColor:C.border },
-  histFail:   { backgroundColor:"#FEF2F2" },
-  histIcon:   { width:rs(28), height:rs(28), borderRadius:rs(14), backgroundColor:C.successSoft, alignItems:"center", justifyContent:"center" },
-  histIconFail:{ backgroundColor:"#FEE2E2" },
-  histDate:   { fontSize:rf(15), fontWeight:"700", color:C.text },
-  histSub:    { fontSize:rf(13), color:C.textMuted, marginTop:rs(1) },
-  histBtn:    { fontSize:rf(13), fontWeight:"700", color:C.textMuted },
-  emptyWrap:  { alignItems:"center", justifyContent:"center", gap:rs(6), paddingVertical:rs(28), paddingHorizontal:rs(20) },
-  emptyTxt:   { fontSize:rf(15), fontWeight:"600", color:C.text, textAlign:"center" },
-  emptySub:   { fontSize:rf(13), color:C.textMuted, textAlign:"center" },
+  statCard:   {
+    flex: 1, backgroundColor: C.surface, borderRadius: rs(14),
+    borderWidth: 1, borderColor: C.border, padding: rs(14), alignItems: "center",
+  },
+  statIconWrap: { width: rs(40), height: rs(40), borderRadius: rs(12), alignItems: "center", justifyContent: "center", marginBottom: rs(8) },
+  statValue:  { fontSize: rf(24), fontWeight: "800", marginBottom: rs(2) },
+  statLabel:  { fontSize: rf(12), color: C.textMuted, fontWeight: "600", textAlign: "center" },
+
+  /* Empty stats */
+  emptyStats: {
+    alignItems: "center", paddingVertical: rs(28), backgroundColor: C.surface,
+    borderRadius: rs(14), borderWidth: 1, borderColor: C.border, marginBottom: rs(24), gap: rs(8),
+  },
+  emptyStatsTxt: { fontSize: rf(16), fontWeight: "700", color: C.textMuted },
+  emptyStatsSub: { fontSize: rf(14), color: C.textMuted, textAlign: "center", paddingHorizontal: rs(24) },
+
+  /* Bouton envoyer */
+  sendBtnCard: { backgroundColor: C.surface, borderRadius: rs(16), borderWidth: 2, borderColor: C.brand, marginBottom: rs(28), overflow: "hidden" },
+  sendBtnInner:{ flexDirection: "row", alignItems: "center", padding: rs(16), gap: rs(14) },
+  sendBtnIcon: { width: rs(46), height: rs(46), borderRadius: rs(13), backgroundColor: C.brandSoft, alignItems: "center", justifyContent: "center" },
+  sendBtnTitle:{ fontSize: rf(17), fontWeight: "800", color: C.brand, marginBottom: rs(2) },
+  sendBtnSub:  { fontSize: rf(13), color: C.textMuted, fontWeight: "500" },
+
+  /* Historique */
+  histSection: {},
+  histHeader:  { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: rs(12) },
+  histCount:   { fontSize: rf(13), color: C.textMuted, fontWeight: "600" },
+
+  /* Carte rapport */
+  card:    { backgroundColor: C.surface, borderRadius: rs(14), borderWidth: 1, borderColor: C.border, padding: rs(14), marginBottom: rs(10) },
+  cardTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: rs(8) },
+  cardDate:{ fontSize: rf(15), fontWeight: "700", color: C.text, flex: 1, textTransform: "capitalize", marginRight: rs(8) },
+  badge:   { flexDirection: "row", alignItems: "center", gap: rs(4), borderRadius: rs(20), paddingHorizontal: rs(8), paddingVertical: rs(3) },
+  badgeOk:       { backgroundColor: C.successSoft },
+  badgeProgress: { backgroundColor: C.dangerSoft },
+  badgeTxt: { fontSize: rf(12), fontWeight: "700" },
+  cardRow:  { flexDirection: "row", alignItems: "center", gap: rs(6), marginBottom: rs(4) },
+  cardMeta: { fontSize: rf(14), color: C.textMuted, flex: 1 },
   overlay:    { flex:1, backgroundColor:"rgba(0,0,0,0.45)", justifyContent:"flex-end" },
   sheet:      { backgroundColor:C.surface, borderTopLeftRadius:rs(24), borderTopRightRadius:rs(24), padding:rs(20), paddingBottom:rs(32), gap:rs(14) },
   handle:     { width:rs(40), height:rs(4), borderRadius:rs(2), backgroundColor:C.border, alignSelf:"center" },

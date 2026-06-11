@@ -7,6 +7,8 @@ import { syncApi } from "./api";
 
 const SYNC_KEY      = "ared_sync_payload";
 const SYNC_DATE_KEY = "ared_sync_date";
+const SUP_EVALS_KEY  = "ared_supervisor_evaluations";
+const SUP_ELEVES_KEY = "ared_supervisor_eleves";
 
 export interface SyncPayload {
   synced_at: string;
@@ -63,5 +65,28 @@ export async function setCachedLangueEnseignement(langue: string): Promise<void>
 }
 
 export async function clearCache(): Promise<void> {
-  await AsyncStorage.multiRemove([SYNC_KEY, SYNC_DATE_KEY, "access_token", "refresh_token", "user_role"]);
+  await AsyncStorage.multiRemove([SYNC_KEY, SYNC_DATE_KEY, "access_token", "refresh_token", "user_role", SUP_EVALS_KEY, SUP_ELEVES_KEY]);
+}
+
+/** Cache local des classes/élèves du superviseur, pour consultation hors-ligne. */
+export async function getCachedSupEleves(): Promise<any[] | null> {
+  const raw = await AsyncStorage.getItem(SUP_ELEVES_KEY);
+  return raw ? JSON.parse(raw) : null;
+}
+
+export async function setCachedSupEleves(classes: any[]): Promise<void> {
+  await AsyncStorage.setItem(SUP_ELEVES_KEY, JSON.stringify(classes));
+}
+
+/**
+ * Cache local des évaluations élèves (superviseur), pour relecture/écriture hors-ligne.
+ * Stocké sous forme de paires [clé, résultat] — clé = "<competence>:<eleve_id>".
+ */
+export async function getCachedEvaluations(): Promise<[string, string][]> {
+  const raw = await AsyncStorage.getItem(SUP_EVALS_KEY);
+  return raw ? JSON.parse(raw) : [];
+}
+
+export async function setCachedEvaluations(entries: [string, string][]): Promise<void> {
+  await AsyncStorage.setItem(SUP_EVALS_KEY, JSON.stringify(entries));
 }

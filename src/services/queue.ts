@@ -261,6 +261,18 @@ async function processAction(item: QueueItem): Promise<void> {
       break;
     }
 
+    case "SUBMIT_EVALUATIONS": {
+      // Idempotent côté serveur (upsert par eleve/competence/date) — re-soumission sans risque
+      const { evaluations } = payload as {
+        evaluations: {
+          eleve_id: string; competence: string; resultat: string;
+          date_eval: string; commentaire?: string;
+        }[];
+      };
+      await superviseurApi.submitEvaluations(evaluations);
+      break;
+    }
+
     case "SUBMIT_PRESENCE_CHECK": {
       // Idempotent côté serveur (upsert) — le serveur accepte les re-soumissions
       const { date_jour, entries } = payload as {

@@ -11,7 +11,7 @@
 import React, { useState } from "react";
 import {
   View, Text, TouchableOpacity, StyleSheet, Modal,
-  ScrollView, Switch, Alert, Platform, Dimensions,
+  ScrollView, Alert, Platform, Dimensions,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -42,19 +42,20 @@ export default function ProfileSheet({ visible, onClose }: Props) {
   const { user, syncData, logout, setLangueEnseignement } = useStore();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [darkMode, setDarkMode] = useState(false);
   const [langueModalVisible, setLangueModalVisible] = useState(false);
+  const [classeModalVisible, setClasseModalVisible] = useState(false);
 
   if (!user) return null;
+
+  const isEnseignant = user.role === "enseignant";
 
   const ini      = initials(user.name);
   const school   = syncData?.school?.name ?? "—";
   const classe   = user.classes?.join(", ") ?? "—";
   const phone    = user.phone ?? "—";
   const langue   = user.langue_enseignement ?? "Wolof";
-  const nbEleves = syncData?.stats?.nb_eleves ?? 0;
-  const nbTests  = syncData?.stats?.nb_tests  ?? 0;
-  const nbFiches = syncData?.stats?.nb_fiches ?? 0;
+  const eleves   = syncData?.eleves ?? [];
+  const nbEleves = isEnseignant ? eleves.length : (syncData?.stats?.nb_eleves ?? 0);
 
   const handleLogout = () => {
     Alert.alert("Déconnexion", "Voulez-vous vous déconnecter ?", [
@@ -65,7 +66,7 @@ export default function ProfileSheet({ visible, onClose }: Props) {
         onPress: async () => {
           onClose();
           await logout();
-          router.replace("/welcome");
+          router.replace("/login");
         },
       },
     ]);
@@ -121,43 +122,38 @@ export default function ProfileSheet({ visible, onClose }: Props) {
             </View>
 
             {/* Stats */}
-            <View style={s.statsRow}>
-              {[
-                { val: nbEleves, label: "Élèves" },
-                { val: nbTests,  label: "Tests" },
-                { val: nbFiches, label: "Fiches" },
-              ].map(({ val, label }) => (
-                <View key={label} style={s.statCard}>
-                  <Text style={s.statVal}>{val}</Text>
-                  <Text style={s.statLabel}>{label}</Text>
-                </View>
-              ))}
-            </View>
+            {isEnseignant && (
+              <View style={s.statsRow}>
+                {[{ val: nbEleves, label: "Élèves" }].map(({ val, label }) => (
+                  <View key={label} style={s.statCard}>
+                    <Text style={s.statVal}>{val}</Text>
+                    <Text style={s.statLabel}>{label}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
 
             {/* ── Menu ── */}
             <View style={s.menuCard}>
-              {/* Mes informations */}
-              <TouchableOpacity style={[s.menuRow, s.menuBorder]} activeOpacity={0.6}>
-                <View style={s.menuIconBox}>
-                  <Feather name="user" size={22} color={C.brand} />
-                </View>
-                <Text style={s.menuLabel}>Mes informations</Text>
-                <Feather name="chevron-right" size={20} color="#AAA" />
-              </TouchableOpacity>
-
               {/* Ma classe */}
-              <TouchableOpacity style={[s.menuRow, s.menuBorder]} activeOpacity={0.6}>
-                <View style={s.menuIconBox}>
-                  <Feather name="users" size={22} color={C.brand} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.menuLabel}>Ma classe</Text>
-                  {nbEleves > 0 && (
-                    <Text style={s.menuSub}>{nbEleves} élèves</Text>
-                  )}
-                </View>
-                <Feather name="chevron-right" size={20} color="#AAA" />
-              </TouchableOpacity>
+              {isEnseignant && (
+                <TouchableOpacity
+                  style={[s.menuRow, s.menuBorder]}
+                  activeOpacity={0.6}
+                  onPress={() => setClasseModalVisible(true)}
+                >
+                  <View style={s.menuIconBox}>
+                    <Feather name="users" size={22} color={C.brand} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.menuLabel}>Ma classe</Text>
+                    {nbEleves > 0 && (
+                      <Text style={s.menuSub}>{nbEleves} élèves</Text>
+                    )}
+                  </View>
+                  <Feather name="chevron-right" size={20} color="#AAA" />
+                </TouchableOpacity>
+              )}
 
               {/* Langue d'enseignement */}
               <TouchableOpacity
@@ -176,20 +172,6 @@ export default function ProfileSheet({ visible, onClose }: Props) {
                   <Text style={s.changerTxt}>Changer</Text>
                 </View>
               </TouchableOpacity>
-
-              {/* Mode sombre */}
-              <View style={[s.menuRow, s.menuBorder]}>
-                <View style={s.menuIconBox}>
-                  <Feather name="moon" size={22} color={C.brand} />
-                </View>
-                <Text style={[s.menuLabel, { flex: 1 }]}>Mode sombre</Text>
-                <Switch
-                  value={darkMode}
-                  onValueChange={setDarkMode}
-                  trackColor={{ false: "#D1D1D1", true: C.brand }}
-                  thumbColor={darkMode ? "#fff" : "#f4f4f4"}
-                />
-              </View>
 
               {/* Aide */}
               <TouchableOpacity style={s.menuRow} activeOpacity={0.6}>
@@ -246,6 +228,48 @@ export default function ProfileSheet({ visible, onClose }: Props) {
                 {langue === opt && <Feather name="check" size={20} color={C.brand} />}
               </TouchableOpacity>
             ))}
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── Modal liste des élèves de la classe ── */}
+      <Modal
+        visible={classeModalVisible}
+        animationType="fade"
+        transparent
+        statusBarTranslucent
+        onRequestClose={() => setClasseModalVisible(false)}
+      >
+        <TouchableOpacity
+          style={s.langueOverlay}
+          activeOpacity={1}
+          onPress={() => setClasseModalVisible(false)}
+        >
+          <View style={s.classeCard} onStartShouldSetResponder={() => true}>
+            <Text style={s.langueTitle}>
+              Ma classe{classe !== "—" ? ` · ${classe}` : ""}
+            </Text>
+            <ScrollView style={s.classeList} showsVerticalScrollIndicator={false}>
+              {eleves.length === 0 ? (
+                <Text style={s.classeEmpty}>Aucun élève trouvé.</Text>
+              ) : (
+                eleves.map((e, i) => (
+                  <View
+                    key={e.id}
+                    style={[s.classeRow, i < eleves.length - 1 && s.classeRowBorder]}
+                  >
+                    <View style={s.classeAvatar}>
+                      <Text style={s.classeAvatarTxt}>
+                        {(e.nom?.charAt(0) ?? "").toUpperCase()}{(e.prenom?.charAt(0) ?? "").toUpperCase()}
+                      </Text>
+                    </View>
+                    <Text style={s.classeEleveName} numberOfLines={1}>
+                      {e.nom}{e.prenom ? ` ${e.prenom}` : ""}
+                    </Text>
+                  </View>
+                ))
+              )}
+            </ScrollView>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -401,5 +425,36 @@ const s = StyleSheet.create({
   },
   langueOptionTxtSel: {
     color: C.brand, fontWeight: "800",
+  },
+
+  /* ── Modal Ma classe (liste des élèves) ── */
+  classeCard: {
+    width: "100%", maxWidth: 400, maxHeight: SCREEN_H * 0.7,
+    backgroundColor: "#FFFFFF", borderRadius: 18, padding: 18,
+  },
+  classeList: {
+    marginTop: 4,
+  },
+  classeEmpty: {
+    fontSize: 15, color: "#888", textAlign: "center", paddingVertical: 20,
+  },
+  classeRow: {
+    flexDirection: "row", alignItems: "center",
+    paddingVertical: 12,
+  },
+  classeRowBorder: {
+    borderBottomWidth: 1, borderBottomColor: "#F0EBE0",
+  },
+  classeAvatar: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: "#F5EDDA",
+    alignItems: "center", justifyContent: "center",
+    marginRight: 12,
+  },
+  classeAvatarTxt: {
+    fontSize: 14, fontWeight: "800", color: C.brand,
+  },
+  classeEleveName: {
+    fontSize: 16, fontWeight: "600", color: "#1A1A1A", flex: 1,
   },
 });

@@ -440,6 +440,9 @@ export default function HomeScreen() {
   /* ── Profil ── */
   const [showProfile,   setShowProfile]   = useState(false);
 
+  /* ── Tâches non faites (modal "Voir plus") ── */
+  const [showPendingTasks, setShowPendingTasks] = useState(false);
+
   /* ── Rapport modal ── */
   const [showRapport, setShowRapport] = useState(false);
   const [presences,   setPresences]   = useState(0);
@@ -887,6 +890,17 @@ export default function HomeScreen() {
           <Feather name="play" size={rf(15)} color={C.brand} style={{ marginRight: rs(8) }} />
           <Text style={s.btnStartTxt}>Démarrer l'activité</Text>
         </TouchableOpacity>
+
+        {pendingSegs.length > 1 && (
+          <View style={s.pendingRow}>
+            <Text style={s.pendingRowTxt}>
+              {pendingSegs.length} tâches non faites aujourd'hui
+            </Text>
+            <TouchableOpacity onPress={() => setShowPendingTasks(true)} activeOpacity={0.7}>
+              <Text style={s.pendingRowLink}>Voir plus</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
     );
   };
@@ -1109,6 +1123,22 @@ export default function HomeScreen() {
           </KeyboardAvoidingView>
         </TouchableOpacity>
       </Modal>
+
+      {/* Modal tâches non faites */}
+      <Modal visible={showPendingTasks} animationType="slide" transparent onRequestClose={() => setShowPendingTasks(false)}>
+        <TouchableOpacity style={s.overlay} activeOpacity={1} onPress={() => setShowPendingTasks(false)}>
+          <TouchableOpacity activeOpacity={1} style={[s.sheet, { paddingBottom: rs(20) + insets.bottom }]} onPress={() => {}}>
+            <View style={s.handle} />
+            <Text style={s.sheetTitle}>Tâches non faites</Text>
+            <Text style={s.sheetSub}>{pendingSegs.length} tâche(s) restante(s) aujourd'hui</Text>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {pendingSegs.map(renderPlanRow)}
+              <View style={{ height: rs(16) }} />
+            </ScrollView>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -1138,6 +1168,10 @@ const s = StyleSheet.create({
   segBadge:     { backgroundColor: "rgba(255,255,255,0.22)", paddingHorizontal: rs(10), paddingVertical: rs(4), borderRadius: rs(20), flexDirection: "row", alignItems: "center" },
   segBadgeTxt:  { color: "#fff", fontSize: rf(13), fontWeight: "700", letterSpacing: 0.5 },
   segTimeRange: { color: "#fff", fontSize: rf(15), fontWeight: "600", opacity: 0.9 },
+
+  pendingRow:    { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: rs(14), paddingTop: rs(12), borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.22)" },
+  pendingRowTxt: { color: "#fff", fontSize: rf(13), fontWeight: "600", opacity: 0.9 },
+  pendingRowLink:{ color: "#fff", fontSize: rf(13), fontWeight: "800", textDecorationLine: "underline" },
   segTitle:     { color: "#fff", fontSize: rf(20), fontWeight: "800", marginBottom: rs(14), lineHeight: rf(26) },
   segTimerRow:  { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: rs(14) },
   timerText:    { fontSize: rf(44), fontWeight: "700", color: "#fff", letterSpacing: 1.5, flexShrink: 1 },
