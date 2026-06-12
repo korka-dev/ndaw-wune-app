@@ -44,6 +44,13 @@ function toMin(t: string): number {
 function segDurMin(debut: string, fin: string): number {
   return Math.max(0, toMin(fin) - toMin(debut));
 }
+/** Convertit des minutes depuis minuit en "HH:MM" */
+function toHHMM(totalMin: number): string {
+  const m = ((totalMin % 1440) + 1440) % 1440;
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
 function segTitle(seg: any): string { return seg.titre ?? seg.matiere ?? seg.classe ?? ""; }
 
 const JOURS_FR = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
@@ -153,6 +160,14 @@ export default function HomeScreen() {
     }, [])
   );
 
+  // ── Horloge : force un re-rendu périodique pour réévaluer l'heure courante
+  //    (ex: déblocage du bouton "Démarrer" 5 minutes avant le créneau) ──
+  const [, setClockTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setClockTick(t => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
   /* ── Chronomètre / Timer Manuel de l'activité en cours ── */
   const TIMER_STATE_KEY = "timer_pause_state";
 
@@ -233,6 +248,9 @@ export default function HomeScreen() {
   // Segment actif : le premier non complété ni manqué; nextSeg : le suivant (pour la notif de fin)
   const activeSeg = pendingSegs[0] ?? null;
   const nextSeg   = pendingSegs[1] ?? null;
+
+  // Démarrage possible seulement à partir de 5 minutes avant l'heure de début
+  const canStartActiveSeg = activeSeg ? curMin >= toMin(activeSeg.heure_debut) - 5 : false;
 
   const durMin  = activeSeg ? segDurMin(activeSeg.heure_debut, activeSeg.heure_fin) : 0;
   const durSec  = durMin * 60;
@@ -377,6 +395,13 @@ export default function HomeScreen() {
 
   const handleStartSeance = () => {
     if (!activeSeg) return;
+    if (!canStartActiveSeg) {
+      Alert.alert(
+        "Pas encore disponible",
+        `Vous pourrez démarrer cette activité à partir de ${toHHMM(toMin(activeSeg.heure_debut) - 5)}, soit 5 minutes avant son heure de début (${activeSeg.heure_debut.slice(0, 5)}).`
+      );
+      return;
+    }
     const startedAt  = new Date().toISOString();
     const localId    = `offline-seance-${Date.now()}`;
     const sessionId  = syncData?.active_session?.id ?? "";
@@ -872,6 +897,26 @@ export default function HomeScreen() {
       ? `${activeSeg.heure_debut.slice(0, 5)} – ${activeSeg.heure_fin.slice(0, 5)}`
       : "—";
 
+    // 5a. Le créneau n'est pas encore disponible (plus de 5 min avant son début)
+    //     -> on fige cette zone sur le planning du jour, en attendant l'ouverture.
+    if (activeSeg && !canStartActiveSeg) {
+      return (
+        <View style={s.segCard}>
+          <View style={s.segTopRow}>
+            <View style={[s.segBadge, { backgroundColor: "rgba(255,255,255,0.22)" }]}>
+              <Feather name="clock" size={rf(10)} color="#fff" style={{ marginRight: rs(4) }} />
+              <Text style={s.segBadgeTxt}>PROCHAINE ACTIVITÉ</Text>
+            </View>
+            <Text style={s.segTimeRange}>{displayTimeRange}</Text>
+          </View>
+          <Text style={s.segTitle}>{displayTitle}</Text>
+          <Text style={s.pendingRowTxt}>
+            Disponible à partir de {toHHMM(toMin(activeSeg.heure_debut) - 5)} (5 min avant le début)
+          </Text>
+        </View>
+      );
+    }
+
     return (
       <View style={s.segCard}>
         <View style={s.segTopRow}>
@@ -1006,33 +1051,37 @@ export default function HomeScreen() {
         </ScrollView>
 
       ) : (
-        /* ── Mode normal : scroll ── */
-        <ScrollView
-          style={s.scroll}
-          contentContainerStyle={[s.scrollContent, { paddingBottom: rs(24) + insets.bottom }]}
-          showsVerticalScrollIndicator={false}
-        >
-          <Text style={s.dateLabel}>{dateLabel}</Text>
-          <Text style={s.greeting}>Bonjour, {greetName} 👋</Text>
+        /* ── Mode normal : activité/timer fixe en haut, planning défile en bas ── */
+        <View style={s.scroll}>
+          <View style={s.fixedHeader}>
+            <Text style={s.dateLabel}>{dateLabel}</Text>
+            <Text style={s.greeting}>Bonjour, {greetName} 👋</Text>
 
-          {renderSegCard()}
+            {renderSegCard()}
+          </View>
 
           {/* ── Planning du jour — masqué si tout est complété ── */}
           {!dayCompleted && (() => {
             const remaining = todayPlan.filter(seg => !completedSegIds.includes(seg.id));
             return (
-              <View style={s.planSection}>
-                <View style={s.planHeader}>
-                  <Text style={s.planTitle}>Planning du jour</Text>
-                  <Text style={s.planCount}>
-                    {remaining.length} restant{remaining.length > 1 ? "s" : ""}
-                  </Text>
+              <ScrollView
+                style={{ flex: 1 }}
+                contentContainerStyle={[s.scrollContent, { paddingTop: 0, paddingBottom: rs(24) + insets.bottom }]}
+                showsVerticalScrollIndicator={false}
+              >
+                <View style={s.planSection}>
+                  <View style={s.planHeader}>
+                    <Text style={s.planTitle}>Planning du jour</Text>
+                    <Text style={s.planCount}>
+                      {remaining.length} restant{remaining.length > 1 ? "s" : ""}
+                    </Text>
+                  </View>
+                  {remaining.map(renderPlanRow)}
                 </View>
-                {remaining.map(renderPlanRow)}
-              </View>
+              </ScrollView>
             );
           })()}
-        </ScrollView>
+        </View>
       )}
 
       <ProfileSheet visible={showProfile} onClose={() => setShowProfile(false)} />
@@ -1148,6 +1197,7 @@ const s = StyleSheet.create({
   screen:        { flex: 1, backgroundColor: C.bg },
   scroll:        { flex: 1 },
   scrollContent: { padding: rs(16) },
+  fixedHeader:   { padding: rs(16), paddingBottom: 0 },
 
   /* Layout "pas de cours" */
   centeredContent:   { flexGrow: 1, paddingHorizontal: rs(16) },
@@ -1172,6 +1222,7 @@ const s = StyleSheet.create({
   pendingRow:    { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: rs(14), paddingTop: rs(12), borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.22)" },
   pendingRowTxt: { color: "#fff", fontSize: rf(13), fontWeight: "600", opacity: 0.9 },
   pendingRowLink:{ color: "#fff", fontSize: rf(13), fontWeight: "800", textDecorationLine: "underline" },
+
   segTitle:     { color: "#fff", fontSize: rf(20), fontWeight: "800", marginBottom: rs(14), lineHeight: rf(26) },
   segTimerRow:  { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: rs(14) },
   timerText:    { fontSize: rf(44), fontWeight: "700", color: "#fff", letterSpacing: 1.5, flexShrink: 1 },

@@ -1,12 +1,20 @@
-import React, { useState } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet, Modal, ActivityIndicator, Alert } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import { useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { format } from "date-fns";
 import { useStore } from "../../store/useStore";
 import { C } from "../../utils/theme";
 import { rf, rs } from "../../utils/responsive";
 import { rapportJournalierApi } from "../../services/api";
+import {
+  getRapportsJournalier,
+  insertRapportJournalier,
+  markRapportJournalierSynced,
+  enqueueAction,
+  RapportJournalierLocal,
+} from "../../services/db";
 import AppHeader from "../../components/AppHeader";
 import ProfileSheet from "../../components/ProfileSheet";
 
@@ -15,35 +23,50 @@ type Bilan = typeof BILANS[number];
 
 const TOTAL_STEPS = 2;
 
-interface Rapport {
-  id: number; date: string; heure: string; status: "ok" | "fail";
-  profsPresents: number | null; classesTerminees: number | null;
-  incidents: boolean | null; incidentDetail?: string; bilan: Bilan | null; commentaire: string;
-}
-
 export default function SupRapportsScreen() {
   const insets = useSafeAreaInsets();
-  const { user } = useStore();
-  /* Historique réel du superviseur — vide tant qu'il n'a envoyé aucun rapport
-     (auparavant pré-rempli avec des données de démonstration, ce qui affichait
-     des statistiques trompeuses dès l'ouverture de l'écran). */
-  const [history,    setHistory]    = useState<Rapport[]>([]);
+  const { user, isOnline, syncOffline } = useStore();
+  const [history,    setHistory]    = useState<RapportJournalierLocal[]>([]);
   const [profileOpen, setProfileOpen] = useState(false);
+
+  const loadAndSync = useCallback(async () => {
+    try {
+      const all = getRapportsJournalier();
+      setHistory(all);
+      const hasPending = all.some(r => r.synced === 0);
+      if (isOnline && hasPending) {
+        await syncOffline(true);
+        setHistory(getRapportsJournalier());
+      }
+    } catch (e) {
+      console.warn("[SupRapports] Erreur lecture SQLite :", e);
+    }
+  }, [isOnline, syncOffline]);
+
+  useFocusEffect(useCallback(() => { loadAndSync(); }, [loadAndSync]));
+
+  useEffect(() => {
+    if (!isOnline) return;
+    const all = getRapportsJournalier();
+    if (!all.some(r => r.synced === 0)) return;
+    syncOffline(true)
+      .then(() => { try { setHistory(getRapportsJournalier()); } catch {} })
+      .catch(() => {});
+  }, [isOnline]);
 
   /* 0 = liste principale · 1 = page 1 du formulaire · 2 = page 2 du formulaire */
   const [formStep,   setFormStep]   = useState<0 | 1 | 2>(0);
-  const [detail,     setDetail]     = useState<Rapport | null>(null);
+  const [detail,     setDetail]     = useState<RapportJournalierLocal | null>(null);
   const [sending,    setSending]    = useState(false);
   const [sent,       setSent]       = useState(false);
-  const [profsPresents,    setProfsPresents]    = useState(4);
   const [classesTerminees, setClassesTerminees] = useState(4);
   const [incidents,        setIncidents]        = useState<boolean | null>(null);
   const [incidentDetail,   setIncidentDetail]   = useState("");
   const [bilan,            setBilan]            = useState<Bilan | null>(null);
   const [commentaire,      setCommentaire]      = useState("");
 
-  const okCount = history.filter(r => r.status === "ok").length;
-  const failCount = history.filter(r => r.status === "fail").length;
+  const okCount = history.filter(r => r.synced === 1).length;
+  const pendingCount = history.filter(r => r.synced === 0).length;
   const bilanColor: Record<Bilan, string> = { Bien:C.success, Moyen:C.warn, Difficile:C.danger };
 
   /* Date du jour, affichée en en-tête des pages du formulaire (remplace l'ancienne date factice) */
@@ -54,7 +77,7 @@ export default function SupRapportsScreen() {
 
   const resetForm = () => {
     setFormStep(0);
-    setProfsPresents(4); setClassesTerminees(4); setIncidents(null); setIncidentDetail(""); setBilan(null); setCommentaire("");
+    setClassesTerminees(4); setIncidents(null); setIncidentDetail(""); setBilan(null); setCommentaire("");
   };
 
   const startForm = () => setFormStep(1);
@@ -74,46 +97,65 @@ export default function SupRapportsScreen() {
     setSending(true);
     try {
       const now = new Date();
+      const localId = `rj_sup_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const dateIso = format(now, "yyyy-MM-dd");
+      const offline = !isOnline;
+
       const resume = [
-        `Professeurs présents : ${profsPresents}`,
         `Classes ayant terminé leur planning : ${classesTerminees}`,
         `Incidents signalés : ${incidents ? `Oui — ${incidentDetail.trim()}` : "Non"}`,
         `Bilan global : ${bilan}`,
       ].join("\n");
 
-      /* Le rapport superviseur est enregistré via le même endpoint que celui
-         des enseignants (/app/rapports/journalier — accessible aux deux rôles).
-         Comme le superviseur n'est rattaché à aucune école précise, les champs
-         école/commune/IEF reçoivent une valeur générique et le détail de sa
-         tournée (profs présents, classes terminées, incident, bilan) est
-         consigné dans les commentaires pour rester visible côté admin. */
-      await rapportJournalierApi.submit({
-        date_rapport: format(now, "yyyy-MM-dd"),
+      const commentFinal = commentaire.trim() ? `${resume}\n\n${commentaire.trim()}` : resume;
+      const diffsJson = JSON.stringify(incidents ? [incidentDetail.trim() || "Incident signalé"] : []);
+
+      insertRapportJournalier({
+        id: localId, date_rapport: dateIso,
         ief: "—", commune: "—", ecole: "Tournée de supervision",
         superviseur: user?.name ?? "", nom_tuteur: user?.name ?? "",
         nb_absences: 0, absents: null,
         semaine: 1, jour_cours: 1,
-        difficultes: JSON.stringify(incidents ? [incidentDetail.trim() || "Incident signalé"] : []),
+        difficultes: diffsJson,
+        autres_difficultes: null,
+        description_difficultes: incidents ? incidentDetail.trim() : null,
+        directeur_venu: 0, besoin_appui: 0, domaines_appui: null,
+        has_observations: 1,
+        commentaires: commentFinal,
+        soumis_en_offline: offline ? 1 : 0,
+        photo_classe: null,
+      });
+
+      const apiBody = {
+        local_id: localId, date_rapport: dateIso,
+        ief: "—", commune: "—", ecole: "Tournée de supervision",
+        superviseur: user?.name ?? "", nom_tuteur: user?.name ?? "",
+        nb_absences: 0, absents: null,
+        semaine: 1, jour_cours: 1,
+        difficultes: diffsJson,
         autres_difficultes: null,
         description_difficultes: incidents ? incidentDetail.trim() : null,
         directeur_venu: false, besoin_appui: false, domaines_appui: null,
         has_observations: true,
-        commentaires: commentaire.trim() ? `${resume}\n\n${commentaire.trim()}` : resume,
-        soumis_en_offline: false,
+        commentaires: commentFinal,
+        soumis_en_offline: offline,
         photo_classe_url: null,
-      });
+      };
 
-      setHistory(h => [{
-        id: Date.now(),
-        date: now.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "short" }),
-        heure: `${now.getHours()}h${String(now.getMinutes()).padStart(2, "0")}`,
-        status: "ok", profsPresents, classesTerminees, incidents, incidentDetail: incidents ? incidentDetail.trim() : "", bilan, commentaire,
-      }, ...h]);
+      if (isOnline) {
+        try { await rapportJournalierApi.submit(apiBody); markRapportJournalierSynced(localId); }
+        catch { enqueueAction("SUBMIT_RAPPORT_JOURNALIER", apiBody); }
+      } else {
+        enqueueAction("SUBMIT_RAPPORT_JOURNALIER", apiBody);
+      }
+
+      setHistory(getRapportsJournalier());
       resetForm();
       setSent(true);
       setTimeout(() => setSent(false), 3000);
-    } catch {
-      Alert.alert("Erreur", "Impossible d'envoyer le rapport. Vérifiez votre connexion et réessayez.");
+    } catch (e) {
+      console.warn("[SupRapports] Erreur envoi :", e);
+      Alert.alert("Erreur", "Impossible d'enregistrer le rapport.");
     } finally {
       setSending(false);
     }
@@ -146,20 +188,6 @@ export default function SupRapportsScreen() {
           <Text style={styles.stepIntro}>{todayLabel} · {user?.name ?? "Superviseur"}</Text>
           <Text style={styles.stepHeading}>Votre tournée du jour</Text>
           <Text style={styles.stepSub}>Renseignez ces quelques informations pour commencer votre rapport.</Text>
-
-          <View style={styles.fieldCard}>
-            <View style={styles.fieldCardHeader}>
-              <View style={styles.fieldIconWrap}>
-                <Feather name="users" size={rf(17)} color={C.brand} />
-              </View>
-              <Text style={styles.fieldLabel}>Professeurs présents</Text>
-            </View>
-            <View style={styles.counterRow}>
-              <TouchableOpacity onPress={() => setProfsPresents(p => Math.max(0,p-1))} style={styles.counterBtn}><Text style={styles.counterBtnText}>−</Text></TouchableOpacity>
-              <Text style={styles.counterValue}>{profsPresents}</Text>
-              <TouchableOpacity onPress={() => setProfsPresents(p => Math.min(20,p+1))} style={styles.counterBtn}><Text style={styles.counterBtnText}>+</Text></TouchableOpacity>
-            </View>
-          </View>
 
           <View style={styles.fieldCard}>
             <View style={styles.fieldCardHeader}>
@@ -269,7 +297,7 @@ export default function SupRapportsScreen() {
   }
 
   /* ── Page principale : statistiques + historique (même design que la partie enseignant) ── */
-  const dernierRapport = history.length > 0 ? history[0].date : null;
+  const dernierRapport = history.length > 0 ? history[0].date_rapport : null;
 
   return (
     <View style={styles.root}>
@@ -282,7 +310,7 @@ export default function SupRapportsScreen() {
         {sent && (
           <View style={styles.sentBanner}>
             <Feather name="check" size={rs(16)} color={C.success} />
-            <Text style={styles.sentText}>Rapport envoyé avec succès !</Text>
+            <Text style={styles.sentText}>{isOnline ? "Rapport envoyé avec succès !" : "Rapport enregistré — envoi auto à la reconnexion"}</Text>
           </View>
         )}
 
@@ -290,7 +318,13 @@ export default function SupRapportsScreen() {
         <View style={styles.pageHeader}>
           <Text style={styles.pageTitle}>Mes rapports</Text>
           {dernierRapport && (
-            <Text style={styles.pageSubtitle}>Dernier envoi : {dernierRapport}</Text>
+            <Text style={styles.pageSubtitle}>Dernier envoi : {(() => {
+              try {
+                const d = new Date(dernierRapport + "T00:00:00");
+                const s = d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+                return s.charAt(0).toUpperCase() + s.slice(1);
+              } catch { return dernierRapport; }
+            })()}</Text>
           )}
         </View>
 
@@ -306,11 +340,11 @@ export default function SupRapportsScreen() {
                 <Text style={styles.statLabel}>Envoyés</Text>
               </View>
               <View style={styles.statCard}>
-                <View style={[styles.statIconWrap, { backgroundColor: C.danger + "18" }]}>
-                  <Feather name="alert-triangle" size={rf(18)} color={C.danger} />
+                <View style={[styles.statIconWrap, { backgroundColor: C.warn + "18" }]}>
+                  <Feather name="clock" size={rf(18)} color={C.warn} />
                 </View>
-                <Text style={[styles.statValue, { color: C.danger }]}>{failCount}</Text>
-                <Text style={styles.statLabel}>Non envoyés</Text>
+                <Text style={[styles.statValue, { color: C.warn }]}>{pendingCount}</Text>
+                <Text style={styles.statLabel}>En attente</Text>
               </View>
             </View>
           </View>
@@ -344,41 +378,30 @@ export default function SupRapportsScreen() {
               <Text style={styles.histCount}>{history.length} rapport{history.length > 1 ? "s" : ""}</Text>
             </View>
 
-            {history.map((r, i) => {
-              const ok = r.status === "ok";
+            {history.map((r) => {
+              const synced = r.synced === 1;
+              const dateLabel = (() => {
+                try {
+                  const d = new Date(r.date_rapport + "T00:00:00");
+                  const s = d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "short" });
+                  return s.charAt(0).toUpperCase() + s.slice(1);
+                } catch { return r.date_rapport; }
+              })();
               return (
                 <TouchableOpacity key={r.id} style={styles.card} onPress={() => setDetail(r)} activeOpacity={0.75}>
                   <View style={styles.cardTop}>
-                    <Text style={styles.cardDate} numberOfLines={1}>{r.date}</Text>
-                    <View style={[styles.badge, ok ? styles.badgeOk : styles.badgeProgress]}>
-                      <Feather name={ok ? "check-circle" : "alert-triangle"} size={rf(10)} color={ok ? C.success : C.danger} />
-                      <Text style={[styles.badgeTxt, { color: ok ? C.success : C.danger }]}>{ok ? "Envoyé" : "Échoué"}</Text>
+                    <Text style={styles.cardDate} numberOfLines={1}>{dateLabel}</Text>
+                    <View style={[styles.badge, synced ? styles.badgeOk : styles.badgeProgress]}>
+                      <Feather name={synced ? "check-circle" : "clock"} size={rf(10)} color={synced ? C.success : C.warn} />
+                      <Text style={[styles.badgeTxt, { color: synced ? C.success : C.warn }]}>{synced ? "Envoyé" : "En attente"}</Text>
                     </View>
                   </View>
-                  {ok && (
-                    <>
-                      <View style={styles.cardRow}>
-                        <Feather name="users" size={rf(13)} color={C.brand} />
-                        <Text style={styles.cardMeta}>Professeurs présents : {r.profsPresents}</Text>
-                      </View>
-                      <View style={styles.cardRow}>
-                        <Feather name="check-square" size={rf(13)} color={C.brand} />
-                        <Text style={styles.cardMeta}>Classes terminées : {r.classesTerminees}</Text>
-                      </View>
-                      <View style={[styles.cardRow, { marginTop: rs(2) }]}>
-                        <Feather name="alert-circle" size={rf(13)} color={C.textMuted} />
-                        <Text style={[styles.cardMeta, { color: C.textMuted }]} numberOfLines={1}>
-                          {r.incidents ? "Incident signalé" : "Aucun incident"} · Bilan {r.bilan}
-                        </Text>
-                      </View>
-                    </>
-                  )}
-                  {!ok && (
-                    <View style={styles.cardRow}>
-                      <Feather name="alert-circle" size={rf(13)} color={C.danger} />
-                      <Text style={[styles.cardMeta, { color: C.danger }]}>Envoi échoué — à renvoyer</Text>
-                    </View>
-                  )}
+                  <View style={styles.cardRow}>
+                    <Feather name="message-square" size={rf(13)} color={C.brand} />
+                    <Text style={styles.cardMeta} numberOfLines={1}>
+                      {r.commentaires ? r.commentaires.split("\n")[0] : "Rapport de supervision"}
+                    </Text>
+                  </View>
                 </TouchableOpacity>
               );
             })}
@@ -394,21 +417,21 @@ export default function SupRapportsScreen() {
             <View style={styles.handle} />
             {detail && (
               <>
-                <Text style={styles.sheetTitle}>Rapport · {detail.date}</Text>
-                <Text style={styles.sheetSub}>{detail.status==="ok" ? `Envoyé à ${detail.heure}` : "Envoi échoué"}</Text>
-                {detail.status === "ok" && (
-                  <View style={{ gap:rs(8) }}>
-                    {[["Profs présents", `${detail.profsPresents}`],["Classes terminées",`${detail.classesTerminees}`],["Incidents", detail.incidents?"Oui ⚠":"Non ✓"],["Bilan",detail.bilan??""]]
-                      .map(([k,v]) => (
-                        <View key={k} style={styles.detailRow}>
-                          <Text style={styles.detailKey}>{k}</Text>
-                          <Text style={styles.detailVal}>{v}</Text>
-                        </View>
-                      ))}
-                    {detail.incidents && detail.incidentDetail ? <View style={styles.detailRow}><Text style={styles.detailKey}>Détail incident</Text><Text style={styles.detailVal}>{detail.incidentDetail}</Text></View> : null}
-                    {detail.commentaire ? <View style={styles.detailRow}><Text style={styles.detailKey}>Commentaire</Text><Text style={styles.detailVal}>{detail.commentaire}</Text></View> : null}
-                  </View>
-                )}
+                <Text style={styles.sheetTitle}>Rapport · {detail.date_rapport}</Text>
+                <Text style={styles.sheetSub}>{detail.synced === 1 ? "Envoyé" : "En attente de synchronisation"}</Text>
+                <View style={{ gap:rs(8) }}>
+                  {detail.commentaires ? detail.commentaires.split("\n").filter(Boolean).map((line, i) => (
+                    <View key={i} style={styles.detailRow}>
+                      <Text style={styles.detailVal}>{line}</Text>
+                    </View>
+                  )) : null}
+                  {detail.description_difficultes ? (
+                    <View style={styles.detailRow}>
+                      <Text style={styles.detailKey}>Détail incident</Text>
+                      <Text style={styles.detailVal}>{detail.description_difficultes}</Text>
+                    </View>
+                  ) : null}
+                </View>
                 <TouchableOpacity onPress={() => setDetail(null)} style={styles.closeBtn}>
                   <Text style={styles.closeBtnText}>Fermer</Text>
                 </TouchableOpacity>
