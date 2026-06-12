@@ -55,6 +55,8 @@ export default function SupPresencesScreen() {
   const [locked,      setLocked]      = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
 
+  const [recapOpen,    setRecapOpen]    = useState(false);
+
   const [motifTarget,  setMotifTarget]  = useState<Prof | null>(null);
   const [motifChoice,  setMotifChoice]  = useState<string | null>(null);
   const [motifCustom,  setMotifCustom]  = useState("");
@@ -412,136 +414,158 @@ export default function SupPresencesScreen() {
           </View>
         )}
 
-        {/* Recherche */}
-        <View style={styles.searchBar}>
-          <Feather name="search" size={rs(16)} color={C.textMuted} />
-          <TextInput
-            value={search} onChangeText={setSearch}
-            placeholder="Rechercher un professeur..."
-            placeholderTextColor={C.textMuted}
-            style={styles.searchInput}
-          />
-          {search.length > 0 && (
-            <TouchableOpacity onPress={() => setSearch("")}>
-              <Feather name="x" size={rs(16)} color={C.textMuted} />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* En-tête liste */}
-        <View style={styles.listHeader}>
-          <Text style={styles.listHeaderTitle}>Enseignants</Text>
-          {profs.length > 0 && (
-            <Text style={styles.listHeaderCount}>{filtered.length} résultat{filtered.length > 1 ? "s" : ""}</Text>
-          )}
-        </View>
-
-        {/* Liste enseignants */}
-        <ScrollView
-          style={styles.listScroll}
-          showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}
-        >
-          {filtered.length === 0 && !error && (
-            <View style={styles.emptyState}>
-              <View style={styles.emptyIconWrap}>
-                <Feather name="users" size={rs(28)} color={C.textMuted} />
+        {locked ? (
+          /* ── État validé : card de complétion uniquement ── */
+          <View style={styles.doneCard}>
+            <View style={styles.doneTop}>
+              <View style={styles.doneIconWrap}>
+                <Feather name="check-circle" size={rf(22)} color={C.success} />
               </View>
-              <Text style={styles.emptyTitle}>
-                {profs.length === 0 ? "Aucun enseignant assigné" : "Aucun résultat"}
-              </Text>
-              <Text style={styles.emptyText}>
-                {profs.length === 0
-                  ? "Contactez l'administrateur pour assigner des enseignants."
-                  : "Essayez avec un autre terme de recherche."}
-              </Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.doneTitle}>Présences validées</Text>
+                <Text style={styles.doneSub}>
+                  {presentsCount} présent{presentsCount !== 1 ? "s" : ""} · {absentsCount} absent{absentsCount !== 1 ? "s" : ""}
+                </Text>
+                <Text style={styles.doneSub}>{todayCapital}</Text>
+              </View>
             </View>
-          )}
-          {filtered.map((prof, i) => (
-            <View key={prof.id} style={styles.profCard}>
-              <View style={styles.profCardTop}>
-                <View style={[styles.avatar, { backgroundColor: avatarBg(prof) }]}>
-                  <Text style={[styles.avatarText, { color: avatarColor(prof) }]}>{prof.initiales}</Text>
-                </View>
-                <View style={styles.profInfo}>
-                  <Text style={styles.profName}>{prof.nom}</Text>
-                  <View style={styles.profMetaRow}>
-                    <Feather name="book-open" size={rf(11)} color={C.textMuted} />
-                    <Text style={styles.profClasse}>{prof.classe}</Text>
-                    {prof.present !== null && (
-                      <View style={[styles.profStatusPill, prof.present ? styles.profStatusPresent : styles.profStatusAbsent]}>
-                        <Text style={[styles.profStatusTxt, { color: prof.present ? C.success : C.danger }]}>
-                          {prof.present ? "Présent" : "Absent"}
-                        </Text>
-                      </View>
-                    )}
+            <TouchableOpacity onPress={() => setRecapOpen(true)} activeOpacity={0.7} style={styles.doneBtn}>
+              <Text style={styles.doneBtnTxt}>Voir plus</Text>
+              <Feather name="chevron-right" size={rf(14)} color={C.brand} />
+            </TouchableOpacity>
+          </View>
+        ) : (
+          /* ── État non validé : recherche + liste + bouton ── */
+          <>
+            {/* Recherche */}
+            <View style={styles.searchBar}>
+              <Feather name="search" size={rs(16)} color={C.textMuted} />
+              <TextInput
+                value={search} onChangeText={setSearch}
+                placeholder="Rechercher un professeur..."
+                placeholderTextColor={C.textMuted}
+                style={styles.searchInput}
+              />
+              {search.length > 0 && (
+                <TouchableOpacity onPress={() => setSearch("")}>
+                  <Feather name="x" size={rs(16)} color={C.textMuted} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* En-tête liste */}
+            <View style={styles.listHeader}>
+              <Text style={styles.listHeaderTitle}>Enseignants</Text>
+              {profs.length > 0 && (
+                <Text style={styles.listHeaderCount}>{filtered.length} résultat{filtered.length > 1 ? "s" : ""}</Text>
+              )}
+            </View>
+
+            {/* Liste enseignants */}
+            <ScrollView
+              style={styles.listScroll}
+              showsVerticalScrollIndicator={false}
+              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}
+            >
+              {filtered.length === 0 && !error && (
+                <View style={styles.emptyState}>
+                  <View style={styles.emptyIconWrap}>
+                    <Feather name="users" size={rs(28)} color={C.textMuted} />
                   </View>
-                </View>
-              </View>
-              {prof.present === false && prof.motif && (
-                <View style={styles.motifRow}>
-                  <Feather name="file-text" size={rf(11)} color={C.danger} />
-                  <Text style={styles.motifRowTxt} numberOfLines={1}>{prof.motif}</Text>
+                  <Text style={styles.emptyTitle}>
+                    {profs.length === 0 ? "Aucun enseignant assigné" : "Aucun résultat"}
+                  </Text>
+                  <Text style={styles.emptyText}>
+                    {profs.length === 0
+                      ? "Contactez l'administrateur pour assigner des enseignants."
+                      : "Essayez avec un autre terme de recherche."}
+                  </Text>
                 </View>
               )}
-              <View style={styles.profActions}>
-                <TouchableOpacity
-                  onPress={() => markPresent(prof.id)}
-                  disabled={locked}
-                  activeOpacity={0.7}
-                  style={[styles.actionBtn, styles.actionBtnPresent, prof.present === true && styles.actionBtnPresentActive]}
-                >
-                  <Feather name="check" size={rf(14)} color={prof.present === true ? "#fff" : C.success} />
-                  <Text style={[styles.actionBtnTxt, styles.actionBtnTxtPresent, prof.present === true && styles.actionBtnTxtPresentActive]}>Présent</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => openMotifModal(prof)}
-                  disabled={locked}
-                  activeOpacity={0.7}
-                  style={[styles.actionBtn, styles.actionBtnAbsent, prof.present === false && styles.actionBtnAbsentActive]}
-                >
-                  <Feather name="x" size={rf(14)} color={prof.present === false ? "#fff" : C.danger} />
-                  <Text style={[styles.actionBtnTxt, styles.actionBtnTxtAbsent, prof.present === false && styles.actionBtnTxtAbsentActive]}>Absent</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          ))}
-          <View style={{ height: rs(16) }} />
-        </ScrollView>
+              {filtered.map((prof, i) => (
+                <View key={prof.id} style={styles.profCard}>
+                  <View style={styles.profCardTop}>
+                    <View style={[styles.avatar, { backgroundColor: avatarBg(prof) }]}>
+                      <Text style={[styles.avatarText, { color: avatarColor(prof) }]}>{prof.initiales}</Text>
+                    </View>
+                    <View style={styles.profInfo}>
+                      <Text style={styles.profName}>{prof.nom}</Text>
+                      <View style={styles.profMetaRow}>
+                        <Feather name="book-open" size={rf(11)} color={C.textMuted} />
+                        <Text style={styles.profClasse}>{prof.classe}</Text>
+                        {prof.present !== null && (
+                          <View style={[styles.profStatusPill, prof.present ? styles.profStatusPresent : styles.profStatusAbsent]}>
+                            <Text style={[styles.profStatusTxt, { color: prof.present ? C.success : C.danger }]}>
+                              {prof.present ? "Présent" : "Absent"}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  </View>
+                  {prof.present === false && prof.motif && (
+                    <View style={styles.motifRow}>
+                      <Feather name="file-text" size={rf(11)} color={C.danger} />
+                      <Text style={styles.motifRowTxt} numberOfLines={1}>{prof.motif}</Text>
+                    </View>
+                  )}
+                  <View style={styles.profActions}>
+                    <TouchableOpacity
+                      onPress={() => markPresent(prof.id)}
+                      disabled={locked}
+                      activeOpacity={0.7}
+                      style={[styles.actionBtn, styles.actionBtnPresent, prof.present === true && styles.actionBtnPresentActive]}
+                    >
+                      <Feather name="check" size={rf(14)} color={prof.present === true ? "#fff" : C.success} />
+                      <Text style={[styles.actionBtnTxt, styles.actionBtnTxtPresent, prof.present === true && styles.actionBtnTxtPresentActive]}>Présent</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => openMotifModal(prof)}
+                      disabled={locked}
+                      activeOpacity={0.7}
+                      style={[styles.actionBtn, styles.actionBtnAbsent, prof.present === false && styles.actionBtnAbsentActive]}
+                    >
+                      <Feather name="x" size={rf(14)} color={prof.present === false ? "#fff" : C.danger} />
+                      <Text style={[styles.actionBtnTxt, styles.actionBtnTxtAbsent, prof.present === false && styles.actionBtnTxtAbsentActive]}>Absent</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+              <View style={{ height: rs(16) }} />
+            </ScrollView>
 
-        {/* Bouton valider */}
-        <View style={styles.validateWrap}>
-          <TouchableOpacity
-            onPress={locked ? undefined : handleValidate}
-            disabled={validating || defined === 0 || locked}
-            activeOpacity={0.8}
-            style={[
-              styles.validateBtn,
-              locked && styles.validateBtnLocked,
-              (validating || defined === 0) && !locked && styles.validateBtnDisabled,
-            ]}
-          >
-            {validating ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <>
-                <Feather
-                  name={locked ? "check-circle" : isOnline ? "send" : "upload-cloud"}
-                  size={rf(16)}
-                  color={(defined === 0 && !locked) ? C.textMuted : "#fff"}
-                  style={{ marginRight: rs(8) }}
-                />
-                <Text style={[styles.validateText, (defined === 0 && !locked) && styles.validateTextDisabled]}>
-                  {locked
-                    ? "Présences validées"
-                    : isOnline
-                      ? `Valider les présences${defined > 0 ? ` (${defined}/${profs.length})` : ""}`
-                      : `Enregistrer hors-ligne${defined > 0 ? ` (${defined}/${profs.length})` : ""}`}
-                </Text>
-              </>
-            )}
-          </TouchableOpacity>
-        </View>
+            {/* Bouton valider */}
+            <View style={styles.validateWrap}>
+              <TouchableOpacity
+                onPress={handleValidate}
+                disabled={validating || defined === 0}
+                activeOpacity={0.8}
+                style={[
+                  styles.validateBtn,
+                  (validating || defined === 0) && styles.validateBtnDisabled,
+                ]}
+              >
+                {validating ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Feather
+                      name={isOnline ? "send" : "upload-cloud"}
+                      size={rf(16)}
+                      color={defined === 0 ? C.textMuted : "#fff"}
+                      style={{ marginRight: rs(8) }}
+                    />
+                    <Text style={[styles.validateText, defined === 0 && styles.validateTextDisabled]}>
+                      {isOnline
+                        ? `Valider les présences${defined > 0 ? ` (${defined}/${profs.length})` : ""}`
+                        : `Enregistrer hors-ligne${defined > 0 ? ` (${defined}/${profs.length})` : ""}`}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
       </View>
 
       {/* ── Profile sheet ── */}
@@ -669,6 +693,75 @@ export default function SupPresencesScreen() {
             </View>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── Modal récapitulatif des présences ── */}
+      <Modal visible={recapOpen} transparent animationType="slide" statusBarTranslucent onRequestClose={() => setRecapOpen(false)}>
+        <View style={styles.motifOverlay}>
+          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setRecapOpen(false)} />
+
+          <View style={[styles.recapSheet, { paddingBottom: Math.max(insets.bottom, rs(16)) }]}>
+            <View style={styles.motifHandle} />
+
+            <View style={styles.recapHeader}>
+              <View style={styles.recapHeaderIcon}>
+                <Feather name="clipboard" size={rf(20)} color={C.brand} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.motifTitle}>Récapitulatif</Text>
+                <Text style={styles.motifName}>{todayCapital}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setRecapOpen(false)} style={styles.motifCloseBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                <Feather name="x" size={rf(18)} color={C.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Stats résumé */}
+            <View style={styles.recapStats}>
+              <View style={styles.recapStatBox}>
+                <Text style={[styles.recapStatVal, { color: C.success }]}>{presentsCount}</Text>
+                <Text style={styles.recapStatLbl}>Présent{presentsCount !== 1 ? "s" : ""}</Text>
+              </View>
+              <View style={styles.recapStatBox}>
+                <Text style={[styles.recapStatVal, { color: C.danger }]}>{absentsCount}</Text>
+                <Text style={styles.recapStatLbl}>Absent{absentsCount !== 1 ? "s" : ""}</Text>
+              </View>
+              <View style={styles.recapStatBox}>
+                <Text style={[styles.recapStatVal, { color: C.textMuted }]}>{profs.length}</Text>
+                <Text style={styles.recapStatLbl}>Total</Text>
+              </View>
+            </View>
+
+            {/* Liste des enseignants */}
+            <ScrollView showsVerticalScrollIndicator={false} bounces={false} contentContainerStyle={{ paddingBottom: rs(8) }}>
+              {profs.filter(p => p.present !== null).map(prof => (
+                <View key={prof.id} style={styles.recapRow}>
+                  <View style={[styles.recapAvatar, { backgroundColor: prof.present ? C.successSoft : C.dangerSoft }]}>
+                    <Text style={[styles.recapAvatarTxt, { color: prof.present ? C.success : C.danger }]}>{prof.initiales}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.recapProfName}>{prof.nom}</Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: rs(6), marginTop: rs(2) }}>
+                      <View style={[styles.recapPill, prof.present ? styles.recapPillPresent : styles.recapPillAbsent]}>
+                        <Feather name={prof.present ? "check" : "x"} size={rf(10)} color={prof.present ? C.success : C.danger} />
+                        <Text style={{ fontSize: rf(11), fontWeight: "700", color: prof.present ? C.success : C.danger }}>
+                          {prof.present ? "Présent" : "Absent"}
+                        </Text>
+                      </View>
+                      {prof.present === false && prof.motif && (
+                        <Text style={styles.recapMotif} numberOfLines={1}>{prof.motif}</Text>
+                      )}
+                    </View>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+
+            <TouchableOpacity onPress={() => setRecapOpen(false)} activeOpacity={0.8} style={styles.recapCloseBtn}>
+              <Text style={styles.recapCloseTxt}>Fermer</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </Modal>
 
     </View>
@@ -818,5 +911,33 @@ const styles = StyleSheet.create({
   motifConfirmBtn: { flex: 1.5, paddingVertical: rs(14), borderRadius: rs(14), backgroundColor: C.danger, flexDirection: "row", alignItems: "center", justifyContent: "center" },
   motifConfirmBtnDisabled: { backgroundColor: C.surfaceAlt },
   motifConfirmTxt: { fontSize: rf(15), fontWeight: "700", color: "#fff" },
+
+  /* Done card */
+  doneCard:     { backgroundColor: C.successSoft, borderRadius: rs(14), borderWidth: 1.5, borderColor: C.success + "44", padding: rs(20), marginTop: rs(16), marginBottom: rs(12) },
+  doneTop:      { flexDirection: "row", alignItems: "center", gap: rs(12), marginBottom: rs(16) },
+  doneIconWrap: { width: rs(46), height: rs(46), borderRadius: rs(23), backgroundColor: C.success + "22", alignItems: "center", justifyContent: "center" },
+  doneTitle:    { fontSize: rf(16), fontWeight: "800", color: C.success },
+  doneSub:      { fontSize: rf(13), color: C.textMuted, fontWeight: "500", marginTop: rs(2) },
+  doneBtn:      { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: rs(6), paddingVertical: rs(12), borderRadius: rs(12), backgroundColor: C.surface },
+  doneBtnTxt:   { fontSize: rf(14), fontWeight: "700", color: C.brand },
+
+  /* Recap modal */
+  recapSheet:     { backgroundColor: C.surface, borderTopLeftRadius: rs(24), borderTopRightRadius: rs(24), paddingHorizontal: rs(20), paddingTop: rs(12), maxHeight: "85%" },
+  recapHeader:    { flexDirection: "row", alignItems: "center", gap: rs(12), marginBottom: rs(16) },
+  recapHeaderIcon:{ width: rs(46), height: rs(46), borderRadius: rs(14), backgroundColor: C.brandSoft, alignItems: "center", justifyContent: "center" },
+  recapStats:     { flexDirection: "row", gap: rs(10), marginBottom: rs(16) },
+  recapStatBox:   { flex: 1, alignItems: "center", paddingVertical: rs(12), borderRadius: rs(12), backgroundColor: C.bg },
+  recapStatVal:   { fontSize: rf(22), fontWeight: "800" },
+  recapStatLbl:   { fontSize: rf(11), color: C.textMuted, fontWeight: "600", marginTop: rs(2) },
+  recapRow:       { flexDirection: "row", alignItems: "center", gap: rs(12), paddingVertical: rs(10), borderBottomWidth: 1, borderBottomColor: C.border + "66" },
+  recapAvatar:    { width: rs(38), height: rs(38), borderRadius: rs(19), alignItems: "center", justifyContent: "center" },
+  recapAvatarTxt: { fontSize: rf(13), fontWeight: "700" },
+  recapProfName:  { fontSize: rf(14), fontWeight: "700", color: C.text },
+  recapPill:      { flexDirection: "row", alignItems: "center", gap: rs(3), paddingHorizontal: rs(7), paddingVertical: rs(2), borderRadius: rs(8) },
+  recapPillPresent: { backgroundColor: C.successSoft },
+  recapPillAbsent:  { backgroundColor: C.dangerSoft },
+  recapMotif:     { fontSize: rf(11), color: C.danger, fontWeight: "600", flex: 1 },
+  recapCloseBtn:  { paddingVertical: rs(14), borderRadius: rs(14), backgroundColor: C.brand, alignItems: "center", justifyContent: "center", marginTop: rs(12) },
+  recapCloseTxt:  { fontSize: rf(15), fontWeight: "700", color: "#fff" },
 
 });
