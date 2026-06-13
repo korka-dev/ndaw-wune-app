@@ -56,6 +56,15 @@ export default function SupervisorTabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="difficultes"
+        options={{
+          title: "Difficultés",
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="alert-triangle" size={size ?? 22} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="rapports"
         options={{
           title: "Rapports",

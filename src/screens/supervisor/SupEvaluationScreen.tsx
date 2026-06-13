@@ -7,7 +7,10 @@ import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useStore } from "../../store/useStore";
 import { superviseurApi } from "../../services/api";
-import { getCachedEvaluations, setCachedEvaluations, getCachedSupEleves, setCachedSupEleves } from "../../services/cache";
+import {
+  getCachedEvaluations, setCachedEvaluations, getCachedSupEleves, setCachedSupEleves,
+  getCachedEvaluationCompetences, setCachedEvaluationCompetences, EvaluationCompetenceItem,
+} from "../../services/cache";
 import { enqueueAction } from "../../services/db";
 import { C } from "../../utils/theme";
 import { rf, rs } from "../../utils/responsive";
@@ -68,6 +71,11 @@ export default function SupEvaluationScreen() {
   // Résultats enregistrés: Map<`${classeId}:${competenceId}:${eleveId}`, Resultat>
   const [savedEvals, setSavedEvals] = useState<Map<string, Resultat>>(new Map());
 
+  // Compétences d'évaluation configurées par l'admin (dynamiques, synchronisées)
+  const [competencesList, setCompetencesList] = useState<EvaluationCompetenceItem[]>(
+    ASER_COMPETENCES.map((c, i) => ({ id: c.id, label: c.label, code: c.id, ordre: i }))
+  );
+
   // ── Chargement ─────────────────────────────────────────────────────────────
 
   const fetchEleves = useCallback(async () => {
@@ -99,6 +107,21 @@ export default function SupEvaluationScreen() {
   useEffect(() => {
     fetchEleves().finally(() => setLoading(false));
   }, [fetchEleves]);
+
+  // Charger les compétences d'évaluation (cache local d'abord, puis serveur si en ligne)
+  useEffect(() => {
+    getCachedEvaluationCompetences().then(cached => {
+      if (cached && cached.length > 0) setCompetencesList(cached);
+    }).catch(() => {});
+
+    superviseurApi.sync().then(({ data }) => {
+      const items: EvaluationCompetenceItem[] = data.evaluation_competences ?? [];
+      if (items.length > 0) {
+        setCompetencesList(items);
+        setCachedEvaluationCompetences(items).catch(() => {});
+      }
+    }).catch(() => {});
+  }, []);
 
   // Charger les évaluations existantes (cache local d'abord, puis serveur si en ligne)
   useEffect(() => {
@@ -227,7 +250,7 @@ export default function SupEvaluationScreen() {
 
   // ── Rendu ──────────────────────────────────────────────────────────────────
 
-  const competences = selectedClasse ? ASER_COMPETENCES : [];
+  const competences = selectedClasse ? competencesList : [];
   const langue = normaliseLangue(user?.langue_enseignement);
   const aserSupport = evalModal ? getAserSupport(evalModal.competenceId) : null;
   const aserContent = ASER_CONTENT[langue];
@@ -317,12 +340,12 @@ export default function SupEvaluationScreen() {
             contentContainerStyle={styles.listContent}
           >
             {competences.map(comp => {
-              const { aAider, evaluated, total } = getBadge(comp.id, selectedClasse.eleves);
+              const { aAider, evaluated, total } = getBadge(comp.code, selectedClasse.eleves);
               const isEvaluated = evaluated > 0;
               return (
                 <TouchableOpacity
                   key={comp.id}
-                  onPress={() => openEvalModal(comp.id, comp.label)}
+                  onPress={() => openEvalModal(comp.code, comp.label)}
                   style={styles.compCard}
                   activeOpacity={0.7}
                 >

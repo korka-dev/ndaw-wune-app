@@ -114,6 +114,24 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    // Ajout de photos_classe (liste JSON d'URIs locales — jusqu'à 3 photos uploadées)
+    version: 4,
+    up: (db) => {
+      try {
+        db.execSync(`ALTER TABLE rapports_journalier ADD COLUMN photos_classe TEXT`);
+      } catch { /* colonne déjà présente — base créée avec le schéma à jour */ }
+    },
+  },
+  {
+    // Ajout de reponses_questions (JSON {question_id: réponse} — questions dynamiques configurées par l'admin)
+    version: 5,
+    up: (db) => {
+      try {
+        db.execSync(`ALTER TABLE rapports_journalier ADD COLUMN reponses_questions TEXT`);
+      } catch { /* colonne déjà présente — base créée avec le schéma à jour */ }
+    },
+  },
 ];
 
 const CURRENT_DB_VERSION = MIGRATIONS.reduce((max, m) => Math.max(max, m.version), 0);
@@ -206,7 +224,9 @@ export function initDB(): void {
       has_observations         INTEGER NOT NULL,
       commentaires             TEXT,
       soumis_en_offline        INTEGER NOT NULL DEFAULT 1,
-      photo_classe             TEXT,    -- URI locale de la photo prise par le tuteur
+      photo_classe             TEXT,    -- URI locale de la photo prise par le tuteur (legacy, 1 photo)
+      photos_classe            TEXT,    -- liste JSON d'URIs locales (jusqu'à 3 photos uploadées)
+      reponses_questions       TEXT,    -- JSON {question_id: réponse} — questions dynamiques configurées par l'admin
       synced                   INTEGER NOT NULL DEFAULT 0,
       created_at               TEXT    NOT NULL DEFAULT (datetime('now'))
     );
@@ -392,7 +412,9 @@ export interface RapportJournalierLocal {
   has_observations:        number;   // 0/1
   commentaires:            string | null;
   soumis_en_offline:       number;   // 0/1
-  photo_classe:            string | null;  // URI locale de la photo
+  photo_classe:            string | null;  // URI locale de la photo (legacy, 1 photo)
+  photos_classe:           string | null;  // JSON array d'URIs locales (jusqu'à 3 photos)
+  reponses_questions:      string | null;  // JSON {question_id: réponse} — questions dynamiques configurées par l'admin
   synced:                  number;   // 0/1
   created_at:              string;
 }
@@ -411,15 +433,15 @@ export function insertRapportJournalier(r: Omit<RapportJournalierLocal, "created
       nb_absences, absents, semaine, jour_cours, difficultes,
       autres_difficultes, description_difficultes,
       directeur_venu, besoin_appui, domaines_appui,
-      has_observations, commentaires, soumis_en_offline, photo_classe, synced
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
+      has_observations, commentaires, soumis_en_offline, photo_classe, photos_classe, reponses_questions, synced
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
     [
       r.id, r.date_rapport, r.ief, r.commune, r.ecole, r.superviseur, r.nom_tuteur,
       r.nb_absences, r.absents ?? null, r.semaine, r.jour_cours, r.difficultes,
       r.autres_difficultes ?? null, r.description_difficultes ?? null,
       r.directeur_venu, r.besoin_appui, r.domaines_appui ?? null,
       r.has_observations, r.commentaires ?? null, r.soumis_en_offline,
-      r.photo_classe ?? null,
+      r.photo_classe ?? null, r.photos_classe ?? null, r.reponses_questions ?? null,
     ],
   );
 }

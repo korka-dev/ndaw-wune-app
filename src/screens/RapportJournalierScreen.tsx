@@ -126,9 +126,13 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
   const [hasObservations, setHasObservations] = useState<boolean | null>(null);
   const [commentaires,    setCommentaires]    = useState("");
 
-  // Étape 6 — Photo
-  const [photoUri,    setPhotoUri]    = useState<string | null>(null);
-  const [photoBase64, setPhotoBase64] = useState<string | null>(null);
+  // Questions complémentaires configurées par l'admin (dynamiques)
+  const rapportQuestions = syncData?.rapport_questions ?? [];
+  const [reponses, setReponses] = useState<Record<string, string>>({});
+
+  // Étape 6 — Photos (jusqu'à 3)
+  const [photos, setPhotos] = useState<{ uri: string; base64: string | null }[]>([]);
+  const MAX_PHOTOS = 3;
 
   const [loading,   setLoading]   = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -165,8 +169,30 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
     .filter(Boolean)
     .join(", ");
 
-  // ── Camera ────────────────────────────────────────────────────────────
+  // ── Photos (galerie + appareil photo) ───────────────────────────────────
+  const pickFromLibrary = useCallback(async () => {
+    const remaining = MAX_PHOTOS - photos.length;
+    if (remaining <= 0) return;
+
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission requise", "L'accès à la galerie est nécessaire.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.55, base64: true, allowsEditing: false, exif: false,
+      allowsMultipleSelection: true, selectionLimit: remaining,
+    });
+    if (!result.canceled && result.assets.length > 0) {
+      const picked = result.assets.slice(0, remaining).map(a => ({ uri: a.uri, base64: a.base64 ?? null }));
+      setPhotos(prev => [...prev, ...picked].slice(0, MAX_PHOTOS));
+    }
+  }, [photos.length]);
+
   const openCamera = useCallback(async () => {
+    if (photos.length >= MAX_PHOTOS) return;
+
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
       Alert.alert("Permission requise", "L'accès à l'appareil photo est nécessaire.");
@@ -178,9 +204,12 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
     });
     if (!result.canceled && result.assets.length > 0) {
       const asset = result.assets[0];
-      setPhotoUri(asset.uri);
-      setPhotoBase64(asset.base64 ?? null);
+      setPhotos(prev => [...prev, { uri: asset.uri, base64: asset.base64 ?? null }].slice(0, MAX_PHOTOS));
     }
+  }, [photos.length]);
+
+  const removePhoto = useCallback((index: number) => {
+    setPhotos(prev => prev.filter((_, i) => i !== index));
   }, []);
 
   const toggleDiff = useCallback((val: string) => {
@@ -211,9 +240,12 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
         if (besoinAppui && !domainesAppui.trim()) return "Veuillez indiquer les domaines d'appui.";
         if (hasObservations === null) return "Veuillez indiquer si vous avez des observations.";
         if (hasObservations && !commentaires.trim()) return "Veuillez rédiger vos commentaires.";
+        for (const q of rapportQuestions) {
+          if (q.required && !reponses[q.id]?.trim()) return `Veuillez répondre : « ${q.label} »`;
+        }
         return null;
-      case 4: // Photo
-        if (!photoUri) return "La photo de la classe est obligatoire.";
+      case 4: // Photos
+        if (photos.length === 0) return "Au moins une photo de la classe est obligatoire.";
         return null;
       default:
         return null;
@@ -264,7 +296,9 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
         has_observations: hasObservations ? 1 : 0,
         commentaires:     hasObservations ? commentaires.trim() : null,
         soumis_en_offline: offline ? 1 : 0,
-        photo_classe: photoUri,
+        photo_classe: photos[0]?.uri ?? null,
+        photos_classe: photos.length > 0 ? JSON.stringify(photos.map(p => p.uri)) : null,
+        reponses_questions: Object.keys(reponses).length > 0 ? JSON.stringify(reponses) : null,
       });
 
       const apiBody = {
@@ -280,7 +314,11 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
         has_observations: !!hasObservations,
         commentaires:     hasObservations ? commentaires.trim() : null,
         soumis_en_offline: offline,
-        photo_classe_url: photoBase64 ? `data:image/jpeg;base64,${photoBase64}` : null, // ← nom de champ corrigé
+        photo_classe_url: photos[0]?.base64 ? `data:image/jpeg;base64,${photos[0].base64}` : null, // ← legacy, 1ère photo
+        photos_classe_url: photos.some(p => p.base64)
+          ? JSON.stringify(photos.filter(p => p.base64).map(p => `data:image/jpeg;base64,${p.base64}`))
+          : null,
+        reponses_questions: Object.keys(reponses).length > 0 ? JSON.stringify(reponses) : null,
       };
 
       if (isOnline) {
@@ -315,7 +353,8 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
     setDifficultes([]); setAutresDifficultes(""); setDescriptionDifficultes("");
     setDirecteurVenu(null); setBesoinAppui(null); setDomainesAppui("");
     setHasObservations(null); setCommentaires("");
-    setPhotoUri(null); setPhotoBase64(null);
+    setPhotos([]);
+    setReponses({});
     setSubmitted(false);
   };
 
@@ -622,32 +661,119 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
                 />
               </>
             )}
+
+            {/* Questions complémentaires configurées par l'admin */}
+            {rapportQuestions.map(q => (
+              <View key={q.id} style={{ marginTop: rs(20) }}>
+                <Text style={s.question}>
+                  {q.label}{q.required ? " *" : ""}
+                </Text>
+
+                {(q.type === "texte_court" || q.type === "nombre") && (
+                  <TextInput
+                    style={s.area}
+                    value={reponses[q.id] ?? ""}
+                    onChangeText={(v) => setReponses(prev => ({ ...prev, [q.id]: v }))}
+                    placeholder="Votre réponse…" placeholderTextColor={C.textMuted}
+                    keyboardType={q.type === "nombre" ? "numeric" : "default"}
+                  />
+                )}
+
+                {q.type === "texte_long" && (
+                  <TextInput
+                    style={[s.area, { minHeight: rs(100) }]}
+                    value={reponses[q.id] ?? ""}
+                    onChangeText={(v) => setReponses(prev => ({ ...prev, [q.id]: v }))}
+                    placeholder="Votre réponse…" placeholderTextColor={C.textMuted}
+                    multiline textAlignVertical="top"
+                  />
+                )}
+
+                {q.type === "oui_non" && (
+                  <View style={s.ouiNonRow}>
+                    <TouchableOpacity
+                      style={[s.ouiNonBtn, reponses[q.id] === "oui" && s.ouiNonSel]}
+                      onPress={() => setReponses(prev => ({ ...prev, [q.id]: "oui" }))} activeOpacity={0.75}
+                    >
+                      <Feather name="check" size={rf(15)} color={reponses[q.id] === "oui" ? "#fff" : C.success} />
+                      <Text style={[s.ouiNonTxt, reponses[q.id] === "oui" && s.ouiNonTxtSel]}>Oui</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[s.ouiNonBtn, s.nonBtn, reponses[q.id] === "non" && s.ouiNonSelNon]}
+                      onPress={() => setReponses(prev => ({ ...prev, [q.id]: "non" }))} activeOpacity={0.75}
+                    >
+                      <Feather name="x" size={rf(15)} color={reponses[q.id] === "non" ? "#fff" : C.danger} />
+                      <Text style={[s.ouiNonTxt, reponses[q.id] === "non" && s.ouiNonTxtSel]}>Non</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {q.type === "choix_unique" && (q.options ?? []).map(opt => (
+                  <Radio
+                    key={opt} label={opt}
+                    selected={reponses[q.id] === opt}
+                    onPress={() => setReponses(prev => ({ ...prev, [q.id]: opt }))}
+                  />
+                ))}
+
+                {q.type === "choix_multiple" && (q.options ?? []).map(opt => {
+                  const selected = (reponses[q.id] ?? "").split("||").filter(Boolean);
+                  const checked = selected.includes(opt);
+                  return (
+                    <Check
+                      key={opt} label={opt} checked={checked}
+                      onPress={() => {
+                        const next = checked ? selected.filter(o => o !== opt) : [...selected, opt];
+                        setReponses(prev => ({ ...prev, [q.id]: next.join("||") }));
+                      }}
+                    />
+                  );
+                })}
+              </View>
+            ))}
+
             <View style={{ height: rs(24) }} />
           </ScrollView>
         );
 
-      /* ── Étape 4 : Photo ── */
+      /* ── Étape 4 : Photos ── */
       case 4:
         return (
           <View style={[s.stepBody, { alignItems: "center" }]}>
-            <Text style={[s.question, { textAlign: "center", marginBottom: rs(24) }]}>
-              Prenez une photo de la classe
+            <Text style={[s.question, { textAlign: "center", marginBottom: rs(8) }]}>
+              Ajoutez des photos de la classe
             </Text>
-            {!photoUri ? (
-              <TouchableOpacity style={s.photoBtn} onPress={openCamera} activeOpacity={0.8}>
-                <Feather name="camera" size={rf(36)} color={C.brand} style={{ marginBottom: rs(12) }} />
-                <Text style={s.photoBtnTxt}>Ouvrir l'appareil photo</Text>
-              </TouchableOpacity>
-            ) : (
-              <View style={{ width: "100%", gap: rs(12) }}>
-                <Image source={{ uri: photoUri }} style={s.photoPreview} resizeMode="cover" />
-                <View style={s.photoBadge}>
-                  <Feather name="check-circle" size={rf(14)} color={C.success} />
-                  <Text style={s.photoBadgeTxt}>Photo prise</Text>
-                </View>
-                <TouchableOpacity style={s.retakeBtn} onPress={() => { setPhotoUri(null); setPhotoBase64(null); }} activeOpacity={0.8}>
-                  <Feather name="refresh-cw" size={rf(16)} color={C.danger} />
-                  <Text style={s.retakeTxt}>Reprendre la photo</Text>
+            <Text style={[s.photoHint, { textAlign: "center", marginBottom: rs(20) }]}>
+              {photos.length}/{MAX_PHOTOS} photo{photos.length > 1 ? "s" : ""} — au moins 1 requise
+            </Text>
+
+            {photos.length > 0 && (
+              <View style={s.photoGrid}>
+                {photos.map((p, i) => (
+                  <View key={p.uri} style={s.photoThumbWrap}>
+                    <Image source={{ uri: p.uri }} style={s.photoThumb} resizeMode="cover" />
+                    <TouchableOpacity
+                      style={s.photoRemoveBtn}
+                      onPress={() => removePhoto(i)}
+                      activeOpacity={0.8}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Feather name="x" size={rf(13)} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {photos.length < MAX_PHOTOS && (
+              <View style={{ width: "100%", gap: rs(12), marginTop: photos.length > 0 ? rs(16) : 0 }}>
+                <TouchableOpacity style={s.photoBtn} onPress={pickFromLibrary} activeOpacity={0.8}>
+                  <Feather name="image" size={rf(30)} color={C.brand} style={{ marginBottom: rs(10) }} />
+                  <Text style={s.photoBtnTxt}>Choisir depuis la galerie</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.photoBtnAlt} onPress={openCamera} activeOpacity={0.8}>
+                  <Feather name="camera" size={rf(18)} color={C.textMuted} style={{ marginRight: rs(8) }} />
+                  <Text style={s.photoBtnAltTxt}>Prendre une photo</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -713,9 +839,9 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
-              style={[s.nextBtn, s.submitBtn, (loading || !photoUri) && s.submitDis]}
+              style={[s.nextBtn, s.submitBtn, (loading || photos.length === 0) && s.submitDis]}
               onPress={handleSubmit}
-              disabled={loading || !photoUri}
+              disabled={loading || photos.length === 0}
               activeOpacity={0.85}
             >
               {loading
@@ -860,8 +986,15 @@ const s = StyleSheet.create({
   jourTxtSel: { color: "#fff" },
 
   /* Photo */
-  photoBtn:     { width: "100%", aspectRatio: 4/3, borderWidth: 2, borderColor: C.brand, borderStyle: "dashed", borderRadius: rs(16), alignItems: "center", justifyContent: "center", backgroundColor: C.brandSoft },
-  photoBtnTxt:  { fontSize: rf(17), fontWeight: "700", color: C.brand },
+  photoHint:    { fontSize: rf(13), color: C.textMuted, fontWeight: "500" },
+  photoBtn:     { width: "100%", aspectRatio: 16/9, borderWidth: 2, borderColor: C.brand, borderStyle: "dashed", borderRadius: rs(16), alignItems: "center", justifyContent: "center", backgroundColor: C.brandSoft },
+  photoBtnTxt:  { fontSize: rf(16), fontWeight: "700", color: C.brand },
+  photoBtnAlt:  {
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    paddingVertical: rs(13), borderRadius: rs(12),
+    borderWidth: 1.5, borderColor: C.border, backgroundColor: C.surface,
+  },
+  photoBtnAltTxt: { fontSize: rf(15), fontWeight: "600", color: C.textMuted },
   photoPreview: { width: "100%", aspectRatio: 4/3, borderRadius: rs(14), backgroundColor: C.border },
   photoBadge:   { flexDirection: "row", alignItems: "center", gap: rs(6), backgroundColor: C.successSoft, borderRadius: rs(8), paddingHorizontal: rs(10), paddingVertical: rs(6), alignSelf: "flex-start" },
   photoBadgeTxt:{ fontSize: rf(14), fontWeight: "600", color: C.success },
@@ -872,6 +1005,16 @@ const s = StyleSheet.create({
     backgroundColor: C.dangerSoft,
   },
   retakeTxt: { fontSize: rf(16), color: C.danger, fontWeight: "700" },
+
+  /* Grille de miniatures photos */
+  photoGrid:      { flexDirection: "row", flexWrap: "wrap", gap: rs(10), width: "100%" },
+  photoThumbWrap: { width: "31%", aspectRatio: 1, borderRadius: rs(12), overflow: "hidden", position: "relative" },
+  photoThumb:     { width: "100%", height: "100%" },
+  photoRemoveBtn: {
+    position: "absolute", top: rs(6), right: rs(6),
+    width: rs(22), height: rs(22), borderRadius: rs(11),
+    backgroundColor: "rgba(0,0,0,0.55)", alignItems: "center", justifyContent: "center",
+  },
 
   /* Boutons Oui / Non côte à côte */
   ouiNonRow: { flexDirection: "row", gap: rs(10), marginBottom: rs(8) },

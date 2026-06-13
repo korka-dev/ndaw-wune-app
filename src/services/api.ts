@@ -191,6 +191,9 @@ export const superviseurApi = {
     present:    boolean;
     motif?:     string | null;
   }[]) => api.post("/app/supervisor/presences", { date_jour, entries }),
+
+  /** Difficultés signalées par les enseignants assignés (rapports journaliers). */
+  getDifficultes: () => api.get("/app/supervisor/difficultes"),
 };
 
 // ── Ressources pédagogiques ───────────────────────────────────────────────────
