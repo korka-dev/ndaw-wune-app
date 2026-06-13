@@ -23,7 +23,10 @@
         "android.permission.SCHEDULE_EXACT_ALARM",
         "android.permission.USE_EXACT_ALARM",
         "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
-        "android.permission.RECEIVE_BOOT_COMPLETED"
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.INTERNET"
       ]
     },
     "ios": {
@@ -72,17 +75,15 @@
     "runtimeVersion": {
       "policy": "appVersion"
     },
-    "updates": {
-      "url": "https://u.expo.dev/864f56bb-cd8e-4670-bdc1-316fbe10ad60"
-    },
     "experiments": {
       "typedRoutes": true
     },
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "864f56bb-cd8e-4670-bdc1-316fbe10ad60"
+        "projectId": "91bca334-75fc-4ac0-acd0-c7bed545c24c"
       }
-    }
+    },
+    "owner": "rassoul-gby"
   }
 }
