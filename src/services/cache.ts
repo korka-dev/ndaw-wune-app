@@ -11,6 +11,7 @@ const SUP_EVALS_KEY  = "ared_supervisor_evaluations";
 const SUP_ELEVES_KEY = "ared_supervisor_eleves";
 const SUP_COMPETENCES_KEY = "ared_evaluation_competences";
 const SUP_DIFFICULTES_KEY = "ared_supervisor_difficultes";
+const TEACHER_EVALS_KEY   = "ared_teacher_evaluations";
 
 export interface SyncPayload {
   synced_at: string;
@@ -130,4 +131,26 @@ export async function getCachedDifficultes(): Promise<DifficulteItem[] | null> {
 
 export async function setCachedDifficultes(items: DifficulteItem[]): Promise<void> {
   await AsyncStorage.setItem(SUP_DIFFICULTES_KEY, JSON.stringify(items));
+}
+
+/** Cache local des évaluations reçues par l'enseignant (depuis les superviseurs). */
+export interface TeacherEvalItem {
+  eleve_id:        string;
+  nom:             string;
+  prenom:          string | null;
+  classe:          string;
+  competence:      string;
+  resultat:        string;   // acquis | en_cours | a_aider
+  date_eval:       string;
+  commentaire:     string | null;
+  superviseur_nom: string | null;
+}
+
+export async function getCachedTeacherEvaluations(): Promise<TeacherEvalItem[]> {
+  const raw = await AsyncStorage.getItem(TEACHER_EVALS_KEY);
+  return raw ? JSON.parse(raw) : [];
+}
+
+export async function setCachedTeacherEvaluations(items: TeacherEvalItem[]): Promise<void> {
+  await AsyncStorage.setItem(TEACHER_EVALS_KEY, JSON.stringify(items));
 }

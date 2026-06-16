@@ -196,6 +196,12 @@ export const superviseurApi = {
   getDifficultes: () => api.get("/app/supervisor/difficultes"),
 };
 
+// ── Évaluations (vue enseignant) ──────────────────────────────────────────────
+export const teacherEvalApi = {
+  /** Évaluations des élèves de l'enseignant faites par les superviseurs. */
+  listEvaluations: () => api.get("/app/teacher/evaluations"),
+};
+
 // ── Ressources pédagogiques ───────────────────────────────────────────────────
 export const ressourcesApi = {
   list: () => api.get("/app/ressources"),

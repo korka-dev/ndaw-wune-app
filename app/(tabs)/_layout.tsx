@@ -62,6 +62,15 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="evaluations"
+        options={{
+          title: "Évaluations",
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="award" size={size ?? 22} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="ressources"
         options={{
           title: "Ressources",
