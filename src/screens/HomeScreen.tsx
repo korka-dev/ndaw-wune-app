@@ -249,8 +249,12 @@ export default function HomeScreen() {
   const activeSeg = pendingSegs[0] ?? null;
   const nextSeg   = pendingSegs[1] ?? null;
 
-  // Démarrage possible seulement à partir de 5 minutes avant l'heure de début
-  const canStartActiveSeg = activeSeg ? curMin >= toMin(activeSeg.heure_debut) - 5 : false;
+  // La restriction "5 minutes avant l'heure de début" ne s'applique qu'à la
+  // toute première tâche de la journée. Pour les suivantes, on laisse la main.
+  const isFirstTaskOfDay = activeSeg ? todayPlan[0]?.id === activeSeg.id : false;
+  const canStartActiveSeg = activeSeg
+    ? (isFirstTaskOfDay ? curMin >= toMin(activeSeg.heure_debut) - 5 : true)
+    : false;
 
   const durMin  = activeSeg ? segDurMin(activeSeg.heure_debut, activeSeg.heure_fin) : 0;
   const durSec  = durMin * 60;

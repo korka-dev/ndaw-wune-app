@@ -18,12 +18,6 @@ import { rs, rf } from "../utils/responsive";
 import { C } from "../utils/theme";
 import AredLogo from "../components/AredLogo";
 
-const RULES = [
-  { label: "Au moins 8 caractères", test: (v: string) => v.length >= 8 },
-  { label: "Une lettre majuscule",   test: (v: string) => /[A-Z]/.test(v) },
-  { label: "Un chiffre",             test: (v: string) => /\d/.test(v) },
-];
-
 export default function ChangePasswordScreen() {
   const router  = useRouter();
   const confRef = useRef<TextInput>(null);
@@ -34,10 +28,7 @@ export default function ChangePasswordScreen() {
   const [showConf, setShowConf] = useState(false);
   const [loading,  setLoading]  = useState(false);
 
-  const isValid =
-    RULES.every(r => r.test(newPwd)) &&
-    newPwd === confPwd &&
-    confPwd.length > 0;
+  const isValid = newPwd.length > 0 && newPwd === confPwd;
 
   const handleSubmit = async () => {
     if (!isValid) return;
@@ -109,27 +100,6 @@ export default function ChangePasswordScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Règles de sécurité — compactes, sous le champ */}
-            {newPwd.length > 0 && (
-              <View style={s.rules}>
-                {RULES.map(r => {
-                  const ok = r.test(newPwd);
-                  return (
-                    <View key={r.label} style={s.ruleRow}>
-                      <Feather
-                        name={ok ? "check-circle" : "circle"}
-                        size={rf(13)}
-                        color={ok ? C.success : C.textMuted}
-                        style={{ marginRight: rs(6) }}
-                      />
-                      <Text style={[s.ruleLabel, { color: ok ? C.success : C.textMuted }]}>
-                        {r.label}
-                      </Text>
-                    </View>
-                  );
-                })}
-              </View>
-            )}
           </View>
 
           {/* ── Confirmer le mot de passe ── */}

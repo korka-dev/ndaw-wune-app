@@ -261,6 +261,7 @@ export default function SupEvaluationScreen() {
       <AppHeader
         userName={user?.name ?? ""}
         onAvatarPress={() => setProfileOpen(true)}
+        isOnline={isOnline}
       />
 
       <View style={styles.content}>
@@ -415,7 +416,7 @@ export default function SupEvaluationScreen() {
             {aserSupport && (
               <View style={styles.aserCard}>
                 <View style={styles.aserHeader}>
-                  <Feather name="book-open" size={rs(14)} color={C.primary} />
+                  <Feather name="book-open" size={rs(18)} color={C.primary} />
                   <Text style={styles.aserTitle}>
                     Support ASER · {langue}
                   </Text>
@@ -562,10 +563,10 @@ const styles = StyleSheet.create({
   sheetSub:       { fontSize: rf(13), color: C.textMuted, marginTop: rs(1) },
 
   // Support ASER
-  aserCard:       { backgroundColor: C.primarySoft, borderRadius: rs(12), padding: rs(12), gap: rs(6) },
-  aserHeader:     { flexDirection: "row", alignItems: "center", gap: rs(6) },
-  aserTitle:      { fontSize: rf(12), fontWeight: "700", color: C.primary },
-  aserText:       { fontSize: rf(16), fontWeight: "600", color: C.text, letterSpacing: 1 },
+  aserCard:       { backgroundColor: C.primarySoft, borderRadius: rs(12), padding: rs(16), gap: rs(10) },
+  aserHeader:     { flexDirection: "row", alignItems: "center", gap: rs(8) },
+  aserTitle:      { fontSize: rf(15), fontWeight: "700", color: C.primary },
+  aserText:       { fontSize: rf(22), fontWeight: "700", color: C.text, letterSpacing: 1.5, lineHeight: rf(32) },
 
   // Légende
   legend:         { flexDirection: "row", gap: rs(6) },

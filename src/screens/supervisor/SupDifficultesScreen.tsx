@@ -17,13 +17,14 @@ import ProfileSheet from "../../components/ProfileSheet";
 
 export default function SupDifficultesScreen() {
   const insets = useSafeAreaInsets();
-  const { user } = useStore();
+  const { user, isOnline } = useStore();
 
   const [items,      setItems]      = useState<DifficulteItem[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error,      setError]      = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(null);
 
   const fetchDifficultes = useCallback(async () => {
     try {
@@ -57,6 +58,23 @@ export default function SupDifficultesScreen() {
     return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
   };
 
+  // ── Regroupement par enseignant ──────────────────────────────────────────
+  const teachers = React.useMemo(() => {
+    const map = new Map<string, { teacher_id: string; teacher_name: string; ecole: string; count: number }>();
+    for (const it of items) {
+      const existing = map.get(it.teacher_id);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        map.set(it.teacher_id, { teacher_id: it.teacher_id, teacher_name: it.teacher_name, ecole: it.ecole, count: 1 });
+      }
+    }
+    return Array.from(map.values());
+  }, [items]);
+
+  const selectedTeacher = teachers.find(t => t.teacher_id === selectedTeacherId) ?? null;
+  const selectedItems   = selectedTeacherId ? items.filter(it => it.teacher_id === selectedTeacherId) : [];
+
   if (loading) {
     return (
       <View style={[styles.center, { paddingTop: insets.top }]}>
@@ -71,70 +89,119 @@ export default function SupDifficultesScreen() {
       <AppHeader
         userName={user?.name ?? ""}
         onAvatarPress={() => setProfileOpen(true)}
+        isOnline={isOnline}
       />
 
       <View style={styles.content}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Inconvénients signalés</Text>
-          <Text style={styles.subtitle}>
-            {items.length} rapport{items.length !== 1 ? "s" : ""} avec difficulté{items.length !== 1 ? "s" : ""}
-          </Text>
-        </View>
+        {selectedTeacher ? (
+          <>
+            <View style={styles.header}>
+              <TouchableOpacity style={styles.backRow} onPress={() => setSelectedTeacherId(null)}>
+                <Feather name="arrow-left" size={rs(16)} color={C.text} />
+                <Text style={styles.backText}>Tous les enseignants</Text>
+              </TouchableOpacity>
+              <Text style={styles.title}>{selectedTeacher.teacher_name}</Text>
+              <Text style={styles.subtitle}>
+                {selectedItems.length} rapport{selectedItems.length !== 1 ? "s" : ""} avec difficulté{selectedItems.length !== 1 ? "s" : ""}
+              </Text>
+            </View>
 
-        {error && (
-          <View style={styles.errorBanner}>
-            <Feather name="alert-circle" size={rs(14)} color={C.danger} />
-            <Text style={styles.errorText}>{error}</Text>
-            <TouchableOpacity onPress={() => { setLoading(true); fetchDifficultes().finally(() => setLoading(false)); }}>
-              <Text style={styles.retryText}>Réessayer</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {!error && items.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Feather name="check-circle" size={rs(40)} color={C.textMuted} />
-            <Text style={styles.emptyText}>
-              Aucune difficulté signalée par vos enseignants.
-            </Text>
-          </View>
-        ) : (
-          <ScrollView
-            showsVerticalScrollIndicator={false}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}
-            contentContainerStyle={styles.listContent}
-          >
-            {items.map(item => (
-              <View key={item.id} style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>
-                      {item.teacher_name.charAt(0).toUpperCase()}
-                    </Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.teacherName} numberOfLines={1}>{item.teacher_name}</Text>
-                    <Text style={styles.cardSub}>{item.ecole} · {formatDate(item.date_rapport)}</Text>
-                  </View>
-                </View>
-
-                <View style={styles.diffTags}>
-                  {item.difficultes.map((d, i) => (
-                    <View key={i} style={styles.diffTag}>
-                      <Text style={styles.diffTagText}>{d}</Text>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}
+              contentContainerStyle={styles.listContent}
+            >
+              {selectedItems.map(item => (
+                <View key={item.id} style={styles.card}>
+                  <View style={styles.cardHeader}>
+                    <View style={styles.avatar}>
+                      <Text style={styles.avatarText}>
+                        {item.teacher_name.charAt(0).toUpperCase()}
+                      </Text>
                     </View>
-                  ))}
-                </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.teacherName} numberOfLines={1}>{item.teacher_name}</Text>
+                      <Text style={styles.cardSub}>{item.ecole} · {formatDate(item.date_rapport)}</Text>
+                    </View>
+                  </View>
 
-                {item.autres_difficultes && (
-                  <Text style={styles.diffDetail}>Autre : {item.autres_difficultes}</Text>
-                )}
-                {item.description_difficultes && (
-                  <Text style={styles.diffDetail}>{item.description_difficultes}</Text>
-                )}
+                  <View style={styles.diffTags}>
+                    {item.difficultes.map((d, i) => (
+                      <View key={i} style={styles.diffTag}>
+                        <Text style={styles.diffTagText}>{d}</Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  {item.autres_difficultes && (
+                    <Text style={styles.diffDetail}>Autre : {item.autres_difficultes}</Text>
+                  )}
+                  {item.description_difficultes && (
+                    <Text style={styles.diffDetail}>{item.description_difficultes}</Text>
+                  )}
+                </View>
+              ))}
+            </ScrollView>
+          </>
+        ) : (
+          <>
+            <View style={styles.header}>
+              <Text style={styles.title}>Inconvénients signalés</Text>
+              <Text style={styles.subtitle}>
+                {teachers.length} enseignant{teachers.length !== 1 ? "s" : ""} concerné{teachers.length !== 1 ? "s" : ""}
+              </Text>
+            </View>
+
+            {error && (
+              <View style={styles.errorBanner}>
+                <Feather name="alert-circle" size={rs(14)} color={C.danger} />
+                <Text style={styles.errorText}>{error}</Text>
+                <TouchableOpacity onPress={() => { setLoading(true); fetchDifficultes().finally(() => setLoading(false)); }}>
+                  <Text style={styles.retryText}>Réessayer</Text>
+                </TouchableOpacity>
               </View>
-            ))}
-          </ScrollView>
+            )}
+
+            {!error && teachers.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Feather name="check-circle" size={rs(40)} color={C.textMuted} />
+                <Text style={styles.emptyText}>
+                  Aucune difficulté signalée par vos enseignants.
+                </Text>
+              </View>
+            ) : (
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}
+                contentContainerStyle={styles.listContent}
+              >
+                {teachers.map(t => (
+                  <TouchableOpacity
+                    key={t.teacher_id}
+                    style={styles.card}
+                    activeOpacity={0.7}
+                    onPress={() => setSelectedTeacherId(t.teacher_id)}
+                  >
+                    <View style={styles.cardHeader}>
+                      <View style={styles.avatar}>
+                        <Text style={styles.avatarText}>
+                          {t.teacher_name.charAt(0).toUpperCase()}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.teacherName} numberOfLines={1}>{t.teacher_name}</Text>
+                        <Text style={styles.cardSub}>{t.ecole}</Text>
+                      </View>
+                      <View style={styles.countBadge}>
+                        <Text style={styles.countBadgeText}>{t.count}</Text>
+                      </View>
+                      <Feather name="chevron-right" size={rs(18)} color={C.textMuted} />
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </>
         )}
       </View>
 
@@ -154,6 +221,12 @@ const styles = StyleSheet.create({
   header:      { marginBottom: rs(14) },
   title:       { fontSize: rf(20), fontWeight: "700", color: C.text },
   subtitle:    { fontSize: rf(13), color: C.textMuted, marginTop: rs(3), fontWeight: "500" },
+
+  backRow:     { flexDirection: "row", alignItems: "center", gap: rs(6), marginBottom: rs(8) },
+  backText:    { fontSize: rf(13), fontWeight: "600", color: C.text },
+
+  countBadge:     { backgroundColor: C.dangerSoft, borderRadius: rs(10), minWidth: rs(24), height: rs(24), alignItems: "center", justifyContent: "center", paddingHorizontal: rs(6), marginRight: rs(8) },
+  countBadgeText: { fontSize: rf(12), fontWeight: "800", color: C.danger },
 
   errorBanner: { flexDirection: "row", alignItems: "center", gap: rs(8), backgroundColor: C.dangerSoft, borderRadius: rs(10), padding: rs(12), marginBottom: rs(10) },
   errorText:   { flex: 1, fontSize: rf(14), color: C.danger },

@@ -27,13 +27,6 @@ function formatPhone(raw: string): string {
   return [p1, p2, p3, p4].filter(Boolean).join(" ");
 }
 
-/* ── Règles de sécurité ───────────────────────────────────────────────────── */
-const RULES = [
-  { label: "Au moins 8 caractères", test: (v: string) => v.length >= 8 },
-  { label: "Une lettre majuscule",   test: (v: string) => /[A-Z]/.test(v) },
-  { label: "Un chiffre",             test: (v: string) => /\d/.test(v) },
-];
-
 /* ══════════════════════════════════════════════════════════════════════════
    Écran principal
 ══════════════════════════════════════════════════════════════════════════ */
@@ -51,8 +44,7 @@ export default function ForgotPasswordScreen() {
   const newPwdRef = useRef<TextInput>(null);
 
   const rawPhone   = phone.replace(/\s/g, "");
-  const isPwdValid = RULES.every(r => r.test(newPwd));
-  const isFormOk   = rawPhone.length >= 9 && isPwdValid && newPwd === confPwd && confPwd.length > 0;
+  const isFormOk   = rawPhone.length >= 9 && newPwd.length > 0 && newPwd === confPwd;
 
   const handleReset = async () => {
     if (!isFormOk) return;
@@ -157,27 +149,6 @@ export default function ForgotPasswordScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* Indicateurs critères */}
-            {newPwd.length > 0 && (
-              <View style={s.rules}>
-                {RULES.map(r => {
-                  const ok = r.test(newPwd);
-                  return (
-                    <View key={r.label} style={s.ruleRow}>
-                      <Feather
-                        name={ok ? "check-circle" : "circle"}
-                        size={rf(13)}
-                        color={ok ? C.success : C.textMuted}
-                        style={{ marginRight: rs(6) }}
-                      />
-                      <Text style={[s.ruleLabel, { color: ok ? C.success : C.textMuted }]}>
-                        {r.label}
-                      </Text>
-                    </View>
-                  );
-                })}
-              </View>
-            )}
           </View>
 
           {/* ── Confirmation ── */}
