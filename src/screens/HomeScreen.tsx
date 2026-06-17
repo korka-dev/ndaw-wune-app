@@ -352,14 +352,12 @@ export default function HomeScreen() {
       pauseEvents: newPauseEvents,
     })).catch(() => {});
 
-    // Envoyer au serveur (fire-and-forget) — ou mettre en queue offline
+    // Envoyer au serveur (fire-and-forget) — les pauses sont aussi incluses dans le finish
     const seanceId = activeSeance.id;
     if (isOnline && !seanceId.startsWith("offline-")) {
       seancesApi.pause(seanceId, nowIso).catch(() => {
-        // Échec réseau : sera réconcilié via le payload de finish
+        // Échec réseau : réconcilié via snapshotPauseEvents dans FINISH_SEANCE
       });
-    } else {
-      enqueueAction("PAUSE_SEANCE", { seance_id: seanceId, paused_at: nowIso });
     }
 
     // Notification si toujours en pause dans 5 min
@@ -394,12 +392,10 @@ export default function HomeScreen() {
       pauseEvents:   newPauseEvents,
     })).catch(() => {});
 
-    // Envoyer la reprise au serveur
+    // Envoyer la reprise au serveur (fire-and-forget) — réconciliée via finish si échec
     const seanceId = activeSeance.id;
     if (isOnline && !seanceId.startsWith("offline-")) {
       seancesApi.resume(seanceId, nowIso).catch(() => {});
-    } else {
-      enqueueAction("RESUME_SEANCE", { seance_id: seanceId, resumed_at: nowIso });
     }
 
     // Annuler l'alerte de pause
@@ -465,6 +461,8 @@ export default function HomeScreen() {
               id:         data.id,
               started_at: data.started_at ?? startedAt,
             });
+            // start_payload ne sert qu'à la réconciliation offline → inutile une fois le serverUUID obtenu
+            AsyncStorage.removeItem(`start_payload_${localId}`).catch(() => {});
           }
         })
         .catch(() => {

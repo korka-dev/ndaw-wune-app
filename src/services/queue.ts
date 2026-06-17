@@ -24,7 +24,7 @@ import {
   getPendingActions,
   deleteAction,
   markActionFailed,
-  resetFailedActions,
+  resetFailedActions as resetFailedActionsDB,
   markRapportSynced,
   markRapportJournalierSynced,
   markSupervisorPresenceSynced,
@@ -32,9 +32,11 @@ import {
   QueueItem,
 } from "./db";
 
-export { resetFailedActions };
-
 export const MAX_ATTEMPTS = 5;
+
+export function resetFailedActions(): void {
+  resetFailedActionsDB(MAX_ATTEMPTS);
+}
 
 // ── Backoff exponentiel avec jitter ───────────────────────────────────────────
 //

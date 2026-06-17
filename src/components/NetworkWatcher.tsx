@@ -20,7 +20,6 @@ import { AppState, AppStateStatus } from "react-native";
 import * as Network from "expo-network";
 import { router } from "expo-router";
 import { useStore } from "../store/useStore";
-import { flushQueue } from "../services/queue";
 import { scheduleSessionAlerts, updateCachedSegments } from "../services/notifications";
 import { syncRessourcesOffline } from "../services/ressources";
 import { onAuthFailure } from "../services/authEvents";
@@ -101,12 +100,8 @@ export default function NetworkWatcher() {
         setIsOnline(online);
 
         if (online && wasOffline) {
-          // Retour en ligne : vider la queue en priorité, puis syncer
+          // Retour en ligne : doSync fait lui-même le flush + fetch dans syncOffline
           console.log("[Network] Connexion rétablie — synchronisation");
-          const flushed = await flushQueue();
-          if (flushed > 0) {
-            console.log(`[Network] ${flushed} action(s) synchronisée(s) depuis la file`);
-          }
           await doSync("retour en ligne");
         }
       } catch (e) {

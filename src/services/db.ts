@@ -15,8 +15,6 @@ export type QueueAction =
   | "FINISH_SEANCE"               // terminer une séance démarrée en ligne ou hors-ligne
   | "SUBMIT_RAPPORT"              // envoyer un rapport de séance rédigé hors-ligne
   | "SUBMIT_RAPPORT_JOURNALIER"   // envoyer un rapport journalier rédigé hors-ligne
-  | "PAUSE_SEANCE"                // mettre en pause une séance (hors-ligne)
-  | "RESUME_SEANCE"               // reprendre une séance en pause (hors-ligne)
   | "REPORT_MISSED_SEANCE"        // signaler un créneau planifié manqué
   | "SUBMIT_PRESENCE_CHECK"       // pointage de présence des enseignants (superviseur)
   | "SUBMIT_EVALUATIONS";         // évaluations élèves soumises hors-ligne (superviseur)
@@ -322,11 +320,12 @@ export function markActionFailed(id: number, error: string, nextRetryAt: string)
 /**
  * Réinitialise le compteur de tentatives de toutes les actions échouées.
  * Utile après une panne serveur résolue — permet de rejouer les actions bloquées.
+ * @param maxAttempts seuil à partir duquel une action est considérée bloquée (doit correspondre à MAX_ATTEMPTS dans queue.ts)
  */
-export function resetFailedActions(): void {
+export function resetFailedActions(maxAttempts: number): void {
   getDB().runSync(
     `UPDATE offline_queue SET attempts = 0, last_error = NULL, next_retry_at = NULL WHERE attempts >= ?`,
-    [5],
+    [maxAttempts],
   );
 }
 

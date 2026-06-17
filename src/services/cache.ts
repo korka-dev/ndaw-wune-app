@@ -72,7 +72,7 @@ export async function setCachedLangueEnseignement(langue: string): Promise<void>
 }
 
 export async function clearCache(): Promise<void> {
-  await AsyncStorage.multiRemove([SYNC_KEY, SYNC_DATE_KEY, "access_token", "refresh_token", "user_role", SUP_EVALS_KEY, SUP_ELEVES_KEY, SUP_COMPETENCES_KEY, SUP_DIFFICULTES_KEY]);
+  await AsyncStorage.multiRemove([SYNC_KEY, SYNC_DATE_KEY, "access_token", "refresh_token", "user_role", SUP_EVALS_KEY, SUP_ELEVES_KEY, SUP_COMPETENCES_KEY, SUP_DIFFICULTES_KEY, TEACHER_EVALS_KEY]);
 }
 
 /** Cache local des compétences d'évaluation configurées par l'admin (superviseur), pour usage hors-ligne. */

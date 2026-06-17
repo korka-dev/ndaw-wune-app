@@ -85,7 +85,7 @@ describe("offline_queue", () => {
     const future = new Date(Date.now() + 60_000).toISOString();
     for (let i = 0; i < 5; i++) markActionFailed(id, "erreur", future);
     expect(getPendingActions()[0].attempts).toBe(5);
-    resetFailedActions();
+    resetFailedActions(5);
     expect(getPendingActions()[0].attempts).toBe(0);
     expect(getPendingActions()[0].next_retry_at).toBeNull();
   });

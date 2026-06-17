@@ -130,6 +130,8 @@ export default function PlanningScreen() {
           const current = useStore.getState().activeSeance;
           if (current?.id === localId) {
             setActiveSeance({ ...current, id: data.id, started_at: data.started_at ?? startedAt });
+            // start_payload ne sert qu'à la réconciliation offline → inutile une fois le serverUUID obtenu
+            AsyncStorage.removeItem(`start_payload_${localId}`).catch(() => {});
           }
         })
         .catch(() => {
