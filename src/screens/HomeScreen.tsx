@@ -116,6 +116,15 @@ export default function HomeScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Nettoie les états du jour précédent quand le jour change (ex: app laissée ouverte la nuit)
+  useEffect(() => {
+    const todayIds = new Set(todayPlan.map((s: any) => s.id));
+    setMissedAlertSeg((prev: any) => (prev && !todayIds.has(prev.id) ? null : prev));
+    setMissedSegIds((prev: string[]) => prev.filter(id => todayIds.has(id)));
+    setCompletedSegIds((prev: string[]) => prev.filter(id => todayIds.has(id)));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todayIdx]);
+
   const dayCompleted = todayPlan.length > 0 &&
     todayPlan.every(seg => completedSegIds.includes(seg.id) || missedSegIds.includes(seg.id));
 
@@ -792,7 +801,7 @@ export default function HomeScreen() {
     }
 
     // 3. Tâche manquée — afficher l'alerte si aucune séance n'est en cours
-    if (!activeSeance && missedAlertSeg) {
+    if (!activeSeance && missedAlertSeg && todayPlan.some((s: any) => s.id === missedAlertSeg.id)) {
       const missedTitle     = segTitle(missedAlertSeg);
       const missedTimeRange = `${missedAlertSeg.heure_debut.slice(0, 5)} – ${missedAlertSeg.heure_fin.slice(0, 5)}`;
       const hasNextSeg      = pendingSegs.length > 0;

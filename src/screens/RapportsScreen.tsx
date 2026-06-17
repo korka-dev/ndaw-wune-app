@@ -130,6 +130,7 @@ export default function RapportsScreen() {
   const [showForm,    setShowForm]    = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [history,     setHistory]     = useState<RapportJournalierLocal[]>([]);
+  const [syncing,     setSyncing]     = useState(false);
 
   // ── Charger TOUS les rapports + auto-sync si nécessaire ───────────────
   const loadAndSync = useCallback(async () => {
@@ -152,6 +153,18 @@ export default function RapportsScreen() {
   useFocusEffect(
     useCallback(() => { loadAndSync(); }, [loadAndSync])
   );
+
+  // ── Sync manuelle déclenchée par le bouton du header ──────────────────
+  const handleManualSync = async () => {
+    if (syncing || !isOnline) return;
+    setSyncing(true);
+    try {
+      await syncOffline(true);
+      const updated = getRapportsJournalier();
+      setHistory(updated);
+    } catch {}
+    finally { setSyncing(false); }
+  };
 
   // ── Envoi automatique dès que la connexion revient ─────────────────────
   useEffect(() => {
@@ -202,6 +215,9 @@ export default function RapportsScreen() {
       <AppHeader
         userName={user?.name ?? ""}
         onAvatarPress={() => setProfileOpen(true)}
+        onSyncPress={handleManualSync}
+        syncing={syncing}
+        isOnline={isOnline}
       />
       <ProfileSheet visible={profileOpen} onClose={() => setProfileOpen(false)} />
 

@@ -136,6 +136,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
 
   const [loading,   setLoading]   = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const submittingRef = useRef(false); // verrou synchrone anti double-tap
 
   // ── Dérivés ────────────────────────────────────────────────────────────
   const nb        = absentIds.length;   // calculé depuis les coches, pas d'état séparé
@@ -266,9 +267,11 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
 
   // ── Soumission ────────────────────────────────────────────────────────
   const handleSubmit = async () => {
+    if (submittingRef.current) return; // bloque les doubles-taps avant re-render
     const err = validateStep(4);
     if (err) { Alert.alert("Champ manquant", err); return; }
 
+    submittingRef.current = true;
     setLoading(true);
     try {
       const localId   = `rj_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -342,11 +345,13 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
     } catch {
       Alert.alert("Erreur", "Impossible de sauvegarder. Réessayez.");
     } finally {
+      submittingRef.current = false;
       setLoading(false);
     }
   };
 
   const resetForm = () => {
+    submittingRef.current = false;
     setStep(1);
     setHasAbsences(null); setAbsentIds([]);
     setSemaine(null); setJourCours(null);

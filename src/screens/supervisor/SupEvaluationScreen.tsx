@@ -396,7 +396,7 @@ export default function SupEvaluationScreen() {
       <Modal visible={!!evalModal} animationType="slide" transparent>
         <View style={styles.overlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => !submitting && setEvalModal(null)} />
-          <View style={styles.sheet}>
+          <View style={[styles.sheet, { paddingBottom: Math.max(rs(20), insets.bottom + rs(12)) }]}>
             <View style={styles.handle} />
 
             {/* En-tête */}
@@ -446,7 +446,7 @@ export default function SupEvaluationScreen() {
             </View>
 
             {/* Liste élèves */}
-            <ScrollView style={{ maxHeight: rs(360) }} showsVerticalScrollIndicator={false}>
+            <ScrollView style={styles.eleveScroll} showsVerticalScrollIndicator={false}>
               {eleveEvals.map((ev, i) => (
                 <View
                   key={ev.eleve.id}
@@ -555,7 +555,8 @@ const styles = StyleSheet.create({
 
   // Modal sheet
   overlay:        { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
-  sheet:          { backgroundColor: C.surface, borderTopLeftRadius: rs(24), borderTopRightRadius: rs(24), padding: rs(20), paddingBottom: rs(32), gap: rs(12) },
+  sheet:          { backgroundColor: C.surface, borderTopLeftRadius: rs(24), borderTopRightRadius: rs(24), padding: rs(20), gap: rs(12), maxHeight: "90%" },
+  eleveScroll:    { flexShrink: 1 },
   handle:         { width: rs(40), height: rs(4), borderRadius: rs(2), backgroundColor: C.border, alignSelf: "center" },
   sheetHeader:    { flexDirection: "row", alignItems: "center", gap: rs(12) },
   sheetIconWrap:  { width: rs(44), height: rs(44), borderRadius: rs(22), backgroundColor: C.primarySoft, alignItems: "center", justifyContent: "center" },
@@ -584,7 +585,7 @@ const styles = StyleSheet.create({
   resultBtnText:  { fontSize: rf(14), fontWeight: "800", color: C.textMuted },
 
   // Bouton enregistrer
-  submitBtn:      { backgroundColor: C.primary, padding: rs(14), borderRadius: rs(13), flexDirection: "row", alignItems: "center", justifyContent: "center", gap: rs(8), marginTop: rs(4) },
-  submitBtnDisabled: { backgroundColor: C.surfaceAlt },
-  submitText:     { color: "#fff", fontSize: rf(17), fontWeight: "700" },
+  submitBtn:      { backgroundColor: C.brand, paddingVertical: rs(16), borderRadius: rs(14), flexDirection: "row", alignItems: "center", justifyContent: "center", gap: rs(8), marginTop: rs(4), shadowColor: C.brand, shadowOpacity: 0.3, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 4 },
+  submitBtnDisabled: { backgroundColor: C.surfaceAlt, shadowOpacity: 0, elevation: 0 },
+  submitText:     { color: "#fff", fontSize: rf(17), fontWeight: "800" },
 });
