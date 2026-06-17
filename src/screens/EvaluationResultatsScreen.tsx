@@ -268,6 +268,24 @@ export default function EvaluationResultatsScreen() {
                 <Text style={styles.sheetSub}>
                   {detailGroup?.evals.length ?? 0} élève{(detailGroup?.evals.length ?? 0) > 1 ? "s" : ""} · {detailGroup ? formatDate(detailGroup.lastDate) : ""}
                 </Text>
+                {/* Superviseur(s) — toujours visible dans l'en-tête */}
+                {(() => {
+                  if (!detailGroup) return null;
+                  const superviseurs = [...new Set(
+                    detailGroup.evals.map(e => e.superviseur_nom).filter(Boolean)
+                  )];
+                  if (superviseurs.length === 0) return null;
+                  return (
+                    <View style={styles.supBadge}>
+                      <Feather name="user-check" size={rs(12)} color={C.primary} />
+                      <Text style={styles.supBadgeText}>
+                        {superviseurs.length === 1
+                          ? `Évalué par ${superviseurs[0]}`
+                          : `Évalué par ${superviseurs.join(", ")}`}
+                      </Text>
+                    </View>
+                  );
+                })()}
               </View>
               <TouchableOpacity onPress={() => setDetailGroup(null)} style={styles.closeBtn}>
                 <Feather name="x" size={rs(20)} color={C.textMuted} />
@@ -290,56 +308,57 @@ export default function EvaluationResultatsScreen() {
 
             {/* Liste élèves */}
             <ScrollView style={{ maxHeight: rs(400) }} showsVerticalScrollIndicator={false}>
-              {detailGroup?.evals.map((ev, i) => {
-                const res = RESULTATS[ev.resultat as Resultat] ?? RESULTATS.en_cours;
-                return (
-                  <View
-                    key={`${ev.eleve_id}-${i}`}
-                    style={[
-                      styles.eleveRow,
-                      i < (detailGroup.evals.length - 1) && styles.eleveBorder,
-                    ]}
-                  >
-                    {/* Avatar */}
-                    <View style={[styles.eleveAvatar, { backgroundColor: res.bg }]}>
-                      <Text style={[styles.eleveAvatarText, { color: res.color }]}>
-                        {ev.nom.charAt(0)}{(ev.prenom ?? "").charAt(0)}
-                      </Text>
-                    </View>
-
-                    {/* Nom + classe */}
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.eleveName} numberOfLines={1}>
-                        {ev.nom}{ev.prenom ? ` ${ev.prenom}` : ""}
-                      </Text>
-                      <Text style={styles.eleveClasse}>Classe {ev.classe}</Text>
-                      {ev.commentaire ? (
-                        <Text style={styles.eleveComment} numberOfLines={2}>
-                          {ev.commentaire}
+              {(() => {
+                if (!detailGroup) return null;
+                const superviseurs = new Set(detailGroup.evals.map(e => e.superviseur_nom).filter(Boolean));
+                const multiSup = superviseurs.size > 1;
+                return detailGroup.evals.map((ev, i) => {
+                  const res = RESULTATS[ev.resultat as Resultat] ?? RESULTATS.en_cours;
+                  return (
+                    <View
+                      key={`${ev.eleve_id}-${i}`}
+                      style={[
+                        styles.eleveRow,
+                        i < (detailGroup.evals.length - 1) && styles.eleveBorder,
+                      ]}
+                    >
+                      {/* Avatar */}
+                      <View style={[styles.eleveAvatar, { backgroundColor: res.bg }]}>
+                        <Text style={[styles.eleveAvatarText, { color: res.color }]}>
+                          {ev.nom.charAt(0)}{(ev.prenom ?? "").charAt(0)}
                         </Text>
-                      ) : null}
-                    </View>
+                      </View>
 
-                    {/* Badge résultat */}
-                    <View style={[styles.resultBadge, { backgroundColor: res.bg }]}>
-                      <Text style={[styles.resultBadgeText, { color: res.color }]}>
-                        {res.icon}
-                      </Text>
+                      {/* Nom + classe */}
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.eleveName} numberOfLines={1}>
+                          {ev.nom}{ev.prenom ? ` ${ev.prenom}` : ""}
+                        </Text>
+                        <Text style={styles.eleveClasse}>Classe {ev.classe}</Text>
+                        {/* Superviseur par élève uniquement si plusieurs superviseurs différents */}
+                        {multiSup && ev.superviseur_nom ? (
+                          <Text style={styles.eleveSupNom} numberOfLines={1}>
+                            par {ev.superviseur_nom}
+                          </Text>
+                        ) : null}
+                        {ev.commentaire ? (
+                          <Text style={styles.eleveComment} numberOfLines={2}>
+                            {ev.commentaire}
+                          </Text>
+                        ) : null}
+                      </View>
+
+                      {/* Badge résultat */}
+                      <View style={[styles.resultBadge, { backgroundColor: res.bg }]}>
+                        <Text style={[styles.resultBadgeText, { color: res.color }]}>
+                          {res.icon}
+                        </Text>
+                      </View>
                     </View>
-                  </View>
-                );
-              })}
+                  );
+                });
+              })()}
             </ScrollView>
-
-            {/* Info superviseur */}
-            {detailGroup?.evals[0]?.superviseur_nom && (
-              <View style={styles.supInfo}>
-                <Feather name="user-check" size={rs(14)} color={C.textMuted} />
-                <Text style={styles.supInfoText}>
-                  Évalué par {detailGroup.evals[0].superviseur_nom}
-                </Text>
-              </View>
-            )}
           </View>
         </View>
       </Modal>
@@ -403,10 +422,11 @@ const styles = StyleSheet.create({
   eleveName:    { fontSize: rf(14), fontWeight: "600", color: C.text },
   eleveClasse:  { fontSize: rf(12), color: C.textMuted },
   eleveComment: { fontSize: rf(12), color: C.textMuted, fontStyle: "italic", marginTop: rs(2) },
+  eleveSupNom:  { fontSize: rf(11), color: C.primary, fontWeight: "600", marginTop: rs(1) },
 
   resultBadge:  { width: rs(36), height: rs(36), borderRadius: rs(18), alignItems: "center", justifyContent: "center", flexShrink: 0 },
   resultBadgeText: { fontSize: rf(18), fontWeight: "800" },
 
-  supInfo:      { flexDirection: "row", alignItems: "center", gap: rs(6), paddingTop: rs(4) },
-  supInfoText:  { fontSize: rf(13), color: C.textMuted, fontStyle: "italic" },
+  supBadge:     { flexDirection: "row", alignItems: "center", gap: rs(5), marginTop: rs(5), backgroundColor: C.primarySoft, borderRadius: rs(8), paddingHorizontal: rs(8), paddingVertical: rs(4), alignSelf: "flex-start" },
+  supBadgeText: { fontSize: rf(12), fontWeight: "600", color: C.primary },
 });

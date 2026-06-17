@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  Modal, ActivityIndicator, RefreshControl, TextInput,
+  Animated, ActivityIndicator, RefreshControl, TextInput,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -67,6 +67,9 @@ export default function SupEvaluationScreen() {
   const [eleveEvals,    setEleveEvals]    = useState<EleveEval[]>([]);
   const [submitting,    setSubmitting]    = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
+
+  // Animation de la sheet (slide-up inline, sans Modal)
+  const sheetAnim = useRef(new Animated.Value(0)).current;
 
   // Résultats enregistrés: Map<`${classeId}:${competenceId}:${eleveId}`, Resultat>
   const [savedEvals, setSavedEvals] = useState<Map<string, Resultat>>(new Map());
@@ -165,7 +168,16 @@ export default function SupEvaluationScreen() {
     }));
     setEleveEvals(evals);
     setEvalModal({ competenceId, competenceLabel });
+    sheetAnim.setValue(0);
+    Animated.spring(sheetAnim, { toValue: 1, useNativeDriver: true, tension: 65, friction: 11 }).start();
   };
+
+  const closeSheet = useCallback(() => {
+    if (submitting) return;
+    Animated.timing(sheetAnim, { toValue: 0, duration: 220, useNativeDriver: true }).start(() => {
+      setEvalModal(null);
+    });
+  }, [sheetAnim, submitting]);
 
   const setEleveResultat = (eleveId: string, r: Resultat) => {
     setEleveEvals(prev => prev.map(ev =>
@@ -188,7 +200,7 @@ export default function SupEvaluationScreen() {
       }));
 
     if (payload.length === 0) {
-      setEvalModal(null);
+      closeSheet();
       return;
     }
 
@@ -209,7 +221,7 @@ export default function SupEvaluationScreen() {
       // Hors-ligne : on enregistre localement et on met en file pour synchro ultérieure
       enqueueAction("SUBMIT_EVALUATIONS", { evaluations: payload });
       applyLocally();
-      setEvalModal(null);
+      closeSheet();
       setSubmitSuccess(true);
       setTimeout(() => setSubmitSuccess(false), 2500);
       setSubmitting(false);
@@ -219,7 +231,7 @@ export default function SupEvaluationScreen() {
     try {
       await superviseurApi.submitEvaluations(payload);
       applyLocally();
-      setEvalModal(null);
+      closeSheet();
       setSubmitSuccess(true);
       setTimeout(() => setSubmitSuccess(false), 2500);
     } catch (err: any) {
@@ -227,7 +239,7 @@ export default function SupEvaluationScreen() {
         // Erreur réseau malgré isOnline (ex: bascule juste avant l'envoi) → file d'attente
         enqueueAction("SUBMIT_EVALUATIONS", { evaluations: payload });
         applyLocally();
-        setEvalModal(null);
+        closeSheet();
         setSubmitSuccess(true);
         setTimeout(() => setSubmitSuccess(false), 2500);
       }
@@ -392,11 +404,17 @@ export default function SupEvaluationScreen() {
       {/* Profile sheet */}
       <ProfileSheet visible={profileOpen} onClose={() => setProfileOpen(false)} />
 
-      {/* ── Modal d'évaluation par compétence ── */}
-      <Modal visible={!!evalModal} animationType="slide" transparent>
-        <View style={styles.overlay}>
-          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => !submitting && setEvalModal(null)} />
-          <View style={[styles.sheet, { paddingBottom: Math.max(rs(20), insets.bottom + rs(12)) }]}>
+      {/* ── Sheet d'évaluation inline (n'écrase pas la tab bar) ── */}
+      {!!evalModal && (
+        <Animated.View
+          style={[StyleSheet.absoluteFill, styles.overlay, { opacity: sheetAnim }]}
+          pointerEvents="box-none"
+        >
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={closeSheet} />
+          <Animated.View style={[styles.sheet, {
+            paddingBottom: rs(12),
+            transform: [{ translateY: sheetAnim.interpolate({ inputRange: [0, 1], outputRange: [600, 0] }) }],
+          }]}>
             <View style={styles.handle} />
 
             {/* En-tête */}
@@ -499,9 +517,9 @@ export default function SupEvaluationScreen() {
                 : <><Feather name="check" size={rs(16)} color="#fff" /><Text style={styles.submitText}>Enregistrer</Text></>
               }
             </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+          </Animated.View>
+        </Animated.View>
+      )}
     </View>
   );
 }
@@ -555,8 +573,8 @@ const styles = StyleSheet.create({
 
   // Modal sheet
   overlay:        { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
-  sheet:          { backgroundColor: C.surface, borderTopLeftRadius: rs(24), borderTopRightRadius: rs(24), padding: rs(20), gap: rs(12), maxHeight: "90%" },
-  eleveScroll:    { flexShrink: 1 },
+  sheet:          { flex: 1, backgroundColor: C.surface, borderTopLeftRadius: rs(24), borderTopRightRadius: rs(24), padding: rs(20), gap: rs(12), maxHeight: "90%" },
+  eleveScroll:    { flex: 1 },
   handle:         { width: rs(40), height: rs(4), borderRadius: rs(2), backgroundColor: C.border, alignSelf: "center" },
   sheetHeader:    { flexDirection: "row", alignItems: "center", gap: rs(12) },
   sheetIconWrap:  { width: rs(44), height: rs(44), borderRadius: rs(22), backgroundColor: C.primarySoft, alignItems: "center", justifyContent: "center" },

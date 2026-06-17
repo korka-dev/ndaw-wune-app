@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from "react";
-import { View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet, Modal, ActivityIndicator, Alert } from "react-native";
+import { View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet, Modal, ActivityIndicator, Alert, KeyboardAvoidingView, Platform } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -124,6 +124,8 @@ export default function SupRapportsScreen() {
         commentaires: commentFinal,
         soumis_en_offline: offline ? 1 : 0,
         photo_classe: null,
+        photos_classe: null,
+        reponses_questions: null,
       });
 
       const apiBody = {
@@ -182,9 +184,12 @@ export default function SupRapportsScreen() {
   /* ── Page 1 : Professeurs présents → Incidents signalés ── */
   if (formStep === 1) {
     return (
-      <View style={[styles.formRoot, { paddingTop: insets.top }]}>
+      <KeyboardAvoidingView
+        style={[styles.formRoot, { paddingTop: insets.top }]}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
         <FormTopBar step={1} onBack={resetForm} />
-        <ScrollView style={styles.formBody} showsVerticalScrollIndicator={false} contentContainerStyle={styles.formScrollContent}>
+        <ScrollView style={styles.formBody} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.formScrollContent}>
           <Text style={styles.stepIntro}>{todayLabel} · {user?.name ?? "Superviseur"}</Text>
           <Text style={styles.stepHeading}>Votre tournée du jour</Text>
           <Text style={styles.stepSub}>Renseignez ces quelques informations pour commencer votre rapport.</Text>
@@ -241,7 +246,7 @@ export default function SupRapportsScreen() {
             <Feather name="arrow-right" size={rf(16)} color="#fff" style={{ marginLeft: rs(6) }} />
           </TouchableOpacity>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     );
   }
 
@@ -249,9 +254,12 @@ export default function SupRapportsScreen() {
   if (formStep === 2) {
     const canSend = bilan !== null;
     return (
-      <View style={[styles.formRoot, { paddingTop: insets.top }]}>
+      <KeyboardAvoidingView
+        style={[styles.formRoot, { paddingTop: insets.top }]}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
         <FormTopBar step={2} onBack={goPrev} />
-        <ScrollView style={styles.formBody} showsVerticalScrollIndicator={false} contentContainerStyle={styles.formScrollContent}>
+        <ScrollView style={styles.formBody} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.formScrollContent}>
           <Text style={styles.stepIntro}>{todayLabel} · {user?.name ?? "Superviseur"}</Text>
           <Text style={styles.stepHeading}>Bilan de la journée</Text>
           <Text style={styles.stepSub}>Donnez votre appréciation globale et ajoutez vos observations.</Text>
@@ -292,7 +300,7 @@ export default function SupRapportsScreen() {
             {sending ? <ActivityIndicator size="small" color="#fff" /> : <><Feather name="send" size={rf(16)} color="#fff" style={{ marginRight: rs(6) }} /><Text style={styles.nextBtnTxt}>Envoyer</Text></>}
           </TouchableOpacity>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     );
   }
 

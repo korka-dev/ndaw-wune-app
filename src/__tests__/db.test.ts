@@ -144,7 +144,7 @@ describe("rapports_journalier", () => {
     difficultes: "[]", autres_difficultes: null, description_difficultes: null,
     directeur_venu: 1, besoin_appui: 0, domaines_appui: null,
     has_observations: 0, commentaires: null, soumis_en_offline: 1,
-    photo_classe: null,
+    photo_classe: null, photos_classe: null, reponses_questions: null,
   };
 
   test("insertRapportJournalier → insère avec synced=0", () => {

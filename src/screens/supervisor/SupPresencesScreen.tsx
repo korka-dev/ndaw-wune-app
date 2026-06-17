@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
-  StyleSheet, Modal, ActivityIndicator, RefreshControl,
-  KeyboardAvoidingView, Platform, Keyboard,
+  StyleSheet, Animated, Modal, ActivityIndicator, RefreshControl,
+  Platform, Keyboard,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -60,6 +60,22 @@ export default function SupPresencesScreen() {
   const [motifTarget,  setMotifTarget]  = useState<Prof | null>(null);
   const [motifChoice,  setMotifChoice]  = useState<string | null>(null);
   const [motifCustom,  setMotifCustom]  = useState("");
+  const motifSheetAnim  = useRef(new Animated.Value(0)).current;
+  const [keyboardH,    setKeyboardH]    = useState(0);
+
+  // Suivi de la hauteur du clavier pour positionner la sheet au-dessus
+  useEffect(() => {
+    const TAB_H = rs(58) + insets.bottom;
+    const show = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      (e) => setKeyboardH(Math.max(0, e.endCoordinates.height - TAB_H)),
+    );
+    const hide = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => setKeyboardH(0),
+    );
+    return () => { show.remove(); hide.remove(); };
+  }, [insets.bottom]);
 
   /* ── Chargement : en ligne → API, hors-ligne → SQLite local ── */
   const fetchTeachers = useCallback(async () => {
@@ -218,13 +234,19 @@ export default function SupPresencesScreen() {
     setMotifTarget(prof);
     setMotifChoice(null);
     setMotifCustom("");
+    motifSheetAnim.setValue(0);
+    Animated.spring(motifSheetAnim, { toValue: 1, useNativeDriver: true, tension: 65, friction: 11 }).start();
   };
 
-  const closeMotifModal = () => {
-    setMotifTarget(null);
-    setMotifChoice(null);
-    setMotifCustom("");
-  };
+  const closeMotifModal = useCallback(() => {
+    Keyboard.dismiss();
+    Animated.timing(motifSheetAnim, { toValue: 0, duration: 220, useNativeDriver: true })
+      .start(() => {
+        setMotifTarget(null);
+        setMotifChoice(null);
+        setMotifCustom("");
+      });
+  }, [motifSheetAnim]);
 
   const confirmAbsent = () => {
     if (!motifTarget) return;
@@ -588,77 +610,51 @@ export default function SupPresencesScreen() {
         </View>
       </Modal>
 
-      {/* ── Modal justification d'absence ── */}
-      <Modal visible={!!motifTarget} transparent animationType="slide" statusBarTranslucent onRequestClose={closeMotifModal}>
-        <KeyboardAvoidingView
-          style={styles.motifOverlay}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+      {/* ── Sheet motif d'absence inline (ne couvre pas la tab bar) ── */}
+      {!!motifTarget && (
+        <Animated.View
+          style={[StyleSheet.absoluteFill, styles.motifOverlay, { opacity: motifSheetAnim }]}
+          pointerEvents="box-none"
         >
-          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => { Keyboard.dismiss(); closeMotifModal(); }} />
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={closeMotifModal} />
+          {/* Wrapper unique : positionné en absolu, bottom = dessus du clavier */}
+          <Animated.View style={[
+            styles.motifSheetWrap,
+            {
+              bottom: keyboardH,
+              transform: [{ translateY: motifSheetAnim.interpolate({ inputRange: [0, 1], outputRange: [500, 0] }) }],
+            },
+          ]}>
+            {/* Contenu : handle + header + liste ou champ */}
+            <View style={styles.motifSheet}>
+              <View style={styles.motifHandle} />
 
-          <View style={[styles.motifSheet, { paddingBottom: Math.max(insets.bottom, rs(16)) }]}>
-            <View style={styles.motifHandle} />
-
-            {/* Header fixe */}
-            <View style={styles.motifHeader}>
-              <View style={styles.motifHeaderIcon}>
-                <Feather name="user-x" size={rf(20)} color={C.danger} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.motifTitle}>Marquer absent</Text>
-                <Text style={styles.motifName} numberOfLines={1}>{motifTarget?.nom}</Text>
-              </View>
-              <TouchableOpacity onPress={closeMotifModal} style={styles.motifCloseBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-                <Feather name="x" size={rf(18)} color={C.textMuted} />
-              </TouchableOpacity>
-            </View>
-
-            <Text style={styles.motifSectionLabel}>Motif de l'absence</Text>
-
-            {/* Liste des motifs — scrollable */}
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              bounces={false}
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={styles.motifScrollContent}
-            >
-              {MOTIFS.map(m => {
-                const sel = motifChoice === m.label;
-                return (
-                  <TouchableOpacity
-                    key={m.label}
-                    onPress={() => { setMotifChoice(m.label); setMotifCustom(""); Keyboard.dismiss(); }}
-                    activeOpacity={0.7}
-                    style={[styles.motifOption, sel && styles.motifOptionSel]}
-                  >
-                    <View style={[styles.motifOptionIcon, sel && styles.motifOptionIconSel]}>
-                      <Feather name={m.icon} size={rf(16)} color={sel ? "#fff" : C.textMuted} />
-                    </View>
-                    <Text style={[styles.motifOptionTxt, sel && styles.motifOptionTxtSel]}>{m.label}</Text>
-                    {sel && (
-                      <View style={styles.motifCheckCircle}>
-                        <Feather name="check" size={rf(12)} color="#fff" />
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-
-              {/* Autre motif */}
-              <TouchableOpacity
-                onPress={() => setMotifChoice("__custom")}
-                activeOpacity={0.7}
-                style={[styles.motifOption, styles.motifOptionCustom, motifChoice === "__custom" && styles.motifOptionSel]}
-              >
-                <View style={[styles.motifOptionIcon, motifChoice === "__custom" && styles.motifOptionIconSel]}>
-                  <Feather name="edit-3" size={rf(16)} color={motifChoice === "__custom" ? "#fff" : C.textMuted} />
+              {/* Header fixe */}
+              <View style={styles.motifHeader}>
+                <View style={styles.motifHeaderIcon}>
+                  <Feather name="user-x" size={rf(20)} color={C.danger} />
                 </View>
-                <Text style={[styles.motifOptionTxt, motifChoice === "__custom" && styles.motifOptionTxtSel]}>Autre motif…</Text>
-              </TouchableOpacity>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.motifTitle}>Marquer absent</Text>
+                  <Text style={styles.motifName} numberOfLines={1}>{motifTarget?.nom}</Text>
+                </View>
+                <TouchableOpacity onPress={closeMotifModal} style={styles.motifCloseBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                  <Feather name="x" size={rf(18)} color={C.textMuted} />
+                </TouchableOpacity>
+              </View>
 
-              {/* Champ texte libre — directement sous "Autre motif" */}
-              {motifChoice === "__custom" && (
-                <View style={styles.motifInputWrap}>
+              {motifChoice === "__custom" ? (
+                /* ── Mode saisie libre : liste masquée, champ en plein écran ── */
+                <View style={styles.motifCustomMode}>
+                  <TouchableOpacity
+                    onPress={() => { setMotifChoice(null); setMotifCustom(""); }}
+                    style={styles.motifBackBtn}
+                    activeOpacity={0.7}
+                  >
+                    <Feather name="arrow-left" size={rf(14)} color={C.brand} />
+                    <Text style={styles.motifBackTxt}>Choisir un motif prédéfini</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.motifSectionLabel}>Décrivez le motif</Text>
                   <TextInput
                     value={motifCustom}
                     onChangeText={setMotifCustom}
@@ -667,14 +663,57 @@ export default function SupPresencesScreen() {
                     multiline
                     style={styles.motifInput}
                     autoFocus
-                    scrollEnabled={false}
+                    textAlignVertical="top"
                   />
                 </View>
+              ) : (
+                /* ── Mode liste des motifs prédéfinis ── */
+                <>
+                  <Text style={styles.motifSectionLabel}>Motif de l'absence</Text>
+                  <ScrollView
+                    showsVerticalScrollIndicator={false}
+                    bounces={false}
+                    keyboardShouldPersistTaps="handled"
+                    contentContainerStyle={styles.motifScrollContent}
+                  >
+                    {MOTIFS.map(m => {
+                      const sel = motifChoice === m.label;
+                      return (
+                        <TouchableOpacity
+                          key={m.label}
+                          onPress={() => { setMotifChoice(m.label); setMotifCustom(""); Keyboard.dismiss(); }}
+                          activeOpacity={0.7}
+                          style={[styles.motifOption, sel && styles.motifOptionSel]}
+                        >
+                          <View style={[styles.motifOptionIcon, sel && styles.motifOptionIconSel]}>
+                            <Feather name={m.icon} size={rf(16)} color={sel ? "#fff" : C.textMuted} />
+                          </View>
+                          <Text style={[styles.motifOptionTxt, sel && styles.motifOptionTxtSel]}>{m.label}</Text>
+                          {sel && (
+                            <View style={styles.motifCheckCircle}>
+                              <Feather name="check" size={rf(12)} color="#fff" />
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                    <TouchableOpacity
+                      onPress={() => setMotifChoice("__custom")}
+                      activeOpacity={0.7}
+                      style={[styles.motifOption, styles.motifOptionCustom]}
+                    >
+                      <View style={styles.motifOptionIcon}>
+                        <Feather name="edit-3" size={rf(16)} color={C.textMuted} />
+                      </View>
+                      <Text style={styles.motifOptionTxt}>Autre motif…</Text>
+                    </TouchableOpacity>
+                  </ScrollView>
+                </>
               )}
-            </ScrollView>
+            </View>
 
-            {/* Boutons fixes en bas */}
-            <View style={styles.motifActions}>
+            {/* Footer boutons — toujours en bas du wrapper = juste au-dessus du clavier */}
+            <View style={styles.motifFooter}>
               <TouchableOpacity onPress={closeMotifModal} style={styles.motifCancelBtn} activeOpacity={0.7}>
                 <Text style={styles.motifCancelTxt}>Annuler</Text>
               </TouchableOpacity>
@@ -691,9 +730,9 @@ export default function SupPresencesScreen() {
                 <Text style={[styles.motifConfirmTxt, (!motifChoice || (motifChoice === "__custom" && !motifCustom.trim())) && { color: C.textMuted }]}>Confirmer</Text>
               </TouchableOpacity>
             </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+          </Animated.View>
+        </Animated.View>
+      )}
 
       {/* ── Modal récapitulatif des présences ── */}
       <Modal visible={recapOpen} transparent animationType="slide" statusBarTranslucent onRequestClose={() => setRecapOpen(false)}>
@@ -864,13 +903,19 @@ const styles = StyleSheet.create({
 
   /* Motif modal — bottom sheet */
   motifOverlay:    { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
+  motifSheetWrap:  {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    maxHeight: "88%",
+  },
   motifSheet:      {
     backgroundColor: C.surface,
     borderTopLeftRadius: rs(24),
     borderTopRightRadius: rs(24),
     paddingHorizontal: rs(20),
     paddingTop: rs(12),
-    maxHeight: "85%",
+    paddingBottom: rs(8),
   },
   motifHandle:     { width: rs(40), height: rs(5), borderRadius: rs(3), backgroundColor: C.border, alignSelf: "center", marginBottom: rs(14) },
   motifHeader:     { flexDirection: "row", alignItems: "center", gap: rs(12), marginBottom: rs(16) },
@@ -893,7 +938,9 @@ const styles = StyleSheet.create({
   motifOptionTxt:  { flex: 1, fontSize: rf(15), fontWeight: "600", color: C.text },
   motifOptionTxtSel: { color: C.danger, fontWeight: "700" },
   motifCheckCircle:{ width: rs(24), height: rs(24), borderRadius: rs(12), backgroundColor: C.danger, alignItems: "center", justifyContent: "center" },
-  motifInputWrap:  { marginTop: rs(4) },
+  motifCustomMode: { gap: rs(12) },
+  motifBackBtn:    { flexDirection: "row", alignItems: "center", gap: rs(6), alignSelf: "flex-start", paddingVertical: rs(6) },
+  motifBackTxt:    { fontSize: rf(13), fontWeight: "700", color: C.brand },
   motifInput:      {
     borderWidth: 1.5, borderColor: C.danger + "55",
     borderRadius: rs(14), padding: rs(14),
@@ -901,10 +948,15 @@ const styles = StyleSheet.create({
     minHeight: rs(90), textAlignVertical: "top",
     backgroundColor: C.bg,
   },
-  motifActions:    {
-    flexDirection: "row", gap: rs(10),
-    paddingTop: rs(14), paddingBottom: rs(4),
-    borderTopWidth: 1, borderTopColor: C.border, marginTop: rs(8),
+  motifFooter: {
+    backgroundColor: C.surface,
+    paddingHorizontal: rs(20),
+    paddingTop: rs(10),
+    paddingBottom: rs(16),
+    flexDirection: "row",
+    gap: rs(10),
+    borderTopWidth: 1,
+    borderTopColor: C.border,
   },
   motifCancelBtn:  { flex: 1, paddingVertical: rs(14), borderRadius: rs(14), backgroundColor: C.surfaceAlt, alignItems: "center", justifyContent: "center" },
   motifCancelTxt:  { fontSize: rf(15), fontWeight: "700", color: C.textMuted },
