@@ -9,7 +9,7 @@ type AuthFailureCallback = () => void;
 
 let _callback: AuthFailureCallback | null = null;
 
-export function onAuthFailure(cb: AuthFailureCallback): void {
+export function onAuthFailure(cb: AuthFailureCallback | null): void {
   _callback = cb;
 }
 

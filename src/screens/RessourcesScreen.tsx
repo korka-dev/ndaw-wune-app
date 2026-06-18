@@ -29,8 +29,12 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import { WebView } from "react-native-webview";
-import Pdf from "react-native-pdf";
+// Imports natifs conditionnels — évitent le crash "getConstants of null"
+// si le module natif n'est pas lié (Expo Go, build partiel, etc.)
+let WebView: React.ComponentType<any> | null = null;
+let Pdf: React.ComponentType<any> | null = null;
+try { WebView = require("react-native-webview").WebView; } catch {}
+try { Pdf    = require("react-native-pdf").default;       } catch {}
 import * as FileSystem from "expo-file-system/legacy";
 import * as IntentLauncher from "expo-intent-launcher";
 
@@ -150,39 +154,53 @@ function InlineViewer({
         {source.kind === "image" ? (
           <Image source={{ uri: source.uri }} style={vw.image} resizeMode="contain" />
         ) : source.kind === "pdf" ? (
-          <>
-            {loading && (
-              <View style={vw.overlay}>
-                <ActivityIndicator size="large" color={C.brand} />
-                <Text style={vw.overlayTxt}>Chargement du document…</Text>
-              </View>
-            )}
-            <Pdf
-              source={{ uri: source.uri }}
-              style={vw.pdf}
-              onLoadComplete={() => setLoading(false)}
-              onError={() => { setLoading(false); Alert.alert("Erreur", "Impossible d'afficher ce document."); }}
-            />
-          </>
+          Pdf ? (
+            <>
+              {loading && (
+                <View style={vw.overlay}>
+                  <ActivityIndicator size="large" color={C.brand} />
+                  <Text style={vw.overlayTxt}>Chargement du document…</Text>
+                </View>
+              )}
+              <Pdf
+                source={{ uri: source.uri }}
+                style={vw.pdf}
+                onLoadComplete={() => setLoading(false)}
+                onError={() => { setLoading(false); Alert.alert("Erreur", "Impossible d'afficher ce document."); }}
+              />
+            </>
+          ) : (
+            <View style={vw.overlay}>
+              <Feather name="file-text" size={rf(36)} color={C.textMuted} />
+              <Text style={vw.overlayTxt}>Visualiseur PDF non disponible.{"\n"}Appuyez sur ↗ pour ouvrir dans une app externe.</Text>
+            </View>
+          )
         ) : (
-          <>
-            {loading && (
-              <View style={vw.overlay}>
-                <ActivityIndicator size="large" color={C.brand} />
-                <Text style={vw.overlayTxt}>Chargement du document…</Text>
-              </View>
-            )}
-            <WebView
-              source={{ uri: source.uri }}
-              style={vw.pdf}
-              onLoadEnd={() => setLoading(false)}
-              onError={() => { setLoading(false); Alert.alert("Erreur", "Impossible d'afficher ce document."); }}
-              allowFileAccess
-              allowFileAccessFromFileURLs
-              allowUniversalAccessFromFileURLs
-              originWhitelist={["*"]}
-            />
-          </>
+          WebView ? (
+            <>
+              {loading && (
+                <View style={vw.overlay}>
+                  <ActivityIndicator size="large" color={C.brand} />
+                  <Text style={vw.overlayTxt}>Chargement du document…</Text>
+                </View>
+              )}
+              <WebView
+                source={{ uri: source.uri }}
+                style={vw.pdf}
+                onLoadEnd={() => setLoading(false)}
+                onError={() => { setLoading(false); Alert.alert("Erreur", "Impossible d'afficher ce document."); }}
+                allowFileAccess
+                allowFileAccessFromFileURLs
+                allowUniversalAccessFromFileURLs
+                originWhitelist={["*"]}
+              />
+            </>
+          ) : (
+            <View style={vw.overlay}>
+              <Feather name="file" size={rf(36)} color={C.textMuted} />
+              <Text style={vw.overlayTxt}>Visualiseur non disponible.{"\n"}Appuyez sur ↗ pour ouvrir dans une app externe.</Text>
+            </View>
+          )
         )}
       </View>
     </View>

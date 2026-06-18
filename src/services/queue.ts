@@ -149,6 +149,13 @@ export async function flushQueue(): Promise<number> {
       synced++;
       console.log(`[Queue] ✅ ${item.action} (id ${item.id}) synchronisé`);
     } catch (err: any) {
+      // Différé sans pénalité : SUBMIT_RAPPORT attend que FINISH_SEANCE réconcilie
+      // l'ID offline. On saute sans incrémenter attempts pour ne pas archiver le rapport.
+      if ((err as any).__deferNoPenalty) {
+        console.log(`[Queue] ⏳ ${item.action} (id ${item.id}) différé — prochaine tentative au prochain flush`);
+        continue;
+      }
+
       const isNetworkError = !err?.response;
 
       // FastAPI 422 renvoie detail comme un array d'objets — on les sérialise proprement
@@ -239,7 +246,7 @@ async function processAction(item: QueueItem): Promise<void> {
           // Après MAX_ATTEMPTS, l'action sera archivée (orpheline irrécupérable).
           console.warn(`[Queue] SUBMIT_RAPPORT (id ${item.id}) — séance offline non encore réconciliée, report au prochain cycle`);
           const deferErr = new Error(`Séance offline ${seance_id} pas encore réconciliée — attente de FINISH_SEANCE`);
-          Object.assign(deferErr, { response: { status: 202, data: { detail: deferErr.message } } });
+          Object.assign(deferErr, { __deferNoPenalty: true });
           throw deferErr;
         }
         resolvedSeanceId = idMap[seance_id];

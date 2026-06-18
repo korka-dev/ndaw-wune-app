@@ -165,17 +165,34 @@ export default function RapportDetailScreen() {
           </>
         ) : null}
 
-        {/* Photo */}
-        {item.photo_classe ? (
-          <>
-            <Text style={s.sectionLabel}>Photo de la classe</Text>
-            <Image
-              source={{ uri: item.photo_classe }}
-              style={s.photo}
-              resizeMode="cover"
-            />
-          </>
-        ) : null}
+        {/* Photos */}
+        {(() => {
+          let uris: string[] = [];
+          if (item.photos_classe) {
+            try { uris = JSON.parse(item.photos_classe); } catch {}
+          }
+          if (uris.length === 0 && item.photo_classe) {
+            uris = [item.photo_classe];
+          }
+          if (uris.length === 0) return null;
+          return (
+            <>
+              <Text style={s.sectionLabel}>
+                Photo{uris.length > 1 ? "s" : ""} de la classe ({uris.length})
+              </Text>
+              <View style={s.photoGrid}>
+                {uris.map((uri, i) => (
+                  <Image
+                    key={i}
+                    source={{ uri }}
+                    style={uris.length === 1 ? s.photoFull : s.photoThumb}
+                    resizeMode="cover"
+                  />
+                ))}
+              </View>
+            </>
+          );
+        })()}
 
         <View style={{ height: rs(32) }} />
       </ScrollView>
@@ -258,11 +275,22 @@ const s = StyleSheet.create({
     textAlign:  "right",
   },
 
-  /* Photo */
-  photo: {
-    width:        "100%",
-    aspectRatio:  4 / 3,
+  /* Photos */
+  photoGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: rs(8),
+  },
+  photoFull: {
+    width: "100%",
+    aspectRatio: 4 / 3,
     borderRadius: rs(14),
+    backgroundColor: C.border,
+  },
+  photoThumb: {
+    width: "31.5%",
+    aspectRatio: 1,
+    borderRadius: rs(12),
     backgroundColor: C.border,
   },
 

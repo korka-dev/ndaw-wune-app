@@ -220,7 +220,6 @@ export default function RapportsScreen() {
         isOnline={isOnline}
       />
       <ProfileSheet visible={profileOpen} onClose={() => setProfileOpen(false)} />
-
       <ScrollView
         contentContainerStyle={s.scroll}
         showsVerticalScrollIndicator={false}

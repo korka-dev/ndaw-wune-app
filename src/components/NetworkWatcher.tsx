@@ -112,8 +112,12 @@ export default function NetworkWatcher() {
     // ── 3. Sync périodique toutes les 30 s quand en ligne ────────────────────
     const periodicSync = () => doSync("polling 30 s");
 
-    // Démarrage
-    checkNetwork();
+    // Démarrage : vérification réseau immédiate + sync si déjà en ligne au cold start
+    checkNetwork().then(() => {
+      // lastOnline démarre à true, donc wasOffline=false dans checkNetwork —
+      // la sync sur "retour en ligne" n'est pas déclenchée. On la force ici.
+      if (lastOnline.current) doSync("démarrage à froid");
+    });
     const netTimer  = setInterval(checkNetwork,  NETWORK_CHECK_MS);
     const syncTimer = setInterval(periodicSync,   SYNC_INTERVAL_MS);
 
@@ -121,6 +125,7 @@ export default function NetworkWatcher() {
       clearInterval(netTimer);
       clearInterval(syncTimer);
       appStateSub.remove();
+      onAuthFailure(null);  // évite la fuite si NetworkWatcher démonte (ex: logout)
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

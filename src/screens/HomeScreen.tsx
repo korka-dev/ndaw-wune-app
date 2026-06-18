@@ -474,7 +474,7 @@ export default function HomeScreen() {
 
 
   /* ── Profil ── */
-  const [showProfile,   setShowProfile]   = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
 
   /* ── Tâches non faites (modal "Voir plus") ── */
   const [showPendingTasks, setShowPendingTasks] = useState(false);

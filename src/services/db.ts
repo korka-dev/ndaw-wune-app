@@ -140,14 +140,13 @@ function runMigrations(db: SQLite.SQLiteDatabase): void {
 
   for (const migration of MIGRATIONS) {
     if (migration.version <= version) continue;
+    // Ne pas avancer user_version si la migration échoue — évite un schéma
+    // partiellement appliqué qui serait silencieusement ignoré aux prochains lancements.
     migration.up(db);
     db.execSync(`PRAGMA user_version = ${migration.version}`);
     version = migration.version;
   }
-
-  if (version !== CURRENT_DB_VERSION) {
-    db.execSync(`PRAGMA user_version = ${CURRENT_DB_VERSION}`);
-  }
+  // Ne pas forcer user_version si toutes les migrations ne sont pas passées.
 }
 
 // ── Initialisation ────────────────────────────────────────────────────────────
