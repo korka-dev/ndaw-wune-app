@@ -162,8 +162,12 @@ export const rapportJournalierApi = {
 export const superviseurApi = {
   sync: () => api.get("/app/supervisor/sync"),
 
-  /** Élèves par classe pour les enseignants assignés à ce superviseur. */
+  /** Enseignants + métadonnées de classes (sans élèves) — chargement initial. */
   eleves: () => api.get("/app/supervisor/eleves"),
+
+  /** Élèves d'une classe spécifique — chargement à la demande. */
+  classeEleves: (teacher_id: string, classe: string) =>
+    api.get("/app/supervisor/classe-eleves", { params: { teacher_id, classe } }),
 
   /** Liste les évaluations soumises par ce superviseur. */
   listEvaluations: (params?: { date_debut?: string; date_fin?: string; classe?: string }) =>

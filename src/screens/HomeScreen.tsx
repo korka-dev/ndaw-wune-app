@@ -1032,32 +1032,35 @@ export default function HomeScreen() {
               <Text style={s.segEmptyMsg}>Profitez de votre journée de repos</Text>
             </View>
 
-            {/* Carte 2 — Prochain cours */}
-            {nextScheduledDay && (
-              <View style={[s.segCard, s.segCardEmpty, { marginTop: rs(12) }]}>
-                <Feather name="calendar" size={rf(32)} color={C.brand} style={{ marginBottom: rs(10) }} />
-                <Text style={s.segEmptyTitle}>Prochain cours</Text>
-                <Text style={s.segEmptyMsg}>
-                  {JOURS_FR[nextScheduledDay.dayIdx]}{" "}
-                  {nextScheduledDay.date.toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}
-                  {" · "}{nextScheduledDay.segs.length} cours
-                </Text>
+            {/* Carte 2 — Prochain planning (toujours visible) */}
+            <View style={[s.segCard, s.segCardEmpty, { marginTop: rs(12) }]}>
+              <Feather name="arrow-right-circle" size={rf(32)} color={C.brand} style={{ marginBottom: rs(10) }} />
+              <Text style={s.segEmptyTitle}>Prochain planning</Text>
 
-                {/* Bouton Voir Planning */}
-                <TouchableOpacity
-                  style={[s.nextCourseBtn, { marginTop: rs(16), width: '80%' }]}
-                  onPress={() => {
-                    const dateStr = nextScheduledDay.date.toISOString();
-                    router.push(`/next-planning?dayIdx=${nextScheduledDay.dayIdx}&dateStr=${encodeURIComponent(dateStr)}`);
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <Feather name="calendar" size={rf(14)} color="#fff" style={{ marginRight: rs(6) }} />
-                  <Text style={s.nextCourseBtnTxt}>Voir le planning</Text>
-                  <Feather name="chevron-right" size={rf(14)} color="#fff" style={{ marginLeft: rs(6) }} />
-                </TouchableOpacity>
-              </View>
-            )}
+              {nextScheduledDay ? (
+                <>
+                  <Text style={s.segEmptyMsg}>
+                    {JOURS_FR[nextScheduledDay.dayIdx]}{" "}
+                    {nextScheduledDay.date.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
+                    {" · "}{nextScheduledDay.segs.length} cours
+                  </Text>
+                  <TouchableOpacity
+                    style={[s.nextCourseBtn, { marginTop: rs(4), width: "80%" }]}
+                    onPress={() => {
+                      const dateStr = nextScheduledDay.date.toISOString();
+                      router.push(`/next-planning?dayIdx=${nextScheduledDay.dayIdx}&dateStr=${encodeURIComponent(dateStr)}`);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Feather name="eye" size={rf(14)} color="#fff" style={{ marginRight: rs(6) }} />
+                    <Text style={s.nextCourseBtnTxt}>Voir plus</Text>
+                    <Feather name="chevron-right" size={rf(14)} color="#fff" style={{ marginLeft: rs(6) }} />
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <Text style={s.segEmptyMsg}>Aucun cours planifié cette semaine</Text>
+              )}
+            </View>
           </View>
         </ScrollView>
 
