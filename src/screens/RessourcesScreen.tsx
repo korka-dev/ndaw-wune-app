@@ -666,7 +666,7 @@ export default function RessourcesScreen() {
                     activeOpacity={0.8}
                   >
                     <View style={[s.typeCardIcon, { backgroundColor: isActive ? card.color : card.bg }]}>
-                      <Feather name={card.icon} size={rf(18)} color={isActive ? "#fff" : card.color} />
+                      <Feather name={card.icon} size={rf(14)} color={isActive ? "#fff" : card.color} />
                     </View>
                     <Text style={[s.typeCardLabel, isActive && s.typeCardLabelActive]} numberOfLines={1}>
                       {card.label}
@@ -787,20 +787,20 @@ const s = StyleSheet.create({
   hintRow: { flexDirection: "row", alignItems: "center", gap: rs(6), marginBottom: rs(14) },
   hintTxt: { flex: 1, fontSize: rf(12), color: C.textMuted, lineHeight: rf(17) },
 
-  typeGrid:            { flexDirection: "row", flexWrap: "wrap", gap: rs(10), marginBottom: rs(18) },
+  typeGrid:            { flexDirection: "row", flexWrap: "wrap", gap: rs(8), marginBottom: rs(14) },
   typeCard:            {
-    width: "47%", backgroundColor: C.surface, borderRadius: rs(14),
+    width: "47%", backgroundColor: C.surface, borderRadius: rs(10),
     borderWidth: 1.5, borderColor: C.border,
-    paddingVertical: rs(14), paddingHorizontal: rs(12),
-    alignItems: "center", gap: rs(8),
+    paddingVertical: rs(8), paddingHorizontal: rs(8),
+    alignItems: "center", gap: rs(5),
   },
   typeCardActive:      { borderColor: C.brand, backgroundColor: C.brandSoft },
-  typeCardIcon:        { width: rs(40), height: rs(40), borderRadius: rs(12), alignItems: "center", justifyContent: "center" },
-  typeCardLabel:       { fontSize: rf(13), fontWeight: "700", color: C.text },
+  typeCardIcon:        { width: rs(30), height: rs(30), borderRadius: rs(8), alignItems: "center", justifyContent: "center" },
+  typeCardLabel:       { fontSize: rf(11), fontWeight: "700", color: C.text },
   typeCardLabelActive: { color: C.brand },
-  typeCardCount:       { backgroundColor: C.surfaceAlt, borderRadius: rs(10), minWidth: rs(26), height: rs(22), alignItems: "center", justifyContent: "center", paddingHorizontal: rs(6) },
+  typeCardCount:       { backgroundColor: C.surfaceAlt, borderRadius: rs(8), minWidth: rs(22), height: rs(18), alignItems: "center", justifyContent: "center", paddingHorizontal: rs(5) },
   typeCardCountActive: { backgroundColor: C.brand },
-  typeCardCountTxt:    { fontSize: rf(11), fontWeight: "800", color: C.textMuted },
+  typeCardCountTxt:    { fontSize: rf(10), fontWeight: "800", color: C.textMuted },
   typeCardCountTxtActive: { color: "#fff" },
 
   countLabel: {
