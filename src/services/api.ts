@@ -156,6 +156,7 @@ export const rapportJournalierApi = {
   submit: (d: unknown) => api.post("/app/rapports/journalier", d),
   list: (page = 0, limit = 20) =>
     api.get("/app/rapports/journalier", { params: { skip: page * limit, limit } }),
+  delete: (server_id: string) => api.delete(`/app/rapports/journalier/${server_id}`),
 };
 
 // ── Superviseur ───────────────────────────────────────────────────────────────
@@ -198,6 +199,19 @@ export const superviseurApi = {
 
   /** Difficultés signalées par les enseignants assignés (rapports journaliers). */
   getDifficultes: () => api.get("/app/supervisor/difficultes"),
+
+  /** Sujets d'évaluation avec les élèves assignés à ce superviseur. */
+  evaluationSujets: () => api.get("/app/supervisor/evaluation-sujets"),
+
+  /** Soumet le résultat d'un tirage (FormData avec résultat + audio optionnel). */
+  submitTirage: (tirageId: string, formData: FormData) =>
+    api.post(`/app/supervisor/evaluation-tirages/${tirageId}/submit`, formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    }),
+
+  /** URL directe de l'audio d'évaluation. */
+  audioUrl: (filename: string) =>
+    `${api.defaults.baseURL}/app/supervisor/evaluation-audio/${filename}`,
 };
 
 // ── Évaluations (vue enseignant) ──────────────────────────────────────────────

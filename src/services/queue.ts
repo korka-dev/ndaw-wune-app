@@ -259,8 +259,8 @@ async function processAction(item: QueueItem): Promise<void> {
 
     case "SUBMIT_RAPPORT_JOURNALIER": {
       const { local_id, ...body } = payload;
-      await rapportJournalierApi.submit(body);
-      if (local_id) markRapportJournalierSynced(local_id);
+      const res = await rapportJournalierApi.submit(body);
+      if (local_id) markRapportJournalierSynced(local_id, res?.data?.id);
       break;
     }
 

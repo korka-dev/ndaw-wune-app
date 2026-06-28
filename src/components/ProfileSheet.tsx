@@ -11,15 +11,14 @@
 import React, { useState } from "react";
 import {
   View, Text, TouchableOpacity, StyleSheet, Modal,
-  ScrollView, Alert, Platform, Dimensions,
+  ScrollView, Alert, Platform, useWindowDimensions,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useStore } from "../store/useStore";
 import { C } from "../utils/theme";
-
-const SCREEN_H = Dimensions.get("window").height;
+import { rs, rf } from "../utils/responsive";
 
 const LANGUES_ENSEIGNEMENT = ["Wolof", "Sereer", "Pulaar"];
 
@@ -42,6 +41,7 @@ export default function ProfileSheet({ visible, onClose }: Props) {
   const { user, syncData, logout, setLangueEnseignement } = useStore();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { height: screenH } = useWindowDimensions();
   const [langueModalVisible, setLangueModalVisible] = useState(false);
   const [classeModalVisible, setClasseModalVisible] = useState(false);
 
@@ -92,7 +92,7 @@ export default function ProfileSheet({ visible, onClose }: Props) {
         />
 
         {/* ── Sheet blanc en bas ── */}
-        <View style={[s.sheet, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+        <View style={[s.sheet, { paddingBottom: Math.max(insets.bottom, rs(20)), maxHeight: screenH * 0.85 }]}>
 
           {/* Barre handle visuelle */}
           <View style={s.handleArea}>
@@ -143,7 +143,7 @@ export default function ProfileSheet({ visible, onClose }: Props) {
                   onPress={() => setClasseModalVisible(true)}
                 >
                   <View style={s.menuIconBox}>
-                    <Feather name="users" size={22} color={C.brand} />
+                    <Feather name="users" size={rf(22)} color={C.brand} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={s.menuLabel}>Ma classe</Text>
@@ -151,7 +151,7 @@ export default function ProfileSheet({ visible, onClose }: Props) {
                       <Text style={s.menuSub}>{nbEleves} élèves</Text>
                     )}
                   </View>
-                  <Feather name="chevron-right" size={20} color="#AAA" />
+                  <Feather name="chevron-right" size={rf(20)} color="#AAA" />
                 </TouchableOpacity>
               )}
 
@@ -162,7 +162,7 @@ export default function ProfileSheet({ visible, onClose }: Props) {
                 onPress={() => setLangueModalVisible(true)}
               >
                 <View style={s.menuIconBox}>
-                  <Feather name="globe" size={22} color={C.brand} />
+                  <Feather name="globe" size={rf(22)} color={C.brand} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={s.menuLabel}>Langue d'enseignement</Text>
@@ -176,10 +176,10 @@ export default function ProfileSheet({ visible, onClose }: Props) {
               {/* Aide */}
               <TouchableOpacity style={s.menuRow} activeOpacity={0.6}>
                 <View style={s.menuIconBox}>
-                  <Feather name="help-circle" size={22} color={C.brand} />
+                  <Feather name="help-circle" size={rf(22)} color={C.brand} />
                 </View>
                 <Text style={s.menuLabel}>Aide et tutoriels</Text>
-                <Feather name="chevron-right" size={20} color="#AAA" />
+                <Feather name="chevron-right" size={rf(20)} color="#AAA" />
               </TouchableOpacity>
             </View>
 
@@ -189,12 +189,12 @@ export default function ProfileSheet({ visible, onClose }: Props) {
               onPress={handleLogout}
               activeOpacity={0.7}
             >
-              <Feather name="log-out" size={20} color="#C0392B" />
+              <Feather name="log-out" size={rf(20)} color="#C0392B" />
               <Text style={s.logoutTxt}>Se déconnecter</Text>
             </TouchableOpacity>
 
             {/* Marge basse pour scroll confortable */}
-            <View style={{ height: 30 }} />
+            <View style={{ height: rs(30) }} />
           </ScrollView>
         </View>
       </View>
@@ -225,7 +225,7 @@ export default function ProfileSheet({ visible, onClose }: Props) {
                 }}
               >
                 <Text style={[s.langueOptionTxt, langue === opt && s.langueOptionTxtSel]}>{opt}</Text>
-                {langue === opt && <Feather name="check" size={20} color={C.brand} />}
+                {langue === opt && <Feather name="check" size={rf(20)} color={C.brand} />}
               </TouchableOpacity>
             ))}
           </View>
@@ -245,7 +245,7 @@ export default function ProfileSheet({ visible, onClose }: Props) {
           activeOpacity={1}
           onPress={() => setClasseModalVisible(false)}
         >
-          <View style={s.classeCard} onStartShouldSetResponder={() => true}>
+          <View style={[s.classeCard, { maxHeight: screenH * 0.7 }]} onStartShouldSetResponder={() => true}>
             <Text style={s.langueTitle}>
               Ma classe{classe !== "—" ? ` · ${classe}` : ""}
             </Text>
@@ -288,15 +288,12 @@ const s = StyleSheet.create({
     justifyContent: "flex-end",
   },
   overlay: {
-    // Occupe tout l'espace au-dessus du sheet
     flex: 1,
   },
   sheet: {
     backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    // Le sheet prend au max 85% de l'écran → le reste est l'overlay cliquable
-    maxHeight: SCREEN_H * 0.85,
+    borderTopLeftRadius: rs(24),
+    borderTopRightRadius: rs(24),
     ...(IS_ANDROID
       ? { elevation: 24 }
       : {
@@ -310,118 +307,118 @@ const s = StyleSheet.create({
   /* ── Handle ── */
   handleArea: {
     alignItems: "center",
-    paddingTop: 14,
-    paddingBottom: 6,
+    paddingTop: rs(14),
+    paddingBottom: rs(6),
   },
   handle: {
-    width: 44, height: 5, borderRadius: 3,
+    width: rs(44), height: rs(5), borderRadius: rs(3),
     backgroundColor: "#CCC",
   },
 
   /* ── ScrollView ── */
   scrollContent: {
-    paddingHorizontal: 18,
-    paddingTop: 8,
+    paddingHorizontal: rs(18),
+    paddingTop: rs(8),
   },
 
   /* ── Carte utilisateur ── */
   userCard: {
     backgroundColor: C.brand,
-    borderRadius: 16,
-    padding: 18,
+    borderRadius: rs(16),
+    padding: rs(18),
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 14,
+    marginBottom: rs(14),
   },
   userAvatar: {
-    width: 56, height: 56, borderRadius: 28,
+    width: rs(56), height: rs(56), borderRadius: rs(28),
     backgroundColor: "rgba(255,255,255,0.3)",
     alignItems: "center", justifyContent: "center",
-    marginRight: 14,
+    marginRight: rs(14),
   },
-  userAvatarTxt: { color: "#fff", fontWeight: "800", fontSize: 24 },
-  userName:      { color: "#fff", fontWeight: "800", fontSize: 21, marginBottom: 3 },
-  userMeta:      { color: "rgba(255,255,255,0.92)", fontSize: 16, fontWeight: "600" },
-  userPhone:     { color: "rgba(255,255,255,0.85)", fontSize: 15, marginTop: 2, fontWeight: "500" },
+  userAvatarTxt: { color: "#fff", fontWeight: "800", fontSize: rf(24) },
+  userName:      { color: "#fff", fontWeight: "800", fontSize: rf(21), marginBottom: rs(3) },
+  userMeta:      { color: "rgba(255,255,255,0.92)", fontSize: rf(16), fontWeight: "600" },
+  userPhone:     { color: "rgba(255,255,255,0.85)", fontSize: rf(15), marginTop: rs(2), fontWeight: "500" },
 
   /* ── Stats ── */
-  statsRow: { flexDirection: "row", marginBottom: 14, gap: 8 },
+  statsRow: { flexDirection: "row", marginBottom: rs(14), gap: rs(8) },
   statCard: {
     flex: 1, backgroundColor: "#F5F0E4",
-    borderRadius: 14, paddingVertical: 14, alignItems: "center",
+    borderRadius: rs(14), paddingVertical: rs(14), alignItems: "center",
   },
-  statVal:   { fontSize: 26, fontWeight: "900", color: "#1A1A1A" },
-  statLabel: { fontSize: 14, fontWeight: "600", color: "#555", marginTop: 3 },
+  statVal:   { fontSize: rf(26), fontWeight: "900", color: "#1A1A1A" },
+  statLabel: { fontSize: rf(14), fontWeight: "600", color: "#555", marginTop: rs(3) },
 
   /* ── Menu ── */
   menuCard: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 16,
+    borderRadius: rs(16),
     borderWidth: 1.5, borderColor: "#E8E0CC",
-    marginBottom: 18,
+    marginBottom: rs(18),
     overflow: "hidden",
   },
   menuRow: {
     flexDirection: "row", alignItems: "center",
-    paddingHorizontal: 16, paddingVertical: 18,
-    minHeight: 68,
+    paddingHorizontal: rs(16), paddingVertical: rs(18),
+    minHeight: rs(68),
   },
   menuBorder: {
     borderBottomWidth: 1, borderBottomColor: "#F0EBE0",
   },
   menuIconBox: {
-    width: 46, height: 46, borderRadius: 12,
+    width: rs(46), height: rs(46), borderRadius: rs(12),
     backgroundColor: "#F5EDDA",
     alignItems: "center", justifyContent: "center",
-    marginRight: 14,
+    marginRight: rs(14),
   },
   menuLabel: {
-    fontSize: 18, fontWeight: "700", color: "#1A1A1A", flex: 1,
+    fontSize: rf(18), fontWeight: "700", color: "#1A1A1A", flex: 1,
     ...(IS_ANDROID && { fontFamily: "sans-serif-medium" }),
   },
   menuSub: {
-    fontSize: 15, fontWeight: "500", color: "#666", marginTop: 3,
+    fontSize: rf(15), fontWeight: "500", color: "#666", marginTop: rs(3),
   },
   changerBtn: {
     borderWidth: 2, borderColor: C.brand,
-    borderRadius: 10, paddingHorizontal: 14, paddingVertical: 7,
+    borderRadius: rs(10), paddingHorizontal: rs(14), paddingVertical: rs(7),
   },
-  changerTxt: { fontSize: 15, fontWeight: "800", color: C.brand },
+  changerTxt: { fontSize: rf(15), fontWeight: "800", color: C.brand },
 
   /* ── Déconnexion ── */
   logoutBtn: {
     backgroundColor: "#FDECEC",
-    borderRadius: 14, paddingVertical: 18,
+    borderRadius: rs(14), paddingVertical: rs(18),
     flexDirection: "row", alignItems: "center", justifyContent: "center",
     borderWidth: 1, borderColor: "#F5D5D5",
   },
   logoutTxt: {
-    color: "#C0392B", fontWeight: "800", fontSize: 18, marginLeft: 10,
+    color: "#C0392B", fontWeight: "800", fontSize: rf(18), marginLeft: rs(10),
   },
 
   /* ── Modal langue d'enseignement ── */
   langueOverlay: {
     flex: 1, backgroundColor: "rgba(0,0,0,0.5)",
-    alignItems: "center", justifyContent: "center", padding: 24,
+    alignItems: "center", justifyContent: "center", padding: rs(24),
   },
   langueCard: {
-    width: "100%", maxWidth: 360,
-    backgroundColor: "#FFFFFF", borderRadius: 18, padding: 18,
+    width: "100%", maxWidth: rs(360),
+    backgroundColor: "#FFFFFF", borderRadius: rs(18), padding: rs(18),
   },
   langueTitle: {
-    fontSize: 18, fontWeight: "800", color: "#1A1A1A", marginBottom: 12,
+    fontSize: rf(18), fontWeight: "800", color: "#1A1A1A", marginBottom: rs(12),
   },
   langueOption: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingVertical: 14, paddingHorizontal: 14,
-    borderRadius: 12, marginBottom: 8,
+    paddingVertical: rs(14), paddingHorizontal: rs(14),
+    borderRadius: rs(12), marginBottom: rs(8),
     borderWidth: 1.5, borderColor: "#E8E0CC",
   },
   langueOptionSel: {
     borderColor: C.brand, backgroundColor: "#F5EDDA",
   },
   langueOptionTxt: {
-    fontSize: 16, fontWeight: "600", color: "#1A1A1A",
+    fontSize: rf(16), fontWeight: "600", color: "#1A1A1A",
   },
   langueOptionTxtSel: {
     color: C.brand, fontWeight: "800",
@@ -429,32 +426,32 @@ const s = StyleSheet.create({
 
   /* ── Modal Ma classe (liste des élèves) ── */
   classeCard: {
-    width: "100%", maxWidth: 400, maxHeight: SCREEN_H * 0.7,
-    backgroundColor: "#FFFFFF", borderRadius: 18, padding: 18,
+    width: "100%", maxWidth: rs(400),
+    backgroundColor: "#FFFFFF", borderRadius: rs(18), padding: rs(18),
   },
   classeList: {
-    marginTop: 4,
+    marginTop: rs(4),
   },
   classeEmpty: {
-    fontSize: 15, color: "#888", textAlign: "center", paddingVertical: 20,
+    fontSize: rf(15), color: "#888", textAlign: "center", paddingVertical: rs(20),
   },
   classeRow: {
     flexDirection: "row", alignItems: "center",
-    paddingVertical: 12,
+    paddingVertical: rs(12),
   },
   classeRowBorder: {
     borderBottomWidth: 1, borderBottomColor: "#F0EBE0",
   },
   classeAvatar: {
-    width: 38, height: 38, borderRadius: 19,
+    width: rs(38), height: rs(38), borderRadius: rs(19),
     backgroundColor: "#F5EDDA",
     alignItems: "center", justifyContent: "center",
-    marginRight: 12,
+    marginRight: rs(12),
   },
   classeAvatarTxt: {
-    fontSize: 14, fontWeight: "800", color: C.brand,
+    fontSize: rf(14), fontWeight: "800", color: C.brand,
   },
   classeEleveName: {
-    fontSize: 16, fontWeight: "600", color: "#1A1A1A", flex: 1,
+    fontSize: rf(16), fontWeight: "600", color: "#1A1A1A", flex: 1,
   },
 });

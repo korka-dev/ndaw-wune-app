@@ -23,6 +23,7 @@ interface Prof {
   present:   boolean | null;
   motif:     string | null;
   initiales: string;
+  last_rapport_date: string | null;
 }
 
 
@@ -40,6 +41,13 @@ function makeInitials(name: string) {
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
+function daysSince(dateStr: string | null): number | null {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+  return Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
+}
+
 export default function SupPresencesScreen() {
   const insets = useSafeAreaInsets();
   const { user, isOnline, syncOffline } = useStore();
@@ -49,7 +57,6 @@ export default function SupPresencesScreen() {
   const [refreshing,  setRefreshing]  = useState(false);
   const [syncing,     setSyncing]     = useState(false);
   const [error,       setError]       = useState<string | null>(null);
-  const [search,      setSearch]      = useState("");
   const [validated,   setValidated]   = useState(false);
   const [validating,  setValidating]  = useState(false);
   const [locked,      setLocked]      = useState(false);
@@ -89,7 +96,7 @@ export default function SupPresencesScreen() {
           superviseurApi.getPresenceCheck().catch(() => null),
         ]);
 
-        const rawTeachers: { id: string; name: string; classes?: string[] }[] =
+        const rawTeachers: { id: string; name: string; classes?: string[]; last_rapport_date?: string | null }[] =
           data.assigned_teachers ?? [];
 
         if (rawTeachers.length === 0) {
@@ -125,6 +132,7 @@ export default function SupPresencesScreen() {
             present:   s !== undefined ? (s.present === true) : null,
             motif:     s ? s.motif : null,
             initiales: makeInitials(t.name),
+            last_rapport_date: t.last_rapport_date ?? null,
           };
         });
 
@@ -165,6 +173,7 @@ export default function SupPresencesScreen() {
         present:   r.present === null ? null : r.present === 1,
         motif:     r.motif,
         initiales: makeInitials(r.teacher_nom),
+        last_rapport_date: null,
       })));
       const hasSubmitted = localEntries.some(r => r.synced === 1);
       setLocked(hasSubmitted);
@@ -178,6 +187,7 @@ export default function SupPresencesScreen() {
         present:   null,
         motif:     null,
         initiales: makeInitials(t.teacher_nom),
+        last_rapport_date: null,
       })));
       setLocked(false);
     }
@@ -341,11 +351,6 @@ export default function SupPresencesScreen() {
   const absentsCount  = profs.filter(p => p.present === false).length;
   const defined       = profs.filter(p => p.present !== null).length;
 
-  const filtered = profs.filter(p =>
-    !search.trim() ||
-    p.nom.toLowerCase().includes(search.toLowerCase()) ||
-    p.classe.toLowerCase().includes(search.toLowerCase())
-  );
 
   const avatarBg    = (p: Prof) => p.present === true ? C.successSoft : p.present === false ? C.dangerSoft : C.surfaceAlt;
   const avatarColor = (p: Prof) => p.present === true ? C.success    : p.present === false ? C.danger     : C.textMuted;
@@ -387,7 +392,7 @@ export default function SupPresencesScreen() {
               <Text style={styles.heroGreet}>Bonjour, {user?.name ?? "Superviseur"}</Text>
             </View>
             <View style={styles.heroIconWrap}>
-              <Feather name="clipboard" size={rf(22)} color="#fff" />
+              <Feather name="clipboard" size={rf(18)} color="#fff" />
             </View>
           </View>
 
@@ -457,29 +462,13 @@ export default function SupPresencesScreen() {
             </TouchableOpacity>
           </View>
         ) : (
-          /* ── État non validé : recherche + liste + bouton ── */
+          /* ── État non validé : liste + bouton ── */
           <>
-            {/* Recherche */}
-            <View style={styles.searchBar}>
-              <Feather name="search" size={rs(16)} color={C.textMuted} />
-              <TextInput
-                value={search} onChangeText={setSearch}
-                placeholder="Rechercher un professeur..."
-                placeholderTextColor={C.textMuted}
-                style={styles.searchInput}
-              />
-              {search.length > 0 && (
-                <TouchableOpacity onPress={() => setSearch("")}>
-                  <Feather name="x" size={rs(16)} color={C.textMuted} />
-                </TouchableOpacity>
-              )}
-            </View>
-
             {/* En-tête liste */}
             <View style={styles.listHeader}>
               <Text style={styles.listHeaderTitle}>Enseignants</Text>
               {profs.length > 0 && (
-                <Text style={styles.listHeaderCount}>{filtered.length} résultat{filtered.length > 1 ? "s" : ""}</Text>
+                <Text style={styles.listHeaderCount}>{profs.length} enseignant{profs.length > 1 ? "s" : ""}</Text>
               )}
             </View>
 
@@ -489,32 +478,31 @@ export default function SupPresencesScreen() {
               showsVerticalScrollIndicator={false}
               refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}
             >
-              {filtered.length === 0 && !error && (
+              {profs.length === 0 && !error && (
                 <View style={styles.emptyState}>
                   <View style={styles.emptyIconWrap}>
                     <Feather name="users" size={rs(28)} color={C.textMuted} />
                   </View>
-                  <Text style={styles.emptyTitle}>
-                    {profs.length === 0 ? "Aucun enseignant assigné" : "Aucun résultat"}
-                  </Text>
+                  <Text style={styles.emptyTitle}>Aucun enseignant assigné</Text>
                   <Text style={styles.emptyText}>
-                    {profs.length === 0
-                      ? "Contactez l'administrateur pour assigner des enseignants."
-                      : "Essayez avec un autre terme de recherche."}
+                    Contactez l'administrateur pour assigner des enseignants.
                   </Text>
                 </View>
               )}
-              {filtered.map((prof, i) => (
-                <View key={prof.id} style={styles.profCard}>
+              {profs.map((prof, i) => {
+                const days = daysSince(prof.last_rapport_date);
+                const noRapport = days === null || days >= 3;
+                return (
+                <View key={prof.id} style={[styles.profCard, noRapport && styles.profCardAlert]}>
                   <View style={styles.profCardTop}>
-                    <View style={[styles.avatar, { backgroundColor: avatarBg(prof) }]}>
-                      <Text style={[styles.avatarText, { color: avatarColor(prof) }]}>{prof.initiales}</Text>
+                    <View style={[styles.avatar, styles.avatarLarge, { backgroundColor: avatarBg(prof) }]}>
+                      <Text style={[styles.avatarText, styles.avatarTextLarge, { color: avatarColor(prof) }]}>{prof.initiales}</Text>
                     </View>
                     <View style={styles.profInfo}>
-                      <Text style={styles.profName}>{prof.nom}</Text>
+                      <Text style={styles.profNameLarge}>{prof.nom}</Text>
                       <View style={styles.profMetaRow}>
-                        <Feather name="book-open" size={rf(11)} color={C.textMuted} />
-                        <Text style={styles.profClasse}>{prof.classe}</Text>
+                        <Feather name="book-open" size={rf(13)} color={C.textMuted} />
+                        <Text style={styles.profClasseLarge}>{prof.classe}</Text>
                         {prof.present !== null && (
                           <View style={[styles.profStatusPill, prof.present ? styles.profStatusPresent : styles.profStatusAbsent]}>
                             <Text style={[styles.profStatusTxt, { color: prof.present ? C.success : C.danger }]}>
@@ -525,6 +513,16 @@ export default function SupPresencesScreen() {
                       </View>
                     </View>
                   </View>
+                  {noRapport && (
+                    <View style={styles.rapportAlertRow}>
+                      <Feather name="alert-triangle" size={rf(13)} color="#D97706" />
+                      <Text style={styles.rapportAlertTxt}>
+                        {days === null
+                          ? "Aucun rapport soumis"
+                          : `Aucun rapport depuis ${days} jour${days > 1 ? "s" : ""}`}
+                      </Text>
+                    </View>
+                  )}
                   {prof.present === false && prof.motif && (
                     <View style={styles.motifRow}>
                       <Feather name="file-text" size={rf(11)} color={C.danger} />
@@ -552,7 +550,8 @@ export default function SupPresencesScreen() {
                     </TouchableOpacity>
                   </View>
                 </View>
-              ))}
+                );
+              })}
               <View style={{ height: rs(16) }} />
             </ScrollView>
 
@@ -814,21 +813,21 @@ const styles = StyleSheet.create({
   loadingText:  { fontSize: rf(16), color: C.textMuted, marginTop: rs(8) },
 
   /* Hero card */
-  heroCard:        { backgroundColor: C.brand, borderRadius: rs(20), padding: rs(18), marginBottom: rs(14) },
-  heroTop:         { flexDirection: "row", alignItems: "flex-start", marginBottom: rs(14) },
-  heroDate:        { fontSize: rf(12), color: "rgba(255,255,255,0.7)", fontWeight: "600", textTransform: "capitalize" },
-  heroGreet:       { fontSize: rf(20), fontWeight: "800", color: "#fff", marginTop: rs(2) },
-  heroIconWrap:    { width: rs(44), height: rs(44), borderRadius: rs(14), backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" },
-  heroProgressWrap:{ flexDirection: "row", alignItems: "center", gap: rs(10), marginBottom: rs(14) },
-  heroProgressBg:  { flex: 1, height: rs(6), backgroundColor: "rgba(255,255,255,0.2)", borderRadius: rs(3), overflow: "hidden" },
+  heroCard:        { backgroundColor: C.brand, borderRadius: rs(18), padding: rs(12), marginBottom: rs(10) },
+  heroTop:         { flexDirection: "row", alignItems: "center", marginBottom: rs(8) },
+  heroDate:        { fontSize: rf(11), color: "rgba(255,255,255,0.7)", fontWeight: "600", textTransform: "capitalize" },
+  heroGreet:       { fontSize: rf(16), fontWeight: "800", color: "#fff", marginTop: rs(1) },
+  heroIconWrap:    { width: rs(38), height: rs(38), borderRadius: rs(11), backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" },
+  heroProgressWrap:{ flexDirection: "row", alignItems: "center", gap: rs(8), marginBottom: rs(8) },
+  heroProgressBg:  { flex: 1, height: rs(5), backgroundColor: "rgba(255,255,255,0.2)", borderRadius: rs(3), overflow: "hidden" },
   heroProgressFill:{ height: "100%", backgroundColor: "#fff", borderRadius: rs(3) },
-  heroProgressTxt: { fontSize: rf(12), color: "rgba(255,255,255,0.8)", fontWeight: "700", minWidth: rs(70), textAlign: "right" },
-  heroStatsRow:    { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(255,255,255,0.12)", borderRadius: rs(12), paddingVertical: rs(10) },
-  heroStat:        { flex: 1, alignItems: "center", gap: rs(2) },
-  heroStatDot:     { width: rs(8), height: rs(8), borderRadius: rs(4), marginBottom: rs(2) },
-  heroStatVal:     { fontSize: rf(20), fontWeight: "800", color: "#fff" },
-  heroStatLbl:     { fontSize: rf(11), color: "rgba(255,255,255,0.7)", fontWeight: "600" },
-  heroStatDivider: { width: 1, height: rs(28), backgroundColor: "rgba(255,255,255,0.15)" },
+  heroProgressTxt: { fontSize: rf(11), color: "rgba(255,255,255,0.8)", fontWeight: "700", minWidth: rs(64), textAlign: "right" },
+  heroStatsRow:    { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(255,255,255,0.12)", borderRadius: rs(10), paddingVertical: rs(6) },
+  heroStat:        { flex: 1, alignItems: "center", gap: rs(1) },
+  heroStatDot:     { width: rs(6), height: rs(6), borderRadius: rs(3), marginBottom: rs(1) },
+  heroStatVal:     { fontSize: rf(17), fontWeight: "800", color: "#fff" },
+  heroStatLbl:     { fontSize: rf(10), color: "rgba(255,255,255,0.7)", fontWeight: "600" },
+  heroStatDivider: { width: 1, height: rs(22), backgroundColor: "rgba(255,255,255,0.15)" },
 
   /* Error */
   errorBanner:  { flexDirection: "row", alignItems: "center", gap: rs(8), backgroundColor: C.dangerSoft, borderRadius: rs(12), padding: rs(12), marginBottom: rs(10) },
@@ -836,10 +835,6 @@ const styles = StyleSheet.create({
   errorText:    { flex: 1, fontSize: rf(13), color: C.danger },
   warnText:     { color: C.warn },
   retryText:    { fontSize: rf(13), fontWeight: "700", color: C.danger, textDecorationLine: "underline" },
-
-  /* Search */
-  searchBar:    { flexDirection: "row", alignItems: "center", gap: rs(10), backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: rs(14), paddingHorizontal: rs(14), paddingVertical: rs(11), marginBottom: rs(12) },
-  searchInput:  { flex: 1, color: C.text, fontSize: rf(15) },
 
   /* List header */
   listHeader:      { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: rs(8) },
@@ -856,14 +851,21 @@ const styles = StyleSheet.create({
   emptyText:    { fontSize: rf(14), color: C.textMuted, textAlign: "center", lineHeight: rf(20), paddingHorizontal: rs(24) },
 
   /* Prof card */
-  profCard:       { backgroundColor: C.surface, borderRadius: rs(14), borderWidth: 1, borderColor: C.border, padding: rs(14), marginBottom: rs(8) },
+  profCard:       { backgroundColor: C.surface, borderRadius: rs(16), borderWidth: 1.5, borderColor: C.border, padding: rs(16), marginBottom: rs(10), shadowColor: "#000", shadowOpacity: 0.04, shadowOffset: { width: 0, height: 2 }, shadowRadius: 4, elevation: 2 },
+  profCardAlert:  { borderColor: "#F59E0B55", backgroundColor: "#FFFBEB" },
   profCardTop:    { flexDirection: "row", alignItems: "center", gap: rs(12), marginBottom: rs(10) },
   avatar:         { width: rs(42), height: rs(42), borderRadius: rs(21), alignItems: "center", justifyContent: "center" },
+  avatarLarge:    { width: rs(50), height: rs(50), borderRadius: rs(25) },
   avatarText:     { fontSize: rf(14), fontWeight: "700" },
+  avatarTextLarge:{ fontSize: rf(16) },
   profInfo:       { flex: 1 },
   profName:       { fontSize: rf(15), fontWeight: "700", color: C.text, marginBottom: rs(3) },
+  profNameLarge:  { fontSize: rf(17), fontWeight: "800", color: C.text, marginBottom: rs(4) },
   profMetaRow:    { flexDirection: "row", alignItems: "center", gap: rs(5) },
   profClasse:     { fontSize: rf(12), color: C.textMuted, fontWeight: "500" },
+  profClasseLarge:{ fontSize: rf(13), color: C.textMuted, fontWeight: "600" },
+  rapportAlertRow:{ flexDirection: "row", alignItems: "center", gap: rs(6), backgroundColor: "#FEF3C7", borderRadius: rs(10), paddingHorizontal: rs(12), paddingVertical: rs(8), marginBottom: rs(10) },
+  rapportAlertTxt:{ fontSize: rf(13), fontWeight: "700", color: "#D97706", flex: 1 },
   profStatusPill: { marginLeft: rs(6), paddingHorizontal: rs(8), paddingVertical: rs(2), borderRadius: rs(10) },
   profStatusPresent: { backgroundColor: C.successSoft },
   profStatusAbsent:  { backgroundColor: C.dangerSoft },

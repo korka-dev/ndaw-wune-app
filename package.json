@@ -56,10 +56,13 @@
     "moduleNameMapper": {
       "expo-secure-store": "<rootDir>/src/__mocks__/expo-secure-store.ts",
       "expo-sqlite": "<rootDir>/src/__mocks__/expo-sqlite.ts",
-      "@react-native-async-storage/async-storage": "<rootDir>/src/__mocks__/async-storage.ts"
+      "@react-native-async-storage/async-storage": "<rootDir>/src/__mocks__/async-storage.ts",
+      "expo-router": "<rootDir>/src/__mocks__/expo-router.ts",
+      "react-native-safe-area-context": "<rootDir>/src/__mocks__/react-native-safe-area-context.ts"
     },
     "testMatch": [
-      "<rootDir>/src/__tests__/**/*.test.ts"
+      "<rootDir>/src/__tests__/**/*.test.ts",
+      "<rootDir>/src/__tests__/**/*.test.tsx"
     ]
   },
   "overrides": {

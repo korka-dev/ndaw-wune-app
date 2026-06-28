@@ -123,7 +123,7 @@ export default function WelcomeScreen() {
         <Animated.View style={[s.footer, { opacity: btnOp, transform: [{ translateY: btnTY }] }]}>
           <TouchableOpacity
             style={s.btn}
-            onPress={() => router.push("/login")}
+            onPress={() => router.push("/user-type")}
             activeOpacity={0.85}
           >
             <Text style={s.btnTxt}>Commencer</Text>

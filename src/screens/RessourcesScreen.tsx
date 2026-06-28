@@ -6,9 +6,8 @@
  * - Mode hors-ligne : la liste est mise en cache, les docs téléchargés
  *   restent consultables sans connexion
  * - Viewer inline (AppHeader + tabs toujours visibles)
- *     PDF (iOS)     : react-native-webview (rendu PDF natif WebKit)
- *     PDF (Android) : react-native-pdf (rendu natif intégré)
- *     Image         : React Native <Image>
+ *     PDF (iOS + Android) : react-native-pdf (local ou URL distante avec auth)
+ *     Image               : React Native <Image>
  * - Word / Excel / CSV → app native (IntentLauncher / Share)
  */
 import React, { useState, useCallback, useEffect } from "react";
@@ -29,12 +28,9 @@ import {
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-// Imports natifs conditionnels — évitent le crash "getConstants of null"
-// si le module natif n'est pas lié (Expo Go, build partiel, etc.)
-let WebView: React.ComponentType<any> | null = null;
+// Imports natifs conditionnels — évitent le crash si module non lié
 let Pdf: React.ComponentType<any> | null = null;
-try { WebView = require("react-native-webview").WebView; } catch {}
-try { Pdf    = require("react-native-pdf").default;       } catch {}
+try { Pdf = require("react-native-pdf").default; } catch {}
 import * as FileSystem from "expo-file-system/legacy";
 import * as IntentLauncher from "expo-intent-launcher";
 
@@ -58,6 +54,8 @@ const STALL_TIMEOUT_MS = 30_000; // 30 s sans aucune activité réseau
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
+type ResourceType = "document" | "video" | "autre";
+
 type Document = {
   id: string;
   title: string;
@@ -65,15 +63,15 @@ type Document = {
   mime_type: string;
   file_size: number;
   description: string | null;
+  resource_type: ResourceType;
   created_at: string;
 };
 
 type DownloadState = "none" | "downloading" | "ready" | "unavailable";
 
 type ViewerSource =
-  | { kind: "webview"; uri: string }
-  | { kind: "pdf";     uri: string }
-  | { kind: "image";   uri: string };
+  | { kind: "pdf";   uri: string; authHeader?: string }
+  | { kind: "image"; uri: string };
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -134,16 +132,32 @@ function InlineViewer({
   onClose: () => void;
   onOpenExternal: () => void;
 }) {
-  const [loading, setLoading] = useState(source.kind === "webview" || source.kind === "pdf");
+  const [loading,  setLoading]  = useState(true);
+  const [page,     setPage]     = useState(1);
+  const [total,    setTotal]    = useState(0);
+
+  const pdfSource = source.kind === "pdf"
+    ? {
+        uri:     source.uri,
+        cache:   true,
+        ...(source.authHeader ? { headers: { Authorization: source.authHeader } } : {}),
+      }
+    : null;
 
   return (
     <View style={vw.wrap}>
+      {/* Barre de navigation */}
       <View style={vw.bar}>
         <TouchableOpacity style={vw.backBtn} onPress={onClose}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Feather name="arrow-left" size={rf(18)} color={C.text} />
         </TouchableOpacity>
-        <Text style={vw.barTitle} numberOfLines={1}>{doc.title}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={vw.barTitle} numberOfLines={1}>{doc.title}</Text>
+          {source.kind === "pdf" && total > 0 && (
+            <Text style={vw.barPage}>Page {page} / {total}</Text>
+          )}
+        </View>
         <TouchableOpacity style={vw.extBtn} onPress={onOpenExternal}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Feather name="external-link" size={rf(16)} color={C.textMuted} />
@@ -153,54 +167,38 @@ function InlineViewer({
       <View style={vw.content}>
         {source.kind === "image" ? (
           <Image source={{ uri: source.uri }} style={vw.image} resizeMode="contain" />
-        ) : source.kind === "pdf" ? (
-          Pdf ? (
-            <>
-              {loading && (
-                <View style={vw.overlay}>
-                  <ActivityIndicator size="large" color={C.brand} />
-                  <Text style={vw.overlayTxt}>Chargement du document…</Text>
-                </View>
-              )}
-              <Pdf
-                source={{ uri: source.uri }}
-                style={vw.pdf}
-                onLoadComplete={() => setLoading(false)}
-                onError={() => { setLoading(false); Alert.alert("Erreur", "Impossible d'afficher ce document."); }}
-              />
-            </>
-          ) : (
-            <View style={vw.overlay}>
-              <Feather name="file-text" size={rf(36)} color={C.textMuted} />
-              <Text style={vw.overlayTxt}>Visualiseur PDF non disponible.{"\n"}Appuyez sur ↗ pour ouvrir dans une app externe.</Text>
-            </View>
-          )
+        ) : Pdf && pdfSource ? (
+          <>
+            {loading && (
+              <View style={vw.overlay}>
+                <ActivityIndicator size="large" color={C.brand} />
+                <Text style={vw.overlayTxt}>Chargement du PDF…</Text>
+              </View>
+            )}
+            <Pdf
+              source={pdfSource}
+              style={vw.pdf}
+              enablePaging
+              horizontal={false}
+              trustAllCerts={false}
+              onLoadComplete={(numberOfPages: number) => {
+                setTotal(numberOfPages);
+                setLoading(false);
+              }}
+              onPageChanged={(p: number) => setPage(p)}
+              onError={() => {
+                setLoading(false);
+                Alert.alert("Erreur", "Impossible d'afficher ce PDF.");
+              }}
+            />
+          </>
         ) : (
-          WebView ? (
-            <>
-              {loading && (
-                <View style={vw.overlay}>
-                  <ActivityIndicator size="large" color={C.brand} />
-                  <Text style={vw.overlayTxt}>Chargement du document…</Text>
-                </View>
-              )}
-              <WebView
-                source={{ uri: source.uri }}
-                style={vw.pdf}
-                onLoadEnd={() => setLoading(false)}
-                onError={() => { setLoading(false); Alert.alert("Erreur", "Impossible d'afficher ce document."); }}
-                allowFileAccess
-                allowFileAccessFromFileURLs
-                allowUniversalAccessFromFileURLs
-                originWhitelist={["*"]}
-              />
-            </>
-          ) : (
-            <View style={vw.overlay}>
-              <Feather name="file" size={rf(36)} color={C.textMuted} />
-              <Text style={vw.overlayTxt}>Visualiseur non disponible.{"\n"}Appuyez sur ↗ pour ouvrir dans une app externe.</Text>
-            </View>
-          )
+          <View style={vw.overlay}>
+            <Feather name="file-text" size={rf(36)} color={C.textMuted} />
+            <Text style={vw.overlayTxt}>
+              Visualiseur PDF non disponible.{"\n"}Appuyez sur ↗ pour ouvrir dans une app externe.
+            </Text>
+          </View>
         )}
       </View>
     </View>
@@ -213,13 +211,15 @@ function DocCard({
   doc,
   dlState,
   progress,
+  canViewOnline,
   onDownload,
   onOpen,
   onDeleteLocal,
 }: {
   doc: Document;
   dlState: DownloadState;
-  progress: number;           // 0–1, significatif quand dlState === "downloading"
+  progress: number;
+  canViewOnline: boolean;   // PDF + connecté → ouvrir directement sans DL
   onDownload: () => void;
   onOpen: () => void;
   onDeleteLocal: () => void;
@@ -229,15 +229,13 @@ function DocCard({
   const pct  = Math.round(progress * 100);
 
   return (
-    <View style={[s.card, dlState === "unavailable" && s.cardUnavailable]}>
-      <View style={[s.cardIcon, { backgroundColor: meta.bg, opacity: dlState === "unavailable" ? 0.45 : 1 }]}>
-        <Feather name={meta.icon} size={22} color={meta.color} />
+    <View style={[s.card, dlState === "unavailable" && !canViewOnline && s.cardUnavailable]}>
+      <View style={[s.cardIcon, { backgroundColor: meta.bg }]}>
+        <Feather name={meta.icon} size={rf(22)} color={meta.color} />
       </View>
 
       <View style={s.cardBody}>
-        <Text style={[s.cardTitle, dlState === "unavailable" && s.cardTitleMuted]} numberOfLines={2}>
-          {doc.title}
-        </Text>
+        <Text style={s.cardTitle} numberOfLines={2}>{doc.title}</Text>
         <View style={s.cardRow}>
           <View style={[s.badge, { backgroundColor: meta.bg }]}>
             <Text style={[s.badgeTxt, { color: meta.color }]}>{meta.label}</Text>
@@ -250,7 +248,6 @@ function DocCard({
           <Text style={s.cardDesc} numberOfLines={1}>{doc.description}</Text>
         ) : null}
 
-        {/* Barre de progression — visible uniquement pendant le téléchargement */}
         {dlState === "downloading" && (
           <View style={s.progressRow}>
             <View style={s.progressTrack}>
@@ -267,7 +264,7 @@ function DocCard({
           </View>
         )}
 
-        {dlState === "unavailable" && (
+        {dlState === "unavailable" && !canViewOnline && (
           <View style={s.offlineBadge}>
             <Feather name="wifi-off" size={rf(11)} color={C.textMuted} />
             <Text style={s.unavailableTxt}>Non disponible hors-ligne</Text>
@@ -276,31 +273,41 @@ function DocCard({
       </View>
 
       <View style={s.cardActions}>
-        {dlState === "ready" ? (
-          <>
-            <TouchableOpacity style={[s.actionBtn, { backgroundColor: meta.bg }]}
-              onPress={onOpen} activeOpacity={0.75}>
-              <Feather name="eye" size={17} color={meta.color} />
-            </TouchableOpacity>
-            <TouchableOpacity style={[s.actionBtn, { backgroundColor: C.surfaceAlt }]}
-              onPress={onDeleteLocal} activeOpacity={0.75}>
-              <Feather name="trash-2" size={15} color={C.textMuted} />
-            </TouchableOpacity>
-          </>
-        ) : dlState === "downloading" ? (
-          /* Spinner pendant le transfert — la progression est dans la barre */
+        {dlState === "downloading" ? (
           <View style={[s.actionBtn, { backgroundColor: C.brandSoft }]}>
             <ActivityIndicator size="small" color={C.brand} />
           </View>
+        ) : dlState === "ready" ? (
+          <>
+            <TouchableOpacity style={[s.actionBtn, { backgroundColor: meta.bg }]}
+              onPress={onOpen} activeOpacity={0.75}>
+              <Feather name="eye" size={rf(17)} color={meta.color} />
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.actionBtn, { backgroundColor: C.surfaceAlt }]}
+              onPress={onDeleteLocal} activeOpacity={0.75}>
+              <Feather name="trash-2" size={rf(15)} color={C.textMuted} />
+            </TouchableOpacity>
+          </>
+        ) : canViewOnline ? (
+          /* PDF accessible en ligne — ouvrir directement + bouton DL séparé */
+          <>
+            <TouchableOpacity style={[s.actionBtn, { backgroundColor: meta.bg }]}
+              onPress={onOpen} activeOpacity={0.75}>
+              <Feather name="eye" size={rf(17)} color={meta.color} />
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.actionBtn, { backgroundColor: C.brandSoft }]}
+              onPress={onDownload} activeOpacity={0.75}>
+              <Feather name="download" size={rf(15)} color={C.brand} />
+            </TouchableOpacity>
+          </>
         ) : dlState === "unavailable" ? (
-          /* Pas de connexion et pas encore téléchargé */
           <View style={[s.actionBtn, { backgroundColor: C.surfaceAlt }]}>
-            <Feather name="wifi-off" size={15} color={C.textMuted} />
+            <Feather name="wifi-off" size={rf(15)} color={C.textMuted} />
           </View>
         ) : (
           <TouchableOpacity style={[s.actionBtn, { backgroundColor: C.brandSoft }]}
             onPress={onDownload} activeOpacity={0.75}>
-            <Feather name="download" size={17} color={C.brand} />
+            <Feather name="download" size={rf(17)} color={C.brand} />
           </TouchableOpacity>
         )}
       </View>
@@ -322,6 +329,7 @@ export default function RessourcesScreen() {
   const [downloads,   setDownloads]   = useState<Record<string, string>>({});
   const [downloading, setDownloading] = useState<string | null>(null);
   const [progress,    setProgress]    = useState<Record<string, number>>({});
+  const [activeType,  setActiveType]  = useState<"all" | ResourceType>("all");
 
   // Viewer
   const [activeDoc,    setActiveDoc]    = useState<Document | null>(null);
@@ -514,27 +522,45 @@ export default function RessourcesScreen() {
   // ── Ouverture du viewer ───────────────────────────────────────────────────
   const handleOpen = useCallback(async (doc: Document) => {
     const localUri = downloads[doc.id];
-    if (!localUri) return;
-
     const cat = getCategory(doc.mime_type, doc.original_filename);
+
+    // Word / Excel / CSV → app externe
     if (cat === "word" || cat === "excel" || cat === "csv") {
-      if (Platform.OS === "ios") {
-        await Share.share({ url: localUri, title: doc.title }).catch(() => {});
-      } else {
-        await handleOpenExternal(doc);
+      if (localUri) {
+        if (Platform.OS === "ios") {
+          await Share.share({ url: localUri, title: doc.title }).catch(() => {});
+        } else {
+          await handleOpenExternal(doc);
+        }
       }
       return;
     }
+
+    // Image
     if (cat === "image") {
-      setViewerSource({ kind: "image", uri: localUri });
+      if (localUri) {
+        setViewerSource({ kind: "image", uri: localUri });
+        setActiveDoc(doc);
+      }
+      return;
+    }
+
+    // PDF — local en priorité, sinon URL distante avec auth
+    if (localUri) {
+      const pdfUri = localUri.startsWith("file://") ? localUri : `file://${localUri}`;
+      setViewerSource({ kind: "pdf", uri: pdfUri });
       setActiveDoc(doc);
       return;
     }
-    const pdfUri = localUri.startsWith("file://") ? localUri : `file://${localUri}`;
-    setViewerSource(Platform.OS === "ios"
-      ? { kind: "webview", uri: pdfUri }
-      : { kind: "pdf",     uri: pdfUri }
-    );
+
+    // PDF distant (pas encore téléchargé)
+    const token = await getSecure("access_token").catch(() => null);
+    if (!token) { Alert.alert("Session expirée", "Reconnectez-vous."); return; }
+    setViewerSource({
+      kind: "pdf",
+      uri: ressourcesApi.downloadUrl(doc.id),
+      authHeader: `Bearer ${token}`,
+    });
     setActiveDoc(doc);
   }, [downloads, handleOpenExternal]);
 
@@ -551,6 +577,24 @@ export default function RessourcesScreen() {
   }, [downloading, downloads, isOnline]);
 
   const nbOffline = Object.keys(downloads).length;
+
+  const visibleDocs = activeType === "all"
+    ? docs
+    : docs.filter(d => (d.resource_type ?? "document") === activeType);
+
+  const typeCounts: Record<"all" | ResourceType, number> = {
+    all:      docs.length,
+    document: docs.filter(d => !d.resource_type || d.resource_type === "document").length,
+    video:    docs.filter(d => d.resource_type === "video").length,
+    autre:    docs.filter(d => d.resource_type === "autre").length,
+  };
+
+  const TYPE_CARDS: { key: "all" | ResourceType; label: string; icon: React.ComponentProps<typeof Feather>["name"]; color: string; bg: string }[] = [
+    { key: "all",      label: "Tous",      icon: "layers",    color: C.brand,    bg: C.brandSoft },
+    { key: "document", label: "Documents", icon: "file-text", color: "#C0392B",  bg: "#FDECEA" },
+    { key: "video",    label: "Vidéos",    icon: "play-circle", color: "#8E44AD", bg: "#F5EEF8" },
+    { key: "autre",    label: "Autres",    icon: "folder",    color: "#27AE60",  bg: "#E8F8EF" },
+  ];
 
   // ── Rendu ─────────────────────────────────────────────────────────────────
   return (
@@ -608,6 +652,36 @@ export default function RessourcesScreen() {
             </View>
           )}
 
+          {/* Grille de types */}
+          {!loading && docs.length > 0 && (
+            <View style={s.typeGrid}>
+              {TYPE_CARDS.map(card => {
+                const isActive = activeType === card.key;
+                const count = typeCounts[card.key];
+                return (
+                  <TouchableOpacity
+                    key={card.key}
+                    onPress={() => setActiveType(card.key)}
+                    style={[s.typeCard, isActive && s.typeCardActive]}
+                    activeOpacity={0.8}
+                  >
+                    <View style={[s.typeCardIcon, { backgroundColor: isActive ? card.color : card.bg }]}>
+                      <Feather name={card.icon} size={rf(18)} color={isActive ? "#fff" : card.color} />
+                    </View>
+                    <Text style={[s.typeCardLabel, isActive && s.typeCardLabelActive]} numberOfLines={1}>
+                      {card.label}
+                    </Text>
+                    <View style={[s.typeCardCount, isActive && s.typeCardCountActive]}>
+                      <Text style={[s.typeCardCountTxt, isActive && s.typeCardCountTxtActive]}>
+                        {count}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+
           {loading ? (
             <View style={s.centered}>
               <ActivityIndicator size="large" color={C.brand} />
@@ -616,7 +690,7 @@ export default function RessourcesScreen() {
           ) : docs.length === 0 ? (
             <View style={s.empty}>
               <View style={[s.emptyIcon, { backgroundColor: C.surfaceAlt }]}>
-                <Feather name={isOnline ? "inbox" : "wifi-off"} size={36} color={C.textMuted} />
+                <Feather name={isOnline ? "inbox" : "wifi-off"} size={rf(36)} color={C.textMuted} />
               </View>
               <Text style={s.emptyTitle}>
                 {isOnline ? "Aucun document disponible" : "Aucun document hors-ligne"}
@@ -630,21 +704,25 @@ export default function RessourcesScreen() {
           ) : (
             <>
               <Text style={s.countLabel}>
-                {docs.length} document{docs.length > 1 ? "s" : ""}
+                {visibleDocs.length} ressource{visibleDocs.length > 1 ? "s" : ""}
                 {nbOffline > 0 ? `  ·  ${nbOffline} hors-ligne` : ""}
                 {fromCache && !isOnline ? "  ·  cache local" : ""}
               </Text>
-              {docs.map(doc => (
-                <DocCard
-                  key={doc.id}
-                  doc={doc}
-                  dlState={dlStateOf(doc.id)}
-                  progress={progress[doc.id] ?? 0}
-                  onDownload={() => handleDownload(doc)}
-                  onOpen={() => handleOpen(doc)}
-                  onDeleteLocal={() => handleDeleteLocal(doc)}
-                />
-              ))}
+              {visibleDocs.map(doc => {
+                const cat = getCategory(doc.mime_type, doc.original_filename);
+                return (
+                  <DocCard
+                    key={doc.id}
+                    doc={doc}
+                    dlState={dlStateOf(doc.id)}
+                    progress={progress[doc.id] ?? 0}
+                    canViewOnline={isOnline && cat === "pdf"}
+                    onDownload={() => handleDownload(doc)}
+                    onOpen={() => handleOpen(doc)}
+                    onDeleteLocal={() => handleDeleteLocal(doc)}
+                  />
+                );
+              })}
             </>
           )}
         </ScrollView>
@@ -673,7 +751,8 @@ const vw = StyleSheet.create({
     width: rs(36), height: rs(36), borderRadius: rs(10),
     backgroundColor: C.surfaceAlt, alignItems: "center", justifyContent: "center",
   },
-  barTitle:   { flex: 1, fontSize: rf(15), fontWeight: "700", color: C.text },
+  barTitle:   { fontSize: rf(15), fontWeight: "700", color: C.text },
+  barPage:    { fontSize: rf(11), color: C.textMuted, marginTop: rs(1) },
   content:    { flex: 1 },
   image:      { flex: 1, backgroundColor: "#000" },
   pdf:        { flex: 1, width: "100%" },
@@ -707,6 +786,22 @@ const s = StyleSheet.create({
 
   hintRow: { flexDirection: "row", alignItems: "center", gap: rs(6), marginBottom: rs(14) },
   hintTxt: { flex: 1, fontSize: rf(12), color: C.textMuted, lineHeight: rf(17) },
+
+  typeGrid:            { flexDirection: "row", flexWrap: "wrap", gap: rs(10), marginBottom: rs(18) },
+  typeCard:            {
+    width: "47%", backgroundColor: C.surface, borderRadius: rs(14),
+    borderWidth: 1.5, borderColor: C.border,
+    paddingVertical: rs(14), paddingHorizontal: rs(12),
+    alignItems: "center", gap: rs(8),
+  },
+  typeCardActive:      { borderColor: C.brand, backgroundColor: C.brandSoft },
+  typeCardIcon:        { width: rs(40), height: rs(40), borderRadius: rs(12), alignItems: "center", justifyContent: "center" },
+  typeCardLabel:       { fontSize: rf(13), fontWeight: "700", color: C.text },
+  typeCardLabelActive: { color: C.brand },
+  typeCardCount:       { backgroundColor: C.surfaceAlt, borderRadius: rs(10), minWidth: rs(26), height: rs(22), alignItems: "center", justifyContent: "center", paddingHorizontal: rs(6) },
+  typeCardCountActive: { backgroundColor: C.brand },
+  typeCardCountTxt:    { fontSize: rf(11), fontWeight: "800", color: C.textMuted },
+  typeCardCountTxtActive: { color: "#fff" },
 
   countLabel: {
     fontSize: rf(12), fontWeight: "600", color: C.textMuted,

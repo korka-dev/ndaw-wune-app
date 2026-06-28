@@ -14,17 +14,23 @@
 
 import { Dimensions, PixelRatio, Platform } from "react-native";
 
-const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
-
 /** Largeur de référence (iPhone SE / petits Androids) */
 const BASE_W = 375;
+
+let screenW = Dimensions.get("window").width;
+let screenH = Dimensions.get("window").height;
+
+Dimensions.addEventListener("change", ({ window }) => {
+  screenW = window.width;
+  screenH = window.height;
+});
 
 /**
  * Échelle un espace (padding, margin, taille fixe) selon la largeur de l'écran.
  * ex : rs(20) → 20 sur 375px, 22 sur 414px, 17 sur 320px
  */
 export function rs(size: number): number {
-  return Math.round(PixelRatio.roundToNearestPixel(size * (SCREEN_W / BASE_W)));
+  return Math.round(PixelRatio.roundToNearestPixel(size * (screenW / BASE_W)));
 }
 
 /**
@@ -32,19 +38,19 @@ export function rs(size: number): number {
  * Plafonnée à +25 % pour éviter les textes trop grands sur tablettes.
  */
 export function rf(size: number): number {
-  const ratio  = SCREEN_W / BASE_W;
+  const ratio  = screenW / BASE_W;
   const capped = Math.min(ratio, 1.25);
   return Math.round(PixelRatio.roundToNearestPixel(size * capped));
 }
 
 /** Pourcentage de la largeur écran */
-export const wp = (pct: number): number => Math.round(SCREEN_W * pct / 100);
+export const wp = (pct: number): number => Math.round(screenW * pct / 100);
 
 /** Pourcentage de la hauteur écran */
-export const hp = (pct: number): number => Math.round(SCREEN_H * pct / 100);
+export const hp = (pct: number): number => Math.round(screenH * pct / 100);
 
 /** Vrai si l'écran est une tablette (≥ 768 px) */
-export const isTablet: boolean = SCREEN_W >= 768;
+export const isTablet: boolean = screenW >= 768;
 
 /** Raccourcis plateforme */
 export const isIOS     = Platform.OS === "ios";

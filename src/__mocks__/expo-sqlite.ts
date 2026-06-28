@@ -109,11 +109,21 @@ class MockDatabase {
       return { lastInsertRowId: 0, changes };
     }
 
-    // SET synced = 1 WHERE id = ?
+    // SET synced = 1 [, other = ?]* WHERE id = ?
+    // Le nombre de ? dans la clause SET détermine l'offset du param WHERE.
     if (/synced\s*=\s*1/i.test(sql)) {
-      const [id] = params as [unknown];
+      const setClause = sql.match(/SET\s+(.*?)\s+WHERE/i)?.[1] ?? "";
+      const setPlaceholders = (setClause.match(/\?/g) ?? []).length;
+      const id = params[setPlaceholders] as unknown;
+      const extra: Record<string, unknown> = {};
+      // Extraire les colonnes supplémentaires du SET (server_id, etc.)
+      const setPairs: string[] = (setClause.replace(/synced\s*=\s*1,?\s*/i, "").match(/(\w+)\s*=\s*\?/gi) ?? []) as string[];
+      setPairs.forEach((pair, i) => {
+        const col = pair.match(/(\w+)\s*=/i)?.[1];
+        if (col) extra[col] = params[i];
+      });
       const updated = rows.map(r => {
-        if (String(r['id']) === String(id)) { changes++; return { ...r, synced: 1 }; }
+        if (String(r['id']) === String(id)) { changes++; return { ...r, synced: 1, ...extra }; }
         return r;
       });
       this.tables.set(table, updated);

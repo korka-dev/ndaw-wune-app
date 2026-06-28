@@ -15,7 +15,7 @@
  */
 import React, { useState, useCallback, useEffect, useMemo } from "react";
 import {
-  View, Text, TouchableOpacity, StyleSheet, ScrollView,
+  View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -26,7 +26,8 @@ import { fr } from "date-fns/locale";
 import { rs, rf } from "../utils/responsive";
 import { C } from "../utils/theme";
 import { useStore } from "../store/useStore";
-import { getRapportsJournalier, RapportJournalierLocal } from "../services/db";
+import { getRapportsJournalier, deleteRapportJournalier, RapportJournalierLocal } from "../services/db";
+import { rapportJournalierApi } from "../services/api";
 import AppHeader from "../components/AppHeader";
 import ProfileSheet from "../components/ProfileSheet";
 import RapportJournalierScreen from "./RapportJournalierScreen";
@@ -78,24 +79,41 @@ function StatCard({
 
 // ── Carte rapport ──────────────────────────────────────────────────────────
 
-function RapportCard({ item, onPress }: { item: RapportJournalierLocal; onPress: () => void }) {
+function RapportCard({
+  item,
+  onPress,
+  onDelete,
+}: {
+  item: RapportJournalierLocal;
+  onPress: () => void;
+  onDelete: () => void;
+}) {
   const synced = item.synced === 1;
   return (
     <TouchableOpacity style={s.card} onPress={onPress} activeOpacity={0.75}>
-      {/* Date + badge */}
+      {/* Date + badge + bouton supprimer */}
       <View style={s.cardTop}>
         <Text style={s.cardDate} numberOfLines={1}>
           {fmtDate(item.date_rapport)}
         </Text>
-        <View style={[s.badge, synced ? s.badgeOk : s.badgeProgress]}>
-          <Feather
-            name={synced ? "check-circle" : "loader"}
-            size={rf(10)}
-            color={synced ? C.success : C.warn}
-          />
-          <Text style={[s.badgeTxt, { color: synced ? C.success : C.warn }]}>
-            {synced ? "Envoyé" : "En cours"}
-          </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: rs(6) }}>
+          <View style={[s.badge, synced ? s.badgeOk : s.badgeProgress]}>
+            <Feather
+              name={synced ? "check-circle" : "loader"}
+              size={rf(10)}
+              color={synced ? C.success : C.warn}
+            />
+            <Text style={[s.badgeTxt, { color: synced ? C.success : C.warn }]}>
+              {synced ? "Envoyé" : "En cours"}
+            </Text>
+          </View>
+          <TouchableOpacity
+            onPress={(e) => { e.stopPropagation(); onDelete(); }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={s.deleteBtn}
+          >
+            <Feather name="trash-2" size={rf(14)} color={C.danger} />
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -153,6 +171,33 @@ export default function RapportsScreen() {
   useFocusEffect(
     useCallback(() => { loadAndSync(); }, [loadAndSync])
   );
+
+  // ── Suppression d'un rapport ──────────────────────────────────────────
+  const handleDelete = useCallback((item: RapportJournalierLocal) => {
+    Alert.alert(
+      "Supprimer le rapport",
+      `Supprimer le rapport du ${fmtDateShort(item.date_rapport)} ? Cette action est irréversible.`,
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Supprimer",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              // Si déjà synchronisé avec le serveur, supprimer aussi côté API
+              if (item.synced === 1 && item.server_id) {
+                await rapportJournalierApi.delete(item.server_id);
+              }
+              deleteRapportJournalier(item.id);
+              setHistory(prev => prev.filter(r => r.id !== item.id));
+            } catch {
+              Alert.alert("Erreur", "Impossible de supprimer le rapport. Réessayez plus tard.");
+            }
+          },
+        },
+      ],
+    );
+  }, []);
 
   // ── Sync manuelle déclenchée par le bouton du header ──────────────────
   const handleManualSync = async () => {
@@ -299,6 +344,7 @@ export default function RapportsScreen() {
                 key={item.id}
                 item={item}
                 onPress={() => router.push(`/rapport-detail?id=${item.id}`)}
+                onDelete={() => handleDelete(item)}
               />
             ))}
           </View>
@@ -466,6 +512,11 @@ const s = StyleSheet.create({
   badgeOk:       { backgroundColor: C.successSoft },
   badgeProgress: { backgroundColor: C.warnSoft },
   badgeTxt:      { fontSize: rf(12), fontWeight: "700" },
+  deleteBtn: {
+    width: rs(28), height: rs(28), borderRadius: rs(8),
+    backgroundColor: C.dangerSoft ?? "#FEE2E2",
+    alignItems: "center", justifyContent: "center",
+  },
 
   cardRow: {
     flexDirection: "row", alignItems: "center", gap: rs(6),

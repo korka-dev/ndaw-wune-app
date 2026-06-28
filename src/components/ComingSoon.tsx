@@ -27,7 +27,7 @@ export default function ComingSoon({ section, icon }: Props) {
 
       <View style={[s.body, { paddingBottom: insets.bottom + rs(16) }]}>
         <View style={s.iconWrap}>
-          <Feather name={icon} size={48} color={C.brand} />
+          <Feather name={icon} size={rf(48)} color={C.brand} />
         </View>
         <Text style={s.title}>{section}</Text>
         <Text style={s.message}>

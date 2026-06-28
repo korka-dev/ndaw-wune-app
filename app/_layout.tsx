@@ -80,6 +80,10 @@ export default function RootLayout() {
         <Stack.Screen name="index" />
         <Stack.Screen name="welcome" />
         <Stack.Screen
+          name="user-type"
+          options={{ animation: "slide_from_right" }}
+        />
+        <Stack.Screen
           name="login"
           options={{ animation: "slide_from_right" }}
         />

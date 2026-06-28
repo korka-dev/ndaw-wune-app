@@ -130,6 +130,15 @@ const MIGRATIONS: Migration[] = [
       } catch { /* colonne déjà présente — base créée avec le schéma à jour */ }
     },
   },
+  {
+    // Ajout de server_id pour pouvoir supprimer un rapport déjà synchronisé via l'API
+    version: 6,
+    up: (db) => {
+      try {
+        db.execSync(`ALTER TABLE rapports_journalier ADD COLUMN server_id TEXT`);
+      } catch { /* colonne déjà présente */ }
+    },
+  },
 ];
 
 const CURRENT_DB_VERSION = MIGRATIONS.reduce((max, m) => Math.max(max, m.version), 0);
@@ -413,6 +422,7 @@ export interface RapportJournalierLocal {
   photo_classe:            string | null;  // URI locale de la photo (legacy, 1 photo)
   photos_classe:           string | null;  // JSON array d'URIs locales (jusqu'à 3 photos)
   reponses_questions:      string | null;  // JSON {question_id: réponse} — questions dynamiques configurées par l'admin
+  server_id?:              string | null;  // UUID du rapport côté serveur (après synchronisation)
   synced:                  number;   // 0/1
   created_at:              string;
 }
@@ -446,12 +456,20 @@ export function insertRapportJournalier(r: Omit<RapportJournalierLocal, "created
 
 /**
  * Marque un rapport journalier comme synchronisé avec le serveur.
+ * server_id = UUID retourné par le serveur (pour pouvoir le supprimer via l'API).
  */
-export function markRapportJournalierSynced(id: string): void {
+export function markRapportJournalierSynced(id: string, server_id?: string): void {
   getDB().runSync(
-    `UPDATE rapports_journalier SET synced = 1 WHERE id = ?`,
-    [id],
+    `UPDATE rapports_journalier SET synced = 1, server_id = ? WHERE id = ?`,
+    [server_id ?? null, id],
   );
+}
+
+/**
+ * Supprime un rapport journalier de la DB locale par son ID local.
+ */
+export function deleteRapportJournalier(id: string): void {
+  getDB().runSync(`DELETE FROM rapports_journalier WHERE id = ?`, [id]);
 }
 
 /**

@@ -28,6 +28,7 @@ export default function SupRapportsScreen() {
   const { user, isOnline, syncOffline } = useStore();
   const [history,    setHistory]    = useState<RapportJournalierLocal[]>([]);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [view, setView] = useState<"menu" | "rapport">("menu");
 
   const loadAndSync = useCallback(async () => {
     try {
@@ -77,6 +78,7 @@ export default function SupRapportsScreen() {
 
   const resetForm = () => {
     setFormStep(0);
+    setView("menu");
     setClassesTerminees(4); setIncidents(null); setIncidentDetail(""); setBilan(null); setCommentaire("");
   };
 
@@ -180,6 +182,57 @@ export default function SupRapportsScreen() {
       </View>
     </>
   );
+
+  /* ── Menu de sélection du type de rapport ── */
+  if (view === "menu") {
+    return (
+      <View style={styles.root}>
+        <AppHeader
+          userName={user?.name ?? ""}
+          onAvatarPress={() => setProfileOpen(true)}
+        />
+
+        <ScrollView contentContainerStyle={styles.menuPage} showsVerticalScrollIndicator={false}>
+          <View style={styles.pageHeader}>
+            <Text style={styles.pageTitle}>Rapports</Text>
+            <Text style={styles.pageSubtitle}>Sélectionnez le type de rapport</Text>
+          </View>
+
+          {/* ── Rapport journalier ── */}
+          <TouchableOpacity
+            style={styles.menuCard}
+            onPress={() => setView("rapport")}
+            activeOpacity={0.85}
+          >
+            <View style={[styles.menuCardIcon, { backgroundColor: styles.sendBtnIcon.backgroundColor }]}>
+              <Feather name="send" size={rf(22)} color={C.brand} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.menuCardTitle}>Rapport</Text>
+              <Text style={styles.menuCardSub}>Rapport de votre tournée quotidienne</Text>
+            </View>
+            <Feather name="chevron-right" size={rf(20)} color={C.brand} />
+          </TouchableOpacity>
+
+          {/* ── Rapport pédagogiques — non disponible ── */}
+          <View style={[styles.menuCard, styles.menuCardDisabled]}>
+            <View style={[styles.menuCardIcon, { backgroundColor: C.surfaceAlt }]}>
+              <Feather name="book-open" size={rf(22)} color={C.textMuted} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.menuCardTitle, { color: C.textMuted }]}>Rapports pédagogiques</Text>
+              <Text style={styles.menuCardSub}>Suivi pédagogique des enseignants</Text>
+            </View>
+            <View style={styles.comingSoonBadge}>
+              <Text style={styles.comingSoonTxt}>Bientôt</Text>
+            </View>
+          </View>
+        </ScrollView>
+
+        <ProfileSheet visible={profileOpen} onClose={() => setProfileOpen(false)} />
+      </View>
+    );
+  }
 
   /* ── Page 1 : Professeurs présents → Incidents signalés ── */
   if (formStep === 1) {
@@ -321,6 +374,17 @@ export default function SupRapportsScreen() {
             <Text style={styles.sentText}>{isOnline ? "Rapport envoyé avec succès !" : "Rapport enregistré — envoi auto à la reconnexion"}</Text>
           </View>
         )}
+
+        {/* ── Retour au menu ── */}
+        <TouchableOpacity
+          style={styles.backToMenu}
+          onPress={() => setView("menu")}
+          activeOpacity={0.7}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Feather name="arrow-left" size={rf(14)} color={C.brand} />
+          <Text style={styles.backToMenuTxt}>Rapports</Text>
+        </TouchableOpacity>
 
         {/* ── En-tête page ── */}
         <View style={styles.pageHeader}>
@@ -564,4 +628,74 @@ const styles = StyleSheet.create({
   nextBtnDisabled: { backgroundColor:C.surfaceAlt },
   nextBtnTxt: { color:"#fff", fontSize:rf(17), fontWeight:"700" },
   submitBtn:  { backgroundColor:C.primary },
+
+  /* ── Menu rapports ── */
+  menuPage: { padding: rs(16), paddingBottom: rs(48) },
+  menuCard: {
+    backgroundColor: C.surface,
+    borderRadius: rs(16),
+    borderWidth: 1.5,
+    borderColor: C.brand + "44",
+    padding: rs(16),
+    flexDirection: "row",
+    alignItems: "center",
+    gap: rs(14),
+    marginBottom: rs(14),
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  menuCardDisabled: {
+    borderColor: C.border,
+    backgroundColor: C.surfaceAlt,
+    opacity: 0.75,
+  },
+  menuCardIcon: {
+    width: rs(50),
+    height: rs(50),
+    borderRadius: rs(14),
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  menuCardTitle: {
+    fontSize: rf(16),
+    fontWeight: "800",
+    color: C.brand,
+    marginBottom: rs(3),
+  },
+  menuCardSub: {
+    fontSize: rf(13),
+    color: C.textMuted,
+    lineHeight: rf(18),
+  },
+  comingSoonBadge: {
+    backgroundColor: C.warnSoft,
+    borderRadius: rs(20),
+    paddingHorizontal: rs(9),
+    paddingVertical: rs(4),
+    borderWidth: 1,
+    borderColor: C.warn + "55",
+  },
+  comingSoonTxt: {
+    fontSize: rf(11),
+    fontWeight: "700",
+    color: C.warn,
+  },
+
+  /* Retour au menu depuis la page rapport */
+  backToMenu: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: rs(5),
+    marginBottom: rs(14),
+    alignSelf: "flex-start",
+  },
+  backToMenuTxt: {
+    fontSize: rf(13),
+    fontWeight: "700",
+    color: C.brand,
+  },
 });
