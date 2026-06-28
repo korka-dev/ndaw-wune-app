@@ -212,6 +212,9 @@ export const superviseurApi = {
   /** URL directe de l'audio d'évaluation. */
   audioUrl: (filename: string) =>
     `${api.defaults.baseURL}/app/supervisor/evaluation-audio/${filename}`,
+
+  /** Dossiers d'évaluation actifs (Seereer, Pulaar, Wolof…). */
+  evaluationDocs: () => api.get("/app/supervisor/evaluation-docs"),
 };
 
 // ── Évaluations (vue enseignant) ──────────────────────────────────────────────

@@ -21,43 +21,17 @@ import { rf, rs } from "../../utils/responsive";
 import AppHeader from "../../components/AppHeader";
 import ProfileSheet from "../../components/ProfileSheet";
 
-// ── Données des dossiers d'évaluation ─────────────────────────────────────────
+// ── Types dossiers d'évaluation ───────────────────────────────────────────────
 
 interface EvalDoc {
-  id:       string;
-  langue:   string;
-  lettres:  string[];
-  syllabes: string[];
-  mots:     string[];
+  id:         string;
+  langue:     string;
+  titre:      string;
+  lettres:    string[];
+  syllabes:   string[];
+  mots:       string[];
   operations: string[];
 }
-
-const EVAL_DOCS: EvalDoc[] = [
-  {
-    id:       "seereer",
-    langue:   "Seereer",
-    lettres:  ["a", "l", "t", "e", "n", "r", "m", "k", "g", "s"],
-    syllabes: ["wo", "si", "ka", "ko", "ta", "am", "fi", "nu", "at", "de"],
-    mots:     ["met", "tali", "kalaas", "yaru", "bat", "laamit", "fuuli", "simin", "fog", "mayu"],
-    operations: ["22 + 35 =", "34 + 12 =", "19 - 7 =", "45 - 33 ="],
-  },
-  {
-    id:       "pulaar",
-    langue:   "Pulaar",
-    lettres:  ["a", "l", "t", "e", "n", "r", "m", "k", "g", "s"],
-    syllabes: ["as", "yo", "kii", "ko", "ta", "am", "fi", "nii", "to", "de"],
-    mots:     ["bee", "makko", "galle", "lekkol", "maama", "kadi", "tawii", "woni", "maa", "goggo"],
-    operations: ["22 + 35 =", "34 + 12 =", "19 - 7 =", "45 - 33 ="],
-  },
-  {
-    id:       "wolof",
-    langue:   "Wolof",
-    lettres:  ["a", "l", "t", "e", "n", "r", "m", "k", "g", "s"],
-    syllabes: ["gi", "bi", "ak", "ko", "di", "am", "la", "nu", "ay", "de"],
-    mots:     ["meew", "tali", "kalaas", "kàddu", "baat", "liggeey", "tuuti", "garab", "bokk", "dafay"],
-    operations: ["22 + 35 =", "34 + 12 =", "19 - 7 =", "45 - 33 ="],
-  },
-];
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -174,6 +148,7 @@ export default function SupEvaluationScreen() {
 
   // Données
   const [teachers,      setTeachers]      = useState<Teacher[]>([]);
+  const [evalDocs,      setEvalDocs]      = useState<EvalDoc[]>([]);
   const [eleves,        setEleves]        = useState<Eleve[]>([]);
   const [loading,       setLoading]       = useState(true);
   const [loadingEleves, setLoadingEleves] = useState(false);
@@ -201,10 +176,14 @@ export default function SupEvaluationScreen() {
   const fetchTeachers = useCallback(async () => {
     setError(null);
     try {
-      const { data } = await superviseurApi.eleves();
-      setTeachers(data?.teachers ?? []);
+      const [teachersRes, docsRes] = await Promise.all([
+        superviseurApi.eleves(),
+        superviseurApi.evaluationDocs(),
+      ]);
+      setTeachers(teachersRes.data?.teachers ?? []);
+      setEvalDocs(docsRes.data ?? []);
     } catch {
-      setError("Impossible de charger les enseignants. Vérifiez votre connexion.");
+      setError("Impossible de charger les données. Vérifiez votre connexion.");
     }
   }, []);
 
@@ -443,7 +422,13 @@ export default function SupEvaluationScreen() {
               <Text style={st.evalDocTitle}>Choisissez le dossier d'évaluation</Text>
             </View>
 
-            {EVAL_DOCS.map(doc => (
+            {evalDocs.length === 0 ? (
+              <View style={st.emptyState}>
+                <Feather name="file-text" size={rs(40)} color={C.textMuted} />
+                <Text style={st.emptyText}>Aucun dossier d'évaluation disponible.{"\n"}Contactez l'administrateur.</Text>
+              </View>
+            ) : null}
+            {evalDocs.map(doc => (
               <TouchableOpacity
                 key={doc.id}
                 style={st.docCard}
