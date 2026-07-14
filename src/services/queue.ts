@@ -284,12 +284,20 @@ async function processAction(item: QueueItem): Promise<void> {
 
     case "SUBMIT_PRESENCE_CHECK": {
       // Idempotent côté serveur (upsert) — le serveur accepte les re-soumissions
-      const { date_jour, entries } = payload as {
+      const { date_jour, entries, semaine, jour_cours } = payload as {
         date_jour: string;
+        semaine?: number | null;
+        jour_cours?: number | null;
         entries: { teacher_id: string; present: boolean; motif: string | null }[];
       };
-      await superviseurApi.submitPresenceCheck(date_jour, entries);
+      await superviseurApi.submitPresenceCheck(date_jour, entries, { semaine, jour_cours });
       markSupervisorPresenceSynced(date_jour);
+      break;
+    }
+
+    case "SUBMIT_REMARQUE": {
+      const { remarquesApi } = await import("./api");
+      await remarquesApi.submit(payload as { categorie: string; message: string; ecole?: string | null });
       break;
     }
 

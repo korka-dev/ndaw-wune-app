@@ -80,6 +80,10 @@ export default function RootLayout() {
         <Stack.Screen name="index" />
         <Stack.Screen name="welcome" />
         <Stack.Screen
+          name="onboarding"
+          options={{ animation: "slide_from_right" }}
+        />
+        <Stack.Screen
           name="user-type"
           options={{ animation: "slide_from_right" }}
         />
@@ -101,6 +105,10 @@ export default function RootLayout() {
         <Stack.Screen
           name="next-planning"
           options={{ animation: "slide_from_right" }}
+        />
+        <Stack.Screen
+          name="remarques"
+          options={{ animation: "slide_from_bottom" }}
         />
       </Stack>
     </SafeAreaProvider>

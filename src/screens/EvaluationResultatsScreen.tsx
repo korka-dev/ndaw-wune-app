@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { trackUsage } from "../services/usage";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, RefreshControl, Modal,
@@ -69,6 +70,7 @@ function groupByCompetence(
 // ── Composant ─────────────────────────────────────────────────────────────────
 
 export default function EvaluationResultatsScreen() {
+  useEffect(() => { trackUsage("evaluations").catch(() => {}); }, []);
   const insets = useSafeAreaInsets();
   const { user, isOnline } = useStore();
 

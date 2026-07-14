@@ -190,18 +190,28 @@ export const superviseurApi = {
   getPresenceCheck: (date_jour?: string) =>
     api.get("/app/supervisor/presences", { params: date_jour ? { date_jour } : undefined }),
 
-  /** Enregistre/valide le pointage de présence du jour (batch). */
+  /** Enregistre/valide le pointage de présence du jour (batch), avec la période choisie. */
   submitPresenceCheck: (date_jour: string, entries: {
     teacher_id: string;
     present:    boolean;
     motif?:     string | null;
-  }[]) => api.post("/app/supervisor/presences", { date_jour, entries }),
+  }[], periode?: { semaine?: number | null; jour_cours?: number | null }) =>
+    api.post("/app/supervisor/presences", {
+      date_jour,
+      semaine:    periode?.semaine ?? null,
+      jour_cours: periode?.jour_cours ?? null,
+      entries,
+    }),
 
   /** Difficultés signalées par les enseignants assignés (rapports journaliers). */
   getDifficultes: () => api.get("/app/supervisor/difficultes"),
 
   /** Sujets d'évaluation avec les élèves assignés à ce superviseur. */
   evaluationSujets: () => api.get("/app/supervisor/evaluation-sujets"),
+
+  /** Marque en lot la présence/absence des élèves tirés au sort (avant l'évaluation). */
+  setTiragesPresences: (entries: { tirage_id: string; present: boolean }[]) =>
+    api.post("/app/supervisor/evaluation-tirages/presences", { entries }),
 
   /** Soumet le résultat d'un tirage (FormData avec résultat + audio optionnel). */
   submitTirage: (tirageId: string, formData: FormData) =>
@@ -221,6 +231,19 @@ export const superviseurApi = {
 export const teacherEvalApi = {
   /** Évaluations des élèves de l'enseignant faites par les superviseurs. */
   listEvaluations: () => api.get("/app/teacher/evaluations"),
+};
+
+// ── Logs d'utilisation (fonctionnalités ouvertes) ─────────────────────────────
+export const usageApi = {
+  record: (events: { feature: string; at?: string }[]) =>
+    api.post("/app/usage", { events }),
+};
+
+// ── Remarques / signalement de problèmes (hors application) ──────────────────
+export const remarquesApi = {
+  submit: (d: { categorie: string; message: string; ecole?: string | null }) =>
+    api.post("/app/remarques", d),
+  list: () => api.get("/app/remarques"),
 };
 
 // ── Ressources pédagogiques ───────────────────────────────────────────────────

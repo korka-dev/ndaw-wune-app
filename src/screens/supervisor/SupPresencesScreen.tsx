@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { trackUsage } from "../../services/usage";
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, Animated, Modal, ActivityIndicator, RefreshControl,
   Platform, Keyboard,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useStore } from "../../store/useStore";
 import { superviseurApi } from "../../services/api";
@@ -15,6 +17,7 @@ import { C } from "../../utils/theme";
 import { rf, rs } from "../../utils/responsive";
 import AppHeader from "../../components/AppHeader";
 import ProfileSheet from "../../components/ProfileSheet";
+import TourTarget from "../../components/TourTarget";
 
 interface Prof {
   id:        string;
@@ -41,6 +44,8 @@ function makeInitials(name: string) {
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
+const JOURS_FR = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
+
 function daysSince(dateStr: string | null): number | null {
   if (!dateStr) return null;
   const d = new Date(dateStr);
@@ -49,6 +54,7 @@ function daysSince(dateStr: string | null): number | null {
 }
 
 export default function SupPresencesScreen() {
+  useEffect(() => { trackUsage("presences").catch(() => {}); }, []);
   const insets = useSafeAreaInsets();
   const { user, isOnline, syncOffline } = useStore();
 
@@ -63,6 +69,34 @@ export default function SupPresencesScreen() {
   const [profileOpen, setProfileOpen] = useState(false);
 
   const [recapOpen,    setRecapOpen]    = useState(false);
+
+  /* ── Période (Semaine + Jour) choisie avant le pointage ── */
+  const [periode, setPeriode] = useState<{ semaine: number; jour: number } | null>(null);
+  const [draftSemaine, setDraftSemaine] = useState<number | null>(null);
+  const [draftJour, setDraftJour] = useState<number>(() => {
+    const d = new Date().getDay();
+    return d === 0 ? 6 : d - 1;
+  });
+
+  useEffect(() => {
+    AsyncStorage.getItem(`sup-periode-${todayIso()}`)
+      .then(raw => {
+        if (raw) {
+          const p = JSON.parse(raw);
+          setPeriode(p);
+          setDraftSemaine(p.semaine);
+          setDraftJour(p.jour);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const confirmPeriode = () => {
+    if (draftSemaine === null) return;
+    const p = { semaine: draftSemaine, jour: draftJour };
+    setPeriode(p);
+    AsyncStorage.setItem(`sup-periode-${todayIso()}`, JSON.stringify(p)).catch(() => {});
+  };
 
   const [motifTarget,  setMotifTarget]  = useState<Prof | null>(null);
   const [motifChoice,  setMotifChoice]  = useState<string | null>(null);
@@ -301,9 +335,11 @@ export default function SupPresencesScreen() {
       return;
     }
 
+    const periodePayload = { semaine: periode?.semaine ?? null, jour_cours: periode?.jour ?? null };
+
     if (isOnline) {
       try {
-        await superviseurApi.submitPresenceCheck(dateJour, entries);
+        await superviseurApi.submitPresenceCheck(dateJour, entries, periodePayload);
         // Marquer comme synchronisé dans le cache local
         for (const e of entries) {
           upsertSupervisorPresence({
@@ -324,7 +360,7 @@ export default function SupPresencesScreen() {
       }
     } else {
       // Hors-ligne : mettre en file d'attente
-      enqueueAction("SUBMIT_PRESENCE_CHECK", { date_jour: dateJour, entries });
+      enqueueAction("SUBMIT_PRESENCE_CHECK", { date_jour: dateJour, entries, ...periodePayload });
       // Marquer localement comme "soumis hors-ligne" (synced reste 0 jusqu'au flush)
       for (const e of entries) {
         upsertSupervisorPresence({
@@ -379,6 +415,7 @@ export default function SupPresencesScreen() {
         onSyncPress={handleManualSync}
         syncing={syncing}
         isOnline={isOnline}
+        sectionLabel="Espace Superviseur"
       />
 
       {/* ── Contenu principal ── */}
@@ -441,7 +478,64 @@ export default function SupPresencesScreen() {
           </View>
         )}
 
-        {locked ? (
+        {!locked && !periode ? (
+          /* ── Étape préalable : choix de la période (Semaine + Jour) ── */
+          <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+            <View style={styles.periodeCard}>
+              <View style={styles.periodeHeader}>
+                <Feather name="calendar" size={rf(17)} color={C.brand} />
+                <Text style={styles.periodeTitle}>Choisissez la période</Text>
+              </View>
+              <Text style={styles.periodeSub}>
+                Sélectionnez la semaine et le jour de cours avant de pointer les tuteurs présents ou absents.
+              </Text>
+
+              <Text style={styles.periodeLabel}>Semaine de progression</Text>
+              <View style={styles.periodeGrid}>
+                {Array.from({ length: 25 }, (_, i) => i + 1).map(n => {
+                  const sel = draftSemaine === n;
+                  return (
+                    <TouchableOpacity
+                      key={n}
+                      style={[styles.periodeCell, sel && styles.periodeCellSel]}
+                      onPress={() => setDraftSemaine(n)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.periodeCellTxt, sel && styles.periodeCellTxtSel]}>{n}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <Text style={[styles.periodeLabel, { marginTop: rs(14) }]}>Jour de cours</Text>
+              <View style={styles.periodeGrid}>
+                {JOURS_FR.map((j, i) => {
+                  const sel = draftJour === i;
+                  return (
+                    <TouchableOpacity
+                      key={j}
+                      style={[styles.periodeJour, sel && styles.periodeCellSel]}
+                      onPress={() => setDraftJour(i)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.periodeCellTxt, sel && styles.periodeCellTxtSel]}>{j.slice(0, 3)}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <TouchableOpacity
+                style={[styles.periodeBtn, draftSemaine === null && styles.periodeBtnDisabled]}
+                onPress={confirmPeriode}
+                disabled={draftSemaine === null}
+                activeOpacity={0.85}
+              >
+                <Feather name="check" size={rf(15)} color="#fff" />
+                <Text style={styles.periodeBtnTxt}>Commencer le pointage</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        ) : locked ? (
           /* ── État validé : card de complétion uniquement ── */
           <View style={styles.doneCard}>
             <View style={styles.doneTop}>
@@ -464,6 +558,17 @@ export default function SupPresencesScreen() {
         ) : (
           /* ── État non validé : liste + bouton ── */
           <>
+            {/* Période choisie */}
+            {periode && (
+              <TouchableOpacity style={styles.periodePill} onPress={() => setPeriode(null)} activeOpacity={0.8}>
+                <Feather name="calendar" size={rf(12)} color={C.brand} />
+                <Text style={styles.periodePillTxt}>
+                  Semaine {periode.semaine} · {JOURS_FR[periode.jour]}
+                </Text>
+                <Text style={styles.periodePillChange}>Changer</Text>
+              </TouchableOpacity>
+            )}
+
             {/* En-tête liste */}
             <View style={styles.listHeader}>
               <Text style={styles.listHeaderTitle}>Enseignants</Text>
@@ -473,6 +578,7 @@ export default function SupPresencesScreen() {
             </View>
 
             {/* Liste enseignants */}
+            <TourTarget id="sup.presences.liste" style={{ flex: 1 }}>
             <ScrollView
               style={styles.listScroll}
               showsVerticalScrollIndicator={false}
@@ -554,6 +660,7 @@ export default function SupPresencesScreen() {
               })}
               <View style={{ height: rs(16) }} />
             </ScrollView>
+            </TourTarget>
 
             {/* Bouton valider */}
             <View style={styles.validateWrap}>
@@ -808,6 +915,45 @@ export default function SupPresencesScreen() {
 
 const styles = StyleSheet.create({
   root:         { flex: 1, backgroundColor: C.bg },
+
+  /* Sélecteur de période */
+  periodeCard: {
+    backgroundColor: C.surface, borderRadius: rs(16), padding: rs(16),
+    borderWidth: 1, borderColor: C.border, marginBottom: rs(12),
+  },
+  periodeHeader: { flexDirection: "row", alignItems: "center", gap: rs(8) },
+  periodeTitle:  { fontSize: rf(16), fontWeight: "800", color: C.text },
+  periodeSub:    { fontSize: rf(13), color: C.textMuted, marginTop: rs(4), marginBottom: rs(12), lineHeight: rf(18) },
+  periodeLabel:  { fontSize: rf(12), fontWeight: "700", color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: rs(8) },
+  periodeGrid:   { flexDirection: "row", flexWrap: "wrap", gap: rs(6) },
+  periodeCell: {
+    width: rs(40), height: rs(36), borderRadius: rs(10),
+    backgroundColor: C.surfaceAlt, alignItems: "center", justifyContent: "center",
+    borderWidth: 1, borderColor: C.border,
+  },
+  periodeJour: {
+    paddingHorizontal: rs(12), height: rs(36), borderRadius: rs(10),
+    backgroundColor: C.surfaceAlt, alignItems: "center", justifyContent: "center",
+    borderWidth: 1, borderColor: C.border,
+  },
+  periodeCellSel:    { backgroundColor: C.brand, borderColor: C.brand },
+  periodeCellTxt:    { fontSize: rf(13), fontWeight: "700", color: C.text },
+  periodeCellTxtSel: { color: "#fff" },
+  periodeBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: rs(8),
+    backgroundColor: C.brand, borderRadius: rs(13), paddingVertical: rs(13), marginTop: rs(16),
+  },
+  periodeBtnDisabled: { opacity: 0.45 },
+  periodeBtnTxt: { fontSize: rf(14), fontWeight: "800", color: "#fff" },
+  periodePill: {
+    flexDirection: "row", alignItems: "center", gap: rs(6),
+    alignSelf: "flex-start", backgroundColor: C.brandSoft,
+    borderRadius: rs(20), paddingHorizontal: rs(10), paddingVertical: rs(5),
+    marginBottom: rs(8),
+  },
+  periodePillTxt:    { fontSize: rf(12), fontWeight: "700", color: C.brand },
+  periodePillChange: { fontSize: rf(12), fontWeight: "700", color: C.brand, textDecorationLine: "underline", marginLeft: rs(4) },
+
   content:      { flex: 1, paddingHorizontal: rs(16), paddingTop: rs(8) },
   center:       { flex: 1, backgroundColor: C.bg, alignItems: "center", justifyContent: "center", gap: rs(12) },
   loadingText:  { fontSize: rf(16), color: C.textMuted, marginTop: rs(8) },

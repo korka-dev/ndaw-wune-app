@@ -14,6 +14,7 @@
  * sont soumis automatiquement.
  */
 import React, { useState, useCallback, useEffect, useMemo } from "react";
+import { trackUsage } from "../services/usage";
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert,
 } from "react-native";
@@ -30,6 +31,7 @@ import { getRapportsJournalier, deleteRapportJournalier, RapportJournalierLocal 
 import { rapportJournalierApi } from "../services/api";
 import AppHeader from "../components/AppHeader";
 import ProfileSheet from "../components/ProfileSheet";
+import TourTarget from "../components/TourTarget";
 import RapportJournalierScreen from "./RapportJournalierScreen";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -143,6 +145,7 @@ function RapportCard({
 // ── Écran principal ────────────────────────────────────────────────────────
 
 export default function RapportsScreen() {
+  useEffect(() => { trackUsage("rapports").catch(() => {}); }, []);
   const router = useRouter();
   const { isOnline, user, syncOffline } = useStore();
   const [showForm,    setShowForm]    = useState(false);
@@ -312,6 +315,7 @@ export default function RapportsScreen() {
         )}
 
         {/* ── Bouton Envoyer un rapport ── */}
+        <TourTarget id="rapports.envoi">
         <TouchableOpacity
           style={s.sendBtn}
           onPress={() => setShowForm(true)}
@@ -330,10 +334,11 @@ export default function RapportsScreen() {
             <Feather name="chevron-right" size={rf(20)} color={C.brand} />
           </View>
         </TouchableOpacity>
+        </TourTarget>
 
         {/* ── Historique complet ── */}
         {history.length > 0 && (
-          <View style={s.histSection}>
+          <TourTarget id="rapports.historique" style={s.histSection}>
             <View style={s.histHeader}>
               <Text style={s.sectionTitle}>Historique</Text>
               <Text style={s.histCount}>{history.length} rapport{history.length > 1 ? "s" : ""}</Text>
@@ -347,7 +352,7 @@ export default function RapportsScreen() {
                 onDelete={() => handleDelete(item)}
               />
             ))}
-          </View>
+          </TourTarget>
         )}
 
       </ScrollView>

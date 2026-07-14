@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { trackUsage } from "../../services/usage";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   ActivityIndicator, RefreshControl,
@@ -16,6 +17,7 @@ import ProfileSheet from "../../components/ProfileSheet";
 // ── Composant ─────────────────────────────────────────────────────────────────
 
 export default function SupDifficultesScreen() {
+  useEffect(() => { trackUsage("difficultes").catch(() => {}); }, []);
   const insets = useSafeAreaInsets();
   const { user, isOnline } = useStore();
 

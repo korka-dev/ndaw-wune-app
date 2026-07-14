@@ -1,17 +1,23 @@
 import { Tabs } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Platform } from "react-native";
+import { Platform, View } from "react-native";
 import { C } from "../../src/utils/theme";
 import { rf, rs } from "../../src/utils/responsive";
+import FeatureTour from "../../src/components/FeatureTour";
+import { useStore } from "../../src/store/useStore";
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
+  const user = useStore(state => state.user);
+  // Accès restreint : le tuteur "timer_only" ne voit que l'accueil (planning + timer)
+  const timerOnly = (user as any)?.app_access === "timer_only";
 
   // Hauteur de la tab bar : safe area bottom + contenu de la bar
   const TAB_BAR_HEIGHT = rs(58) + insets.bottom;
 
   return (
+    <View style={{ flex: 1 }}>
     <Tabs
       safeAreaInsets={{ top: 0 }}
       screenOptions={{
@@ -55,6 +61,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="rapports"
         options={{
+          href: timerOnly ? null : undefined,
           title: "Rapports",
           tabBarIcon: ({ color, size }) => (
             <Feather name="send" size={size ?? 22} color={color} />
@@ -64,6 +71,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="evaluations"
         options={{
+          href: timerOnly ? null : undefined,
           title: "Évaluations",
           tabBarIcon: ({ color, size }) => (
             <Feather name="award" size={size ?? 22} color={color} />
@@ -73,6 +81,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="ressources"
         options={{
+          href: timerOnly ? null : undefined,
           title: "Ressources",
           tabBarIcon: ({ color, size }) => (
             <Feather name="book-open" size={size ?? 22} color={color} />
@@ -88,5 +97,9 @@ export default function TabsLayout() {
         options={{ href: null }}
       />
     </Tabs>
+
+    {/* Visite guidée des fonctionnalités (première connexion) */}
+    {!timerOnly && <FeatureTour role="enseignant" tabCount={4} />}
+    </View>
   );
 }

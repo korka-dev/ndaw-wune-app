@@ -17,7 +17,8 @@ export type QueueAction =
   | "SUBMIT_RAPPORT_JOURNALIER"   // envoyer un rapport journalier rédigé hors-ligne
   | "REPORT_MISSED_SEANCE"        // signaler un créneau planifié manqué
   | "SUBMIT_PRESENCE_CHECK"       // pointage de présence des enseignants (superviseur)
-  | "SUBMIT_EVALUATIONS";         // évaluations élèves soumises hors-ligne (superviseur)
+  | "SUBMIT_EVALUATIONS"          // évaluations élèves soumises hors-ligne (superviseur)
+  | "SUBMIT_REMARQUE";            // remarque / signalement de problème (hors application)
 
 export interface QueueItem {
   id:            number;

@@ -1,15 +1,17 @@
 import { Tabs } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Platform } from "react-native";
+import { Platform, View } from "react-native";
 import { C } from "../../src/utils/theme";
 import { rf, rs } from "../../src/utils/responsive";
+import FeatureTour from "../../src/components/FeatureTour";
 
 export default function SupervisorTabsLayout() {
   const insets = useSafeAreaInsets();
   const TAB_BAR_HEIGHT = rs(58) + insets.bottom;
 
   return (
+    <View style={{ flex: 1 }}>
     <Tabs
       safeAreaInsets={{ top: 0 }}
       screenOptions={{
@@ -74,5 +76,9 @@ export default function SupervisorTabsLayout() {
         }}
       />
     </Tabs>
+
+    {/* Visite guidée des fonctionnalités (première connexion) */}
+    <FeatureTour role="superviseur" tabCount={4} />
+    </View>
   );
 }

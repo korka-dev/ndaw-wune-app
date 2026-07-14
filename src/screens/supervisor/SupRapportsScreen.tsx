@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from "react";
+import { trackUsage } from "../../services/usage";
 import { View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet, Modal, ActivityIndicator, Alert, KeyboardAvoidingView, Platform } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
@@ -17,6 +18,7 @@ import {
 } from "../../services/db";
 import AppHeader from "../../components/AppHeader";
 import ProfileSheet from "../../components/ProfileSheet";
+import TourTarget from "../../components/TourTarget";
 
 const BILANS = ["Bien", "Moyen", "Difficile"] as const;
 type Bilan = typeof BILANS[number];
@@ -24,6 +26,7 @@ type Bilan = typeof BILANS[number];
 const TOTAL_STEPS = 2;
 
 export default function SupRapportsScreen() {
+  useEffect(() => { trackUsage("rapports").catch(() => {}); }, []);
   const insets = useSafeAreaInsets();
   const { user, isOnline, syncOffline } = useStore();
   const [history,    setHistory]    = useState<RapportJournalierLocal[]>([]);
@@ -429,6 +432,7 @@ export default function SupRapportsScreen() {
         )}
 
         {/* ── Bouton Envoyer un rapport ── */}
+        <TourTarget id="sup.rapports.envoi">
         <TouchableOpacity style={styles.sendBtnCard} onPress={startForm} activeOpacity={0.85}>
           <View style={styles.sendBtnInner}>
             <View style={styles.sendBtnIcon}>
@@ -441,10 +445,11 @@ export default function SupRapportsScreen() {
             <Feather name="chevron-right" size={rf(20)} color={C.brand} />
           </View>
         </TouchableOpacity>
+        </TourTarget>
 
         {/* ── Historique ── */}
         {history.length > 0 && (
-          <View style={styles.histSection}>
+          <TourTarget id="sup.rapports.historique" style={styles.histSection}>
             <View style={styles.histHeader}>
               <Text style={styles.sectionTitle}>Historique</Text>
               <Text style={styles.histCount}>{history.length} rapport{history.length > 1 ? "s" : ""}</Text>
@@ -477,7 +482,7 @@ export default function SupRapportsScreen() {
                 </TouchableOpacity>
               );
             })}
-          </View>
+          </TourTarget>
         )}
       </ScrollView>
 

@@ -11,6 +11,7 @@
  * - Word / Excel / CSV → app native (IntentLauncher / Share)
  */
 import React, { useState, useCallback, useEffect } from "react";
+import { trackUsage } from "../services/usage";
 import {
   View,
   Text,
@@ -38,6 +39,7 @@ import { rs, rf } from "../utils/responsive";
 import { C } from "../utils/theme";
 import AppHeader from "../components/AppHeader";
 import ProfileSheet from "../components/ProfileSheet";
+import TourTarget from "../components/TourTarget";
 import { ressourcesApi } from "../services/api";
 import { getSecure } from "../services/secureStorage";
 import { useStore } from "../store/useStore";
@@ -318,6 +320,7 @@ function DocCard({
 // ── Écran principal ────────────────────────────────────────────────────────────
 
 export default function RessourcesScreen() {
+  useEffect(() => { trackUsage("ressources").catch(() => {}); }, []);
   const isOnline = useStore(st => st.isOnline);
   const user     = useStore(st => st.user);
 
@@ -643,13 +646,13 @@ export default function RessourcesScreen() {
 
           {/* Indice téléchargement — uniquement en ligne */}
           {isOnline && !loading && docs.length > 0 && (
-            <View style={s.hintRow}>
+            <TourTarget id="ressources.liste" style={s.hintRow}>
               <Feather name="info" size={rf(11)} color={C.textMuted} />
               <Text style={s.hintTxt}>
                 Appuyez sur <Text style={{ color: C.brand, fontWeight: "700" }}>↓</Text> pour
                 télécharger et consulter hors-ligne.
               </Text>
-            </View>
+            </TourTarget>
           )}
 
           {/* Grille de types */}

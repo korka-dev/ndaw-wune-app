@@ -19,6 +19,7 @@ import { rs, rf }                  from "../utils/responsive";
 import { C }                       from "../utils/theme";
 import { useFocusEffect, useRouter } from "expo-router";
 import AppHeader                   from "../components/AppHeader";
+import TourTarget                  from "../components/TourTarget";
 import ProfileSheet                from "../components/ProfileSheet";
 import {
   notifySegmentEnd,
@@ -30,6 +31,7 @@ import {
   NOTIF_SETUP_MODAL_KEY,
 } from "../services/notifications";
 import NotificationSetupModal from "../components/NotificationSetupModal";
+import { trackUsage } from "../services/usage";
 
 /* ── Utilitaires ─────────────────────────────────────────────── */
 function pad(n: number) { return String(n).padStart(2, "0"); }
@@ -64,8 +66,17 @@ export default function HomeScreen() {
 
   const jsDay     = new Date().getDay();
   const todayIdx  = jsDay === 0 ? 6 : jsDay - 1;
+
+  /* ── Période (Semaine + Jour) choisie par le tuteur avant d'afficher le planning ── */
+  const [periode, setPeriode] = useState<{ semaine: number; jour: number } | null>(null);
+  const [periodeLoaded, setPeriodeLoaded] = useState(false);
+  const [draftSemaine, setDraftSemaine] = useState<number | null>(null);
+  const [draftJour, setDraftJour] = useState<number>(todayIdx);
+
+  const selectedJour = periode?.jour ?? todayIdx;
   const todayPlan = [...planning]
-    .filter(p => p.jour === todayIdx)
+    .filter(p => p.jour === selectedJour)
+    .filter(p => p.semaine == null || !periode || p.semaine === periode.semaine)
     .sort((a, b) => a.heure_debut.localeCompare(b.heure_debut));
 
   /**
@@ -99,6 +110,32 @@ export default function HomeScreen() {
 
   /* Clés AsyncStorage du jour */
   const todayKey = new Date().toISOString().split("T")[0];
+
+  /* Charger / persister la période choisie (une par journée) */
+  useEffect(() => {
+    AsyncStorage.getItem(`timer-periode-${todayKey}`)
+      .then(raw => {
+        if (raw) {
+          const p = JSON.parse(raw);
+          setPeriode(p);
+          setDraftSemaine(p.semaine);
+          setDraftJour(p.jour);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setPeriodeLoaded(true));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todayKey]);
+
+  const confirmPeriode = () => {
+    if (draftSemaine === null) return;
+    const p = { semaine: draftSemaine, jour: draftJour };
+    setPeriode(p);
+    AsyncStorage.setItem(`timer-periode-${todayKey}`, JSON.stringify(p)).catch(() => {});
+  };
+
+  /* Traçage d'utilisation : ouverture de l'accueil / timer */
+  useEffect(() => { trackUsage("timer").catch(() => {}); }, []);
 
   /* Charger les segments déjà complétés et manqués depuis la persistance */
   useEffect(() => {
@@ -275,6 +312,8 @@ export default function HomeScreen() {
   // le segment n'est ni complété ni manqué ni en cours → le marquer comme manqué.
   useEffect(() => {
     if (activeSeance) return; // ne pas marquer pendant une séance en cours
+    // Ne marquer des tâches manquées que si le planning affiché est celui du jour réel
+    if (!periode || periode.jour !== todayIdx) return;
 
     const newlyMissed: string[] = [];
     for (const seg of todayPlan) {
@@ -1011,10 +1050,80 @@ export default function HomeScreen() {
         onSyncPress={handleManualSync}
         syncing={syncing}
         isOnline={isOnline}
+        sectionLabel="Espace Tuteur"
       />
 
-      {/* ── Mode "pas de cours" ── */}
-      {todayPlan.length === 0 ? (
+      {/* ── Étape préalable : choix de la période (Semaine + Jour) ── */}
+      {!periodeLoaded ? (
+        <View style={[s.scroll, { alignItems: "center", justifyContent: "center" }]}>
+          <ActivityIndicator size="large" color={C.brand} />
+        </View>
+      ) : !periode ? (
+        <ScrollView
+          style={s.scroll}
+          contentContainerStyle={{ padding: rs(20), paddingBottom: rs(32) + insets.bottom }}
+          showsVerticalScrollIndicator={false}
+        >
+          <Text style={s.dateLabel}>{dateLabel}</Text>
+          <Text style={s.greeting}>Bonjour, {greetName} 👋</Text>
+
+          <View style={s.periodeCard}>
+            <View style={s.periodeHeader}>
+              <Feather name="calendar" size={rf(18)} color={C.brand} />
+              <Text style={s.periodeTitle}>Choisissez la période</Text>
+            </View>
+            <Text style={s.periodeSub}>
+              Sélectionnez la semaine de progression et le jour pour afficher le planning adapté.
+            </Text>
+
+            <Text style={s.periodeLabel}>Semaine de progression</Text>
+            <View style={s.periodeGrid}>
+              {Array.from({ length: 25 }, (_, i) => i + 1).map(n => {
+                const sel = draftSemaine === n;
+                return (
+                  <TouchableOpacity
+                    key={n}
+                    style={[s.periodeCell, sel && s.periodeCellSel]}
+                    onPress={() => setDraftSemaine(n)}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={[s.periodeCellTxt, sel && s.periodeCellTxtSel]}>{n}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <Text style={[s.periodeLabel, { marginTop: rs(16) }]}>Jour</Text>
+            <View style={s.periodeJours}>
+              {JOURS_FR.map((j, i) => {
+                const sel = draftJour === i;
+                return (
+                  <TouchableOpacity
+                    key={j}
+                    style={[s.periodeJour, sel && s.periodeCellSel]}
+                    onPress={() => setDraftJour(i)}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={[s.periodeCellTxt, sel && s.periodeCellTxtSel]}>
+                      {j.slice(0, 3)}{i === todayIdx ? " •" : ""}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <TouchableOpacity
+              style={[s.periodeBtn, draftSemaine === null && s.periodeBtnDisabled]}
+              onPress={confirmPeriode}
+              disabled={draftSemaine === null}
+              activeOpacity={0.85}
+            >
+              <Feather name="check" size={rf(16)} color="#fff" />
+              <Text style={s.periodeBtnTxt}>Afficher le planning</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      ) : todayPlan.length === 0 ? (
         <ScrollView
           style={s.scroll}
           contentContainerStyle={[s.centeredContent, { paddingBottom: rs(32) + insets.bottom }]}
@@ -1025,11 +1134,21 @@ export default function HomeScreen() {
             <Text style={s.dateLabelCenter}>{dateLabel}</Text>
             <Text style={s.greetingCenter}>Bonjour, {greetName} 👋</Text>
 
+            {periode && (
+              <TouchableOpacity style={s.periodePill} onPress={() => setPeriode(null)} activeOpacity={0.8}>
+                <Feather name="calendar" size={rf(12)} color={C.brand} />
+                <Text style={s.periodePillTxt}>
+                  Semaine {periode.semaine} · {JOURS_FR[periode.jour]}
+                </Text>
+                <Text style={s.periodePillChange}>Changer</Text>
+              </TouchableOpacity>
+            )}
+
             {/* Carte 1 — Pas de cours */}
             <View style={[s.segCard, s.segCardEmpty]}>
               <Feather name="calendar" size={rf(32)} color={C.brand} style={{ marginBottom: rs(10) }} />
-              <Text style={s.segEmptyTitle}>Pas de cours aujourd'hui</Text>
-              <Text style={s.segEmptyMsg}>Profitez de votre journée de repos</Text>
+              <Text style={s.segEmptyTitle}>Pas de cours pour cette période</Text>
+              <Text style={s.segEmptyMsg}>Aucun créneau pour la semaine et le jour choisis</Text>
             </View>
 
             {/* Carte 2 — Prochain planning (toujours visible) */}
@@ -1071,7 +1190,19 @@ export default function HomeScreen() {
             <Text style={s.dateLabel}>{dateLabel}</Text>
             <Text style={s.greeting}>Bonjour, {greetName} 👋</Text>
 
-            {renderSegCard()}
+            {periode && (
+              <TouchableOpacity style={s.periodePill} onPress={() => setPeriode(null)} activeOpacity={0.8}>
+                <Feather name="calendar" size={rf(12)} color={C.brand} />
+                <Text style={s.periodePillTxt}>
+                  Semaine {periode.semaine} · {JOURS_FR[periode.jour]}
+                </Text>
+                <Text style={s.periodePillChange}>Changer</Text>
+              </TouchableOpacity>
+            )}
+
+            <TourTarget id="home.seance">
+              {renderSegCard()}
+            </TourTarget>
           </View>
 
           {/* ── Planning du jour — masqué si tout est complété ── */}
@@ -1096,6 +1227,17 @@ export default function HomeScreen() {
             );
           })()}
         </View>
+      )}
+
+      {/* ── Bouton flottant : assistant de signalement de problèmes ── */}
+      {(user as any)?.app_access !== "timer_only" && (
+        <TouchableOpacity
+          style={[s.remarquesFab, { bottom: rs(20) }]}
+          onPress={() => router.push("/remarques" as any)}
+          activeOpacity={0.85}
+        >
+          <Feather name="message-circle" size={rf(20)} color="#fff" />
+        </TouchableOpacity>
       )}
 
       <ProfileSheet visible={showProfile} onClose={() => setShowProfile(false)} />
@@ -1208,6 +1350,54 @@ export default function HomeScreen() {
 
 /* ── Styles ──────────────────────────────────────────────────── */
 const s = StyleSheet.create({
+  /* ── Sélecteur de période (Semaine + Jour) ── */
+  periodeCard: {
+    backgroundColor: C.surface, borderRadius: rs(18), padding: rs(18),
+    borderWidth: 1, borderColor: C.border, marginTop: rs(14),
+  },
+  periodeHeader: { flexDirection: "row", alignItems: "center", gap: rs(8) },
+  periodeTitle:  { fontSize: rf(17), fontWeight: "800", color: C.text },
+  periodeSub:    { fontSize: rf(13), color: C.textMuted, marginTop: rs(6), marginBottom: rs(14), lineHeight: rf(19) },
+  periodeLabel:  { fontSize: rf(13), fontWeight: "700", color: C.text, marginBottom: rs(8) },
+  periodeGrid:   { flexDirection: "row", flexWrap: "wrap", gap: rs(6) },
+  periodeCell: {
+    width: rs(42), height: rs(38), borderRadius: rs(10),
+    backgroundColor: C.surfaceAlt, alignItems: "center", justifyContent: "center",
+    borderWidth: 1, borderColor: C.border,
+  },
+  periodeCellSel:    { backgroundColor: C.brand, borderColor: C.brand },
+  periodeCellTxt:    { fontSize: rf(14), fontWeight: "700", color: C.text },
+  periodeCellTxtSel: { color: "#fff" },
+  periodeJours: { flexDirection: "row", flexWrap: "wrap", gap: rs(6) },
+  periodeJour: {
+    paddingHorizontal: rs(12), height: rs(38), borderRadius: rs(10),
+    backgroundColor: C.surfaceAlt, alignItems: "center", justifyContent: "center",
+    borderWidth: 1, borderColor: C.border,
+  },
+  periodeBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: rs(8),
+    backgroundColor: C.brand, borderRadius: rs(14), paddingVertical: rs(14), marginTop: rs(20),
+  },
+  periodeBtnDisabled: { opacity: 0.45 },
+  periodeBtnTxt: { fontSize: rf(15), fontWeight: "800", color: "#fff" },
+
+  periodePill: {
+    flexDirection: "row", alignItems: "center", gap: rs(6),
+    alignSelf: "flex-start", backgroundColor: C.brandSoft,
+    borderRadius: rs(20), paddingHorizontal: rs(10), paddingVertical: rs(5),
+    marginTop: rs(6), marginBottom: rs(4),
+  },
+  periodePillTxt:    { fontSize: rf(12), fontWeight: "700", color: C.brand },
+  periodePillChange: { fontSize: rf(12), fontWeight: "700", color: C.brand, textDecorationLine: "underline", marginLeft: rs(4) },
+
+  remarquesFab: {
+    position: "absolute", right: rs(18),
+    width: rs(50), height: rs(50), borderRadius: rs(25),
+    backgroundColor: C.brand, alignItems: "center", justifyContent: "center",
+    shadowColor: "#000", shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 3 },
+    elevation: 6,
+  },
+
   screen:        { flex: 1, backgroundColor: C.bg },
   scroll:        { flex: 1 },
   scrollContent: { padding: rs(16) },

@@ -17,6 +17,8 @@ interface Props {
   onSyncPress?: () => void;
   syncing?: boolean;
   isOnline?: boolean;
+  /** Libellé de l'espace courant (ex: "Espace Tuteur", "Espace Superviseur"). */
+  sectionLabel?: string;
 }
 
 function initials(name: string): string {
@@ -29,7 +31,7 @@ function initials(name: string): string {
     .toUpperCase();
 }
 
-export default function AppHeader({ userName = "", onAvatarPress, onSyncPress, syncing = false, isOnline = true }: Props) {
+export default function AppHeader({ userName = "", onAvatarPress, onSyncPress, syncing = false, isOnline = true, sectionLabel }: Props) {
   const insets = useSafeAreaInsets();
   const ini = initials(userName);
 
@@ -37,7 +39,14 @@ export default function AppHeader({ userName = "", onAvatarPress, onSyncPress, s
     <View style={[s.wrap, { paddingTop: (insets.top > 0 ? insets.top : rs(14)) + rs(4) }]}>
       <View style={s.left}>
         <AredLogo size={36} />
-        <Text style={s.title}>Ndaw Wune</Text>
+        <View style={{ marginLeft: rs(10) }}>
+          <Text style={s.title}>Ndaw Wune</Text>
+          {!!sectionLabel && (
+            <View style={s.sectionBadge}>
+              <Text style={s.sectionBadgeTxt}>{sectionLabel}</Text>
+            </View>
+          )}
+        </View>
       </View>
 
       <View style={s.right}>
@@ -84,7 +93,16 @@ const s = StyleSheet.create({
   },
   left:  { flexDirection: "row", alignItems: "center" },
   right: { flexDirection: "row", alignItems: "center", gap: rs(8) },
-  title: { marginLeft: rs(10), fontSize: rf(19), fontWeight: "800", color: C.text },
+  title: { fontSize: rf(19), fontWeight: "800", color: C.text },
+  sectionBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: C.brandSoft,
+    borderRadius: rs(6),
+    paddingHorizontal: rs(6),
+    paddingVertical: rs(1),
+    marginTop: rs(1),
+  },
+  sectionBadgeTxt: { fontSize: rf(10), fontWeight: "800", color: C.brand, textTransform: "uppercase", letterSpacing: 0.5 },
 
   offlineBadge: {
     flexDirection: "row", alignItems: "center", gap: rs(4),

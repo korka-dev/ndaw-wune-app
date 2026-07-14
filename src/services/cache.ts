@@ -19,6 +19,7 @@ export interface SyncPayload {
     id: string; name: string; title: string | null;
     email: string | null; phone: string | null;
     role: string; school_id: string | null; classes: string[] | null;
+    app_access?: string;                    // "full" | "timer_only"
     langue_enseignement?: string | null;
   };
   school: {
@@ -31,6 +32,7 @@ export interface SyncPayload {
   } | null;
   planning: {
     id: string; jour: number; heure_debut: string; heure_fin: string;
+    semaine?: number | null;       // semaine du programme concernée (null = toutes)
     classe: string; matiere: string | null;
     titre: string | null;          // titre du segment (ex: "Accueil & rituels")
   }[];

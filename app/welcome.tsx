@@ -11,6 +11,7 @@ import AredLogo from "../src/components/AredLogo";
 import { setupNotifications, getNotificationPermissionStatus } from "../src/services/notifications";
 
 const NOTIF_PERM_KEY = "notif_permission_asked";
+const ONBOARDING_KEY = "onboarding_done";
 
 export default function WelcomeScreen() {
   const router = useRouter();
@@ -97,6 +98,15 @@ export default function WelcomeScreen() {
     setShowPermModal(false);
   }
 
+  /**
+   * "Commencer" : première installation → didacticiel,
+   * sinon directement le choix du type d'utilisateur.
+   */
+  async function handleStart() {
+    const done = await AsyncStorage.getItem(ONBOARDING_KEY);
+    router.push(done ? "/user-type" : "/onboarding");
+  }
+
   return (
     <View style={s.screen}>
       <SafeAreaView style={s.safe}>
@@ -123,7 +133,7 @@ export default function WelcomeScreen() {
         <Animated.View style={[s.footer, { opacity: btnOp, transform: [{ translateY: btnTY }] }]}>
           <TouchableOpacity
             style={s.btn}
-            onPress={() => router.push("/user-type")}
+            onPress={handleStart}
             activeOpacity={0.85}
           >
             <Text style={s.btnTxt}>Commencer</Text>

@@ -1,11 +1,15 @@
 /**
- * SupEvaluationScreen
+ * SupEvaluationScreen — Évaluation des élèves tirés au sort.
+ *
+ * Le superviseur ne choisit plus les élèves : le programme les tire au sort
+ * lors de la création du sujet d'évaluation par l'admin.
  *
  * Flux :
- *   1. "enseignants"  → enseignants assignés au superviseur
- *   2. "evaluations"  → choix du dossier d'évaluation (Seereer / Pulaar / Wolof)
- *   3. "eleves"       → liste des élèves de la classe, sélection libre
- *   4. "evaluer"      → fiche d'évaluation par élève (scores lettres/syllabes/mots/opérations)
+ *   1. "sujets"    → sujets d'évaluation avec les élèves tirés au sort
+ *   2. "presence"  → marquer les élèves tirés présents / absents, puis valider
+ *   3. "doc"       → choix du dossier d'évaluation (support fixe par période)
+ *   4. "evaluer"   → pour chaque élève présent : Réussi / Intermédiaire / Pas réussi
+ *   5. envoi des résultats
  */
 import React, { useState, useEffect, useCallback } from "react";
 import {
@@ -13,15 +17,16 @@ import {
   ActivityIndicator, Alert, RefreshControl,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useStore } from "../../store/useStore";
 import { superviseurApi } from "../../services/api";
+import { trackUsage } from "../../services/usage";
 import { C } from "../../utils/theme";
 import { rf, rs } from "../../utils/responsive";
 import AppHeader from "../../components/AppHeader";
 import ProfileSheet from "../../components/ProfileSheet";
+import TourTarget from "../../components/TourTarget";
 
-// ── Types dossiers d'évaluation ───────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface EvalDoc {
   id:         string;
@@ -33,266 +38,184 @@ interface EvalDoc {
   operations: string[];
 }
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-type ViewType = "enseignants" | "evaluations" | "eleves" | "evaluer";
-
-interface ClasseMeta  { classe: string; nb_eleves: number }
-interface Teacher     { teacher_id: string; teacher_name: string; classes: ClasseMeta[] }
-interface Eleve       { id: string; nom: string; prenom: string | null; genre: string | null; classe: string }
-
-interface StudentScores {
-  lettres:    number | null;   // /10
-  syllabes:   number | null;   // /10
-  mots:       number | null;   // /10
-  operations: number | null;   // /4
+interface TirageApp {
+  tirage_id:    string;
+  eleve_id:     string;
+  eleve_nom:    string;
+  eleve_prenom: string | null;
+  eleve_genre:  string | null;
+  eleve_classe: string;
+  present:      boolean | null;
+  resultat:     string | null;
 }
 
-interface EvalEntry { eleve: Eleve; scores: StudentScores }
-
-function emptyScores(): StudentScores {
-  return { lettres: null, syllabes: null, mots: null, operations: null };
+interface SujetApp {
+  id:          string;
+  titre:       string;
+  description: string | null;
+  created_at:  string;
+  eleves:      TirageApp[];
 }
 
-function resultat(score: number | null, max: number): "acquis" | "a_aider" | null {
-  if (score === null) return null;
-  return score >= Math.ceil(max / 2) ? "acquis" : "a_aider";
+type ViewType = "sujets" | "presence" | "doc" | "evaluer";
+
+type Resultat = "reussi" | "intermediaire" | "pas_reussi";
+
+const RESULTATS: { key: Resultat; label: string; icon: keyof typeof Feather.glyphMap; color: string; soft: string }[] = [
+  { key: "reussi",        label: "Réussi",        icon: "check-circle", color: C.success,  soft: C.successSoft },
+  { key: "intermediaire", label: "Intermédiaire", icon: "minus-circle", color: C.warn,     soft: C.warnSoft },
+  { key: "pas_reussi",    label: "Pas réussi",    icon: "x-circle",     color: C.danger,   soft: C.dangerSoft },
+];
+
+function eleveName(t: TirageApp): string {
+  return `${t.eleve_prenom ? `${t.eleve_prenom} ` : ""}${t.eleve_nom}`;
 }
-
-function todayIso() { return new Date().toISOString().slice(0, 10); }
-
-// ── Composant scoreur +/- ─────────────────────────────────────────────────────
-
-function ScoreInput({
-  label, hint, value, max, onChange,
-}: {
-  label: string; hint: string; value: number | null; max: number; onChange: (v: number) => void;
-}) {
-  const pct = value !== null ? value / max : null;
-  const res = resultat(value, max);
-  return (
-    <View style={sc.wrapper}>
-      <View style={sc.top}>
-        <View>
-          <Text style={sc.label}>{label}</Text>
-          <Text style={sc.hint}>{hint}</Text>
-        </View>
-        {res && (
-          <View style={[sc.resBadge, { backgroundColor: res === "acquis" ? C.successSoft : C.dangerSoft }]}>
-            <Text style={[sc.resBadgeText, { color: res === "acquis" ? C.success : C.danger }]}>
-              {res === "acquis" ? "✓ Acquis" : "✗ À aider"}
-            </Text>
-          </View>
-        )}
-      </View>
-
-      <View style={sc.row}>
-        <TouchableOpacity
-          style={[sc.btn, value === 0 && sc.btnDisabled]}
-          onPress={() => onChange(Math.max(0, (value ?? 0) - 1))}
-          activeOpacity={0.7}
-        >
-          <Feather name="minus" size={rs(18)} color={value === 0 ? C.textMuted : C.text} />
-        </TouchableOpacity>
-
-        <View style={sc.scoreBox}>
-          <Text style={sc.scoreValue}>{value ?? "—"}</Text>
-          <Text style={sc.scoreMax}>/{max}</Text>
-        </View>
-
-        <TouchableOpacity
-          style={[sc.btn, value === max && sc.btnDisabled]}
-          onPress={() => onChange(Math.min(max, (value ?? 0) + 1))}
-          activeOpacity={0.7}
-        >
-          <Feather name="plus" size={rs(18)} color={value === max ? C.textMuted : C.text} />
-        </TouchableOpacity>
-
-        {/* Barre de progression */}
-        <View style={sc.progTrack}>
-          <View
-            style={[
-              sc.progFill,
-              pct !== null && { width: `${Math.round(pct * 100)}%` as any },
-              pct !== null && { backgroundColor: pct >= 0.5 ? C.success : C.danger },
-            ]}
-          />
-        </View>
-      </View>
-    </View>
-  );
-}
-
-const sc = StyleSheet.create({
-  wrapper:      { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: rs(14), padding: rs(14), gap: rs(10) },
-  top:          { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
-  label:        { fontSize: rf(14), fontWeight: "700", color: C.text },
-  hint:         { fontSize: rf(11), color: C.textMuted, marginTop: rs(2) },
-  resBadge:     { paddingHorizontal: rs(10), paddingVertical: rs(4), borderRadius: rs(8) },
-  resBadgeText: { fontSize: rf(12), fontWeight: "700" },
-  row:          { flexDirection: "row", alignItems: "center", gap: rs(10) },
-  btn:          { width: rs(36), height: rs(36), borderRadius: rs(10), backgroundColor: C.surfaceAlt, alignItems: "center", justifyContent: "center" },
-  btnDisabled:  { opacity: 0.35 },
-  scoreBox:     { flexDirection: "row", alignItems: "baseline", gap: rs(2), minWidth: rs(48), justifyContent: "center" },
-  scoreValue:   { fontSize: rf(22), fontWeight: "900", color: C.text },
-  scoreMax:     { fontSize: rf(13), color: C.textMuted, fontWeight: "600" },
-  progTrack:    { flex: 1, height: rs(6), borderRadius: rs(3), backgroundColor: C.border, overflow: "hidden" },
-  progFill:     { height: "100%", borderRadius: rs(3), backgroundColor: C.brand },
-});
 
 // ── Écran principal ───────────────────────────────────────────────────────────
 
 export default function SupEvaluationScreen() {
-  const insets = useSafeAreaInsets();
+  useEffect(() => { trackUsage("evaluations").catch(() => {}); }, []);
   const { user, isOnline } = useStore();
 
   // Données
-  const [teachers,      setTeachers]      = useState<Teacher[]>([]);
-  const [evalDocs,      setEvalDocs]      = useState<EvalDoc[]>([]);
-  const [eleves,        setEleves]        = useState<Eleve[]>([]);
-  const [loading,       setLoading]       = useState(true);
-  const [loadingEleves, setLoadingEleves] = useState(false);
-  const [refreshing,    setRefreshing]    = useState(false);
-  const [error,         setError]         = useState<string | null>(null);
-  const [profileOpen,   setProfileOpen]   = useState(false);
+  const [sujets,      setSujets]      = useState<SujetApp[]>([]);
+  const [evalDocs,    setEvalDocs]    = useState<EvalDoc[]>([]);
+  const [loading,     setLoading]     = useState(true);
+  const [refreshing,  setRefreshing]  = useState(false);
+  const [error,       setError]       = useState<string | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   // Navigation
-  const [view,          setView]          = useState<ViewType>("enseignants");
-  const [activeTeacher, setActiveTeacher] = useState<Teacher | null>(null);
-  const [activeClasse,  setActiveClasse]  = useState<string | null>(null);
-  const [activeDoc,     setActiveDoc]     = useState<EvalDoc | null>(null);
+  const [view,        setView]        = useState<ViewType>("sujets");
+  const [activeSujet, setActiveSujet] = useState<SujetApp | null>(null);
+  const [activeDoc,   setActiveDoc]   = useState<EvalDoc | null>(null);
 
-  // Sélection élèves
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Étape présence : tirage_id → présent ?
+  const [presenceMap, setPresenceMap] = useState<Map<string, boolean>>(new Map());
+  const [savingPresence, setSavingPresence] = useState(false);
 
-  // Évaluation
-  const [evalEntries, setEvalEntries] = useState<EvalEntry[]>([]);
+  // Étape évaluation : élèves présents + résultat choisi
+  const [evalList,    setEvalList]    = useState<TirageApp[]>([]);
+  const [results,     setResults]     = useState<Map<string, Resultat>>(new Map());
   const [evalIndex,   setEvalIndex]   = useState(0);
   const [submitting,  setSubmitting]  = useState(false);
   const [submitDone,  setSubmitDone]  = useState(false);
 
-  // ── Chargement enseignants ─────────────────────────────────────────────────
+  // ── Chargement ─────────────────────────────────────────────────────────────
 
-  const fetchTeachers = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     setError(null);
     try {
-      const [teachersRes, docsRes] = await Promise.all([
-        superviseurApi.eleves(),
+      const [sujetsRes, docsRes] = await Promise.all([
+        superviseurApi.evaluationSujets(),
         superviseurApi.evaluationDocs(),
       ]);
-      setTeachers(teachersRes.data?.teachers ?? []);
+      setSujets(sujetsRes.data ?? []);
       setEvalDocs(docsRes.data ?? []);
     } catch {
-      setError("Impossible de charger les données. Vérifiez votre connexion.");
+      setError("Impossible de charger les évaluations. Vérifiez votre connexion.");
     }
   }, []);
 
-  useEffect(() => { fetchTeachers().finally(() => setLoading(false)); }, [fetchTeachers]);
+  useEffect(() => { fetchData().finally(() => setLoading(false)); }, [fetchData]);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await fetchTeachers();
+    await fetchData();
     setRefreshing(false);
   };
 
-  // ── Chargement élèves ──────────────────────────────────────────────────────
+  // ── Étape 1 → 2 : ouvrir un sujet ──────────────────────────────────────────
 
-  const openClasse = async (teacher: Teacher, classe: string) => {
-    setActiveTeacher(teacher);
-    setActiveClasse(classe);
+  const openSujet = (sujet: SujetApp) => {
+    setActiveSujet(sujet);
+    const m = new Map<string, boolean>();
+    for (const t of sujet.eleves) {
+      if (t.present !== null) m.set(t.tirage_id, t.present);
+    }
+    setPresenceMap(m);
     setActiveDoc(null);
-    setSelectedIds(new Set());
-    setView("evaluations");
+    setResults(new Map());
+    setSubmitDone(false);
+    setView("presence");
   };
 
-  const loadEleves = async (teacher: Teacher, classe: string) => {
-    setLoadingEleves(true);
-    setView("eleves");
+  const setPresence = (tirageId: string, present: boolean) => {
+    setPresenceMap(prev => new Map(prev).set(tirageId, present));
+  };
+
+  // ── Étape 2 → 3 : valider les présences ────────────────────────────────────
+
+  const validatePresences = async () => {
+    if (!activeSujet || savingPresence) return;
+    const entries = activeSujet.eleves
+      .filter(t => presenceMap.has(t.tirage_id))
+      .map(t => ({ tirage_id: t.tirage_id, present: presenceMap.get(t.tirage_id)! }));
+
+    if (entries.length < activeSujet.eleves.length) {
+      Alert.alert("Pointage incomplet", "Indiquez présent ou absent pour chaque élève tiré au sort.");
+      return;
+    }
+
+    const presents = activeSujet.eleves.filter(
+      t => presenceMap.get(t.tirage_id) === true && !t.resultat
+    );
+
+    setSavingPresence(true);
     try {
-      const { data } = await superviseurApi.classeEleves(teacher.teacher_id, classe);
-      setEleves(data ?? []);
+      await superviseurApi.setTiragesPresences(entries);
+      setEvalList(presents);
+      setEvalIndex(0);
+      if (presents.length === 0) {
+        Alert.alert("Pointage enregistré", "Aucun élève présent restant à évaluer pour ce sujet.");
+        await fetchData();
+        goTo("sujets");
+      } else {
+        setView("doc");
+      }
     } catch {
-      Alert.alert("Erreur", "Impossible de charger les élèves de cette classe.");
-      setView("evaluations");
+      Alert.alert("Erreur", "Impossible d'enregistrer les présences. Vérifiez votre connexion.");
     } finally {
-      setLoadingEleves(false);
+      setSavingPresence(false);
     }
   };
+
+  // ── Étape 3 → 4 : choix du dossier ─────────────────────────────────────────
 
   const chooseDoc = (doc: EvalDoc) => {
     setActiveDoc(doc);
-    loadEleves(activeTeacher!, activeClasse!);
-  };
-
-  // ── Sélection élèves ───────────────────────────────────────────────────────
-
-  const toggleEleve = (id: string) => {
-    setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  };
-
-  const toggleAll = () => {
-    setSelectedIds(selectedIds.size === eleves.length ? new Set() : new Set(eleves.map(e => e.id)));
-  };
-
-  // ── Démarrer l'évaluation ─────────────────────────────────────────────────
-
-  const startEvaluation = () => {
-    const selected = eleves.filter(e => selectedIds.has(e.id));
-    if (!selected.length) return;
-    setEvalEntries(selected.map(e => ({ eleve: e, scores: emptyScores() })));
-    setEvalIndex(0);
-    setSubmitDone(false);
     setView("evaluer");
   };
 
-  // ── Mise à jour scores ────────────────────────────────────────────────────
+  // ── Étape 4 : évaluation à 3 options ───────────────────────────────────────
 
-  const updateScore = (field: keyof StudentScores, value: number) => {
-    setEvalEntries(prev => prev.map((e, i) =>
-      i === evalIndex ? { ...e, scores: { ...e.scores, [field]: value } } : e
-    ));
+  const current = evalList[evalIndex] ?? null;
+  const nbEvalues = evalList.filter(t => results.has(t.tirage_id)).length;
+
+  const chooseResult = (r: Resultat) => {
+    if (!current) return;
+    setResults(prev => new Map(prev).set(current.tirage_id, r));
   };
 
-  // ── Soumission ────────────────────────────────────────────────────────────
-
   const submitAll = async () => {
-    const today  = todayIso();
-    const langue = activeDoc!.langue;
-    const toSend: Parameters<typeof superviseurApi.submitEvaluations>[0] = [];
-
-    for (const entry of evalEntries) {
-      const { scores, eleve } = entry;
-      const fields: { key: keyof StudentScores; label: string; max: number }[] = [
-        { key: "lettres",    label: `${langue} - Lecture - Lettres`,    max: 10 },
-        { key: "syllabes",   label: `${langue} - Lecture - Syllabes`,   max: 10 },
-        { key: "mots",       label: `${langue} - Lecture - Mots`,       max: 10 },
-        { key: "operations", label: `${langue} - Mathématiques`,        max: 4  },
-      ];
-      for (const f of fields) {
-        const score = scores[f.key];
-        if (score === null) continue;
-        const res = resultat(score, f.max);
-        if (!res) continue;
-        toSend.push({
-          eleve_id:    eleve.id,
-          competence:  f.label,
-          resultat:    res,
-          date_eval:   today,
-          commentaire: `${score}/${f.max}`,
-        });
-      }
-    }
-
-    if (!toSend.length) {
-      Alert.alert("Aucune note", "Veuillez saisir au moins une note avant de valider.");
+    if (submitting) return;
+    if (nbEvalues < evalList.length) {
+      Alert.alert("Évaluation incomplète", "Choisissez un résultat pour chaque élève avant d'envoyer.");
       return;
     }
     setSubmitting(true);
     try {
-      await superviseurApi.submitEvaluations(toSend);
+      for (const t of evalList) {
+        const r = results.get(t.tirage_id);
+        if (!r) continue;
+        const fd = new FormData();
+        fd.append("resultat", r);
+        await superviseurApi.submitTirage(t.tirage_id, fd);
+      }
       setSubmitDone(true);
+      fetchData().catch(() => {});
     } catch {
-      Alert.alert("Erreur", "Impossible d'enregistrer les évaluations. Réessayez.");
+      Alert.alert("Erreur", "Impossible d'envoyer les évaluations. Vérifiez votre connexion et réessayez.");
     } finally {
       setSubmitting(false);
     }
@@ -301,15 +224,19 @@ export default function SupEvaluationScreen() {
   // ── Navigation retour ─────────────────────────────────────────────────────
 
   const goTo = (target: ViewType) => {
-    if (target === "enseignants") {
-      setActiveTeacher(null); setActiveClasse(null); setActiveDoc(null);
-      setEleves([]); setSelectedIds(new Set());
-      setEvalEntries([]); setEvalIndex(0); setSubmitDone(false);
+    if (target === "sujets") {
+      setActiveSujet(null);
+      setActiveDoc(null);
+      setPresenceMap(new Map());
+      setEvalList([]);
+      setResults(new Map());
+      setEvalIndex(0);
+      setSubmitDone(false);
     }
     setView(target);
   };
 
-  // ── Calculs ───────────────────────────────────────────────────────────────
+  // ── Rendu ─────────────────────────────────────────────────────────────────
 
   if (loading) return (
     <View style={[st.root, st.center]}>
@@ -318,110 +245,207 @@ export default function SupEvaluationScreen() {
     </View>
   );
 
-  const nbSelected = selectedIds.size;
-  const current    = evalEntries[evalIndex] ?? null;
-  const nbNotes    = evalEntries.filter(e =>
-    Object.values(e.scores).some(v => v !== null)
-  ).length;
-
-  // ── Rendu ─────────────────────────────────────────────────────────────────
+  const nbPointes = activeSujet
+    ? activeSujet.eleves.filter(t => presenceMap.has(t.tirage_id)).length
+    : 0;
+  const nbPresents = activeSujet
+    ? activeSujet.eleves.filter(t => presenceMap.get(t.tirage_id) === true).length
+    : 0;
 
   return (
     <View style={st.root}>
-      <AppHeader userName={user?.name ?? ""} onAvatarPress={() => setProfileOpen(true)} isOnline={isOnline} />
+      <AppHeader
+        userName={user?.name ?? ""}
+        onAvatarPress={() => setProfileOpen(true)}
+        isOnline={isOnline}
+        sectionLabel="Espace Superviseur"
+      />
 
       {/* ═══════════════════════════════════════════════════════════════════ */}
-      {/* VUE 1 — Enseignants                                                */}
+      {/* VUE 1 — Sujets d'évaluation (élèves déjà tirés au sort)            */}
       {/* ═══════════════════════════════════════════════════════════════════ */}
-      {view === "enseignants" && (
+      {view === "sujets" && (
         <View style={{ flex: 1 }}>
           <View style={st.viewHeader}>
             <Text style={st.viewTitle}>Évaluations</Text>
-            <Text style={st.viewSub}>Sélectionnez un enseignant</Text>
+            <Text style={st.viewSub}>
+              Les élèves sont tirés au sort automatiquement par le programme
+            </Text>
           </View>
 
           {error && (
             <View style={st.errorBanner}>
               <Feather name="alert-circle" size={rs(14)} color={C.danger} />
               <Text style={st.errorText}>{error}</Text>
-              <TouchableOpacity onPress={() => { setLoading(true); fetchTeachers().finally(() => setLoading(false)); }}>
+              <TouchableOpacity onPress={() => { setLoading(true); fetchData().finally(() => setLoading(false)); }}>
                 <Text style={st.retryText}>Réessayer</Text>
               </TouchableOpacity>
             </View>
           )}
 
-          {teachers.length === 0 && !error ? (
+          <TourTarget id="sup.evaluation.contenu" style={{ flex: 1 }}>
+          {sujets.length === 0 && !error ? (
             <ScrollView
               contentContainerStyle={st.emptyState}
               refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}
             >
-              <Feather name="users" size={rs(40)} color={C.textMuted} />
-              <Text style={st.emptyText}>Aucun enseignant assigné.{"\n"}Contactez l'administrateur.</Text>
+              <Feather name="award" size={rs(40)} color={C.textMuted} />
+              <Text style={st.emptyText}>
+                Aucun sujet d'évaluation pour vos classes.{"\n"}L'administrateur crée les sujets et le programme tire les élèves au sort.
+              </Text>
             </ScrollView>
           ) : (
             <FlatList
-              data={teachers}
-              keyExtractor={t => t.teacher_id}
+              data={sujets}
+              keyExtractor={s => s.id}
               contentContainerStyle={st.listContent}
               showsVerticalScrollIndicator={false}
               refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}
-              renderItem={({ item: t }) => (
-                <View style={st.teacherCard}>
-                  <View style={st.teacherCardHeader}>
-                    <View style={st.teacherAvatar}>
-                      <Feather name="user" size={rs(18)} color={C.primary} />
+              renderItem={({ item: sujet }) => {
+                const nbTotal   = sujet.eleves.length;
+                const nbFaits   = sujet.eleves.filter(t => t.resultat).length;
+                const nbAbsents = sujet.eleves.filter(t => t.present === false).length;
+                const done      = nbTotal > 0 && nbFaits + nbAbsents >= nbTotal;
+                return (
+                  <TouchableOpacity
+                    style={st.sujetCard}
+                    onPress={() => openSujet(sujet)}
+                    activeOpacity={0.8}
+                  >
+                    <View style={st.sujetIconWrap}>
+                      <Feather name="shuffle" size={rs(18)} color={C.primary} />
                     </View>
-                    <Text style={st.teacherName}>{t.teacher_name}</Text>
-                  </View>
-                  {t.classes.length === 0 ? (
-                    <Text style={st.noClassText}>Aucune classe assignée</Text>
-                  ) : (
-                    <View style={st.classesList}>
-                      {t.classes.map(cls => (
-                        <TouchableOpacity
-                          key={cls.classe}
-                          style={st.classeRow}
-                          onPress={() => openClasse(t, cls.classe)}
-                          activeOpacity={0.75}
-                        >
-                          <View style={st.classeIcon}>
-                            <Feather name="book-open" size={rs(14)} color={C.primary} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={st.sujetTitre} numberOfLines={1}>{sujet.titre}</Text>
+                      {sujet.description ? (
+                        <Text style={st.sujetDesc} numberOfLines={1}>{sujet.description}</Text>
+                      ) : null}
+                      <View style={st.sujetMetaRow}>
+                        <View style={st.sujetBadge}>
+                          <Feather name="users" size={rf(11)} color={C.primary} />
+                          <Text style={st.sujetBadgeTxt}>{nbTotal} élève{nbTotal !== 1 ? "s" : ""} tiré{nbTotal !== 1 ? "s" : ""}</Text>
+                        </View>
+                        {done ? (
+                          <View style={[st.sujetBadge, { backgroundColor: C.successSoft }]}>
+                            <Feather name="check" size={rf(11)} color={C.success} />
+                            <Text style={[st.sujetBadgeTxt, { color: C.success }]}>Terminé</Text>
                           </View>
-                          <Text style={st.classeName}>{cls.classe}</Text>
-                          <Text style={st.classeCount}>{cls.nb_eleves} élève{cls.nb_eleves !== 1 ? "s" : ""}</Text>
-                          <Feather name="chevron-right" size={rs(14)} color={C.textMuted} />
-                        </TouchableOpacity>
-                      ))}
+                        ) : nbFaits > 0 ? (
+                          <View style={[st.sujetBadge, { backgroundColor: C.warnSoft }]}>
+                            <Text style={[st.sujetBadgeTxt, { color: C.warn }]}>{nbFaits}/{nbTotal} évalué{nbFaits !== 1 ? "s" : ""}</Text>
+                          </View>
+                        ) : null}
+                      </View>
                     </View>
-                  )}
-                </View>
-              )}
+                    <Feather name="chevron-right" size={rs(18)} color={C.textMuted} />
+                  </TouchableOpacity>
+                );
+              }}
             />
           )}
+          </TourTarget>
         </View>
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════ */}
-      {/* VUE 2 — Choix du dossier d'évaluation                             */}
+      {/* VUE 2 — Présence des élèves tirés au sort                          */}
       {/* ═══════════════════════════════════════════════════════════════════ */}
-      {view === "evaluations" && activeTeacher && (
+      {view === "presence" && activeSujet && (
         <View style={{ flex: 1 }}>
           <View style={st.subHeader}>
-            <TouchableOpacity onPress={() => goTo("enseignants")} style={st.backBtn}>
+            <TouchableOpacity onPress={() => goTo("sujets")} style={st.backBtn}>
               <Feather name="arrow-left" size={rs(20)} color={C.text} />
             </TouchableOpacity>
             <View style={{ flex: 1 }}>
-              <Text style={st.subHeaderTitle} numberOfLines={1}>{activeTeacher.teacher_name}</Text>
-              <Text style={st.subHeaderSub}>Classe {activeClasse}</Text>
+              <Text style={st.subHeaderTitle} numberOfLines={1}>{activeSujet.titre}</Text>
+              <Text style={st.subHeaderSub}>
+                Étape 1/3 — Pointez les élèves tirés au sort · {nbPointes}/{activeSujet.eleves.length}
+              </Text>
+            </View>
+          </View>
+
+          <FlatList
+            data={activeSujet.eleves}
+            keyExtractor={t => t.tirage_id}
+            contentContainerStyle={st.listContent}
+            showsVerticalScrollIndicator={false}
+            renderItem={({ item: t }) => {
+              const p = presenceMap.get(t.tirage_id);
+              const dejaEvalue = !!t.resultat;
+              return (
+                <View style={[st.presCard, dejaEvalue && { opacity: 0.55 }]}>
+                  <View style={st.eleveAvatar}>
+                    <Text style={st.eleveAvatarText}>
+                      {t.eleve_nom.charAt(0)}{(t.eleve_prenom ?? "").charAt(0)}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={st.eleveName} numberOfLines={1}>{eleveName(t)}</Text>
+                    <Text style={st.eleveGenre}>
+                      {t.eleve_classe}{dejaEvalue ? " · Déjà évalué" : ""}
+                    </Text>
+                  </View>
+                  <View style={st.presBtns}>
+                    <TouchableOpacity
+                      style={[st.presBtn, p === true && st.presBtnOnP]}
+                      onPress={() => setPresence(t.tirage_id, true)}
+                      disabled={dejaEvalue}
+                      activeOpacity={0.75}
+                    >
+                      <Feather name="check" size={rf(14)} color={p === true ? "#fff" : C.success} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[st.presBtn, st.presBtnA, p === false && st.presBtnOnA]}
+                      onPress={() => setPresence(t.tirage_id, false)}
+                      disabled={dejaEvalue}
+                      activeOpacity={0.75}
+                    >
+                      <Feather name="x" size={rf(14)} color={p === false ? "#fff" : C.danger} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            }}
+          />
+
+          <View style={st.evalBtnBar}>
+            <TouchableOpacity
+              style={[st.evalBtn, (nbPointes < activeSujet.eleves.length || savingPresence) && st.evalBtnDisabled]}
+              onPress={validatePresences}
+              disabled={nbPointes < activeSujet.eleves.length || savingPresence}
+              activeOpacity={0.85}
+            >
+              {savingPresence ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Feather name="check" size={rs(16)} color={nbPointes < activeSujet.eleves.length ? C.textMuted : "#fff"} />
+                  <Text style={[st.evalBtnText, nbPointes < activeSujet.eleves.length && st.evalBtnTextDisabled]}>
+                    Valider ({nbPresents} présent{nbPresents !== 1 ? "s" : ""})
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {/* VUE 3 — Choix du dossier d'évaluation (support fixe par période)   */}
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {view === "doc" && activeSujet && (
+        <View style={{ flex: 1 }}>
+          <View style={st.subHeader}>
+            <TouchableOpacity onPress={() => setView("presence")} style={st.backBtn}>
+              <Feather name="arrow-left" size={rs(20)} color={C.text} />
+            </TouchableOpacity>
+            <View style={{ flex: 1 }}>
+              <Text style={st.subHeaderTitle} numberOfLines={1}>{activeSujet.titre}</Text>
+              <Text style={st.subHeaderSub}>Étape 2/3 — Choisissez le dossier d'évaluation</Text>
             </View>
           </View>
 
           <ScrollView contentContainerStyle={st.listContent} showsVerticalScrollIndicator={false}>
-            <View style={st.evalDocHeader}>
-              <Feather name="file-text" size={rs(18)} color={C.primary} />
-              <Text style={st.evalDocTitle}>Choisissez le dossier d'évaluation</Text>
-            </View>
-
             {evalDocs.length === 0 ? (
               <View style={st.emptyState}>
                 <Feather name="file-text" size={rs(40)} color={C.textMuted} />
@@ -429,18 +453,13 @@ export default function SupEvaluationScreen() {
               </View>
             ) : null}
             {evalDocs.map(doc => (
-              <TouchableOpacity
-                key={doc.id}
-                style={st.docCard}
-                onPress={() => chooseDoc(doc)}
-                activeOpacity={0.8}
-              >
+              <TouchableOpacity key={doc.id} style={st.docCard} onPress={() => chooseDoc(doc)} activeOpacity={0.8}>
                 <View style={st.docCardLeft}>
                   <View style={st.docLangBadge}>
                     <Text style={st.docLangText}>{doc.langue.slice(0, 2).toUpperCase()}</Text>
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={st.docLangName}>Test Élève en {doc.langue}</Text>
+                    <Text style={st.docLangName}>{doc.titre || `Test Élève en ${doc.langue}`}</Text>
                     <View style={st.docTagsRow}>
                       <View style={st.docTag}><Text style={st.docTagText}>Lecture</Text></View>
                       <View style={st.docTag}><Text style={st.docTagText}>Mathématiques</Text></View>
@@ -455,112 +474,20 @@ export default function SupEvaluationScreen() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════ */}
-      {/* VUE 3 — Sélection des élèves                                       */}
+      {/* VUE 4 — Évaluation : Réussi / Intermédiaire / Pas réussi           */}
       {/* ═══════════════════════════════════════════════════════════════════ */}
-      {view === "eleves" && activeTeacher && activeDoc && (
+      {view === "evaluer" && activeSujet && activeDoc && (
         <View style={{ flex: 1 }}>
           <View style={st.subHeader}>
-            <TouchableOpacity onPress={() => goTo("evaluations")} style={st.backBtn}>
-              <Feather name="arrow-left" size={rs(20)} color={C.text} />
-            </TouchableOpacity>
-            <View style={{ flex: 1 }}>
-              <Text style={st.subHeaderTitle} numberOfLines={1}>
-                {activeTeacher.teacher_name} — {activeClasse}
-              </Text>
-              <Text style={st.subHeaderSub}>
-                {activeDoc.langue} · {nbSelected} sélectionné{nbSelected !== 1 ? "s" : ""}
-              </Text>
-            </View>
-            {eleves.length > 0 && (
-              <TouchableOpacity onPress={toggleAll} style={st.selectAllBtn}>
-                <Text style={st.selectAllText}>{selectedIds.size === eleves.length ? "Aucun" : "Tous"}</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {loadingEleves ? (
-            <View style={st.center}>
-              <ActivityIndicator size="large" color={C.brand} />
-              <Text style={st.loadingText}>Chargement des élèves…</Text>
-            </View>
-          ) : eleves.length === 0 ? (
-            <View style={st.emptyState}>
-              <Feather name="users" size={rs(40)} color={C.textMuted} />
-              <Text style={st.emptyText}>Aucun élève dans cette classe.</Text>
-            </View>
-          ) : (
-            <FlatList
-              data={eleves}
-              keyExtractor={e => e.id}
-              contentContainerStyle={st.listContent}
-              showsVerticalScrollIndicator={false}
-              renderItem={({ item: eleve }) => {
-                const selected = selectedIds.has(eleve.id);
-                return (
-                  <TouchableOpacity
-                    style={[st.eleveRow, selected && st.eleveRowSelected]}
-                    onPress={() => toggleEleve(eleve.id)}
-                    activeOpacity={0.75}
-                  >
-                    <View style={[st.checkbox, selected && st.checkboxSelected]}>
-                      {selected && <Feather name="check" size={rs(13)} color="#fff" />}
-                    </View>
-                    <View style={st.eleveAvatar}>
-                      <Text style={st.eleveAvatarText}>
-                        {eleve.nom.charAt(0)}{(eleve.prenom ?? "").charAt(0)}
-                      </Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={st.eleveName} numberOfLines={1}>
-                        {eleve.prenom ? `${eleve.prenom} ` : ""}{eleve.nom}
-                      </Text>
-                      {eleve.genre ? (
-                        <Text style={st.eleveGenre}>{eleve.genre === "M" ? "Garçon" : "Fille"}</Text>
-                      ) : null}
-                    </View>
-                  </TouchableOpacity>
-                );
-              }}
-            />
-          )}
-
-          {/* Bouton évaluer — juste au-dessus du menu de navigation */}
-          <View style={st.evalBtnBar}>
-            <TouchableOpacity
-              style={[st.evalBtn, nbSelected === 0 && st.evalBtnDisabled]}
-              onPress={startEvaluation}
-              disabled={nbSelected === 0}
-              activeOpacity={0.85}
-            >
-              <Feather name="edit-3" size={rs(16)} color={nbSelected === 0 ? C.textMuted : "#fff"} />
-              <Text style={[st.evalBtnText, nbSelected === 0 && st.evalBtnTextDisabled]}>
-                {nbSelected === 0
-                  ? "Sélectionnez des élèves"
-                  : `Évaluer ${nbSelected} élève${nbSelected !== 1 ? "s" : ""}`}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-
-      {/* ═══════════════════════════════════════════════════════════════════ */}
-      {/* VUE 4 — Fiche d'évaluation par élève                              */}
-      {/* ═══════════════════════════════════════════════════════════════════ */}
-      {view === "evaluer" && current && activeDoc && (
-        <View style={{ flex: 1 }}>
-          <View style={st.subHeader}>
-            <TouchableOpacity onPress={() => goTo("eleves")} style={st.backBtn} disabled={submitting}>
+            <TouchableOpacity onPress={() => setView("doc")} style={st.backBtn} disabled={submitting}>
               <Feather name="arrow-left" size={rs(20)} color={submitting ? C.textMuted : C.text} />
             </TouchableOpacity>
-            <View style={st.evalHeaderIcon}>
-              <Feather name="edit-3" size={rs(15)} color={C.primary} />
-            </View>
             <View style={{ flex: 1 }}>
               <Text style={st.subHeaderTitle} numberOfLines={1}>
-                {current.eleve.prenom ? `${current.eleve.prenom} ` : ""}{current.eleve.nom}
+                {current ? eleveName(current) : activeSujet.titre}
               </Text>
               <Text style={st.subHeaderSub}>
-                Élève {evalIndex + 1}/{evalEntries.length} · {activeDoc.langue}
+                Étape 3/3 — Élève {Math.min(evalIndex + 1, evalList.length)}/{evalList.length} · {activeDoc.langue}
               </Text>
             </View>
           </View>
@@ -568,129 +495,90 @@ export default function SupEvaluationScreen() {
           {submitDone ? (
             <View style={[st.center, { gap: rs(16) }]}>
               <Feather name="check-circle" size={rs(52)} color={C.success} />
-              <Text style={st.doneTitle}>Évaluations enregistrées !</Text>
-              <Text style={st.doneSub}>{nbNotes} élève{nbNotes !== 1 ? "s" : ""} évalué{nbNotes !== 1 ? "s" : ""}</Text>
-              <TouchableOpacity style={st.doneBtn} onPress={() => goTo("enseignants")} activeOpacity={0.85}>
-                <Text style={st.doneBtnText}>Retour aux enseignants</Text>
+              <Text style={st.doneTitle}>Évaluations envoyées !</Text>
+              <Text style={st.doneSub}>{nbEvalues} élève{nbEvalues !== 1 ? "s" : ""} évalué{nbEvalues !== 1 ? "s" : ""}</Text>
+              <TouchableOpacity style={st.doneBtn} onPress={() => goTo("sujets")} activeOpacity={0.85}>
+                <Text style={st.doneBtnText}>Retour aux sujets</Text>
               </TouchableOpacity>
             </View>
-          ) : (
+          ) : current ? (
             <>
-              {/* Barre de progression globale */}
               <View style={st.progBarOuter}>
-                <View style={[st.progBarFill, { width: `${Math.round((evalIndex / evalEntries.length) * 100)}%` as any }]} />
+                <View style={[st.progBarFill, { width: `${Math.round((nbEvalues / Math.max(1, evalList.length)) * 100)}%` as any }]} />
               </View>
 
-              <ScrollView
-                style={{ flex: 1 }}
-                contentContainerStyle={st.evalScroll}
-                showsVerticalScrollIndicator={false}
-              >
-                {/* ── Section LECTURE ─────────────────────────────────── */}
-                <View style={st.sectionHeader}>
-                  <Feather name="book-open" size={rs(15)} color={C.primary} />
-                  <Text style={st.sectionTitle}>Lecture</Text>
-                </View>
-
-                {/* Lettres */}
+              <ScrollView style={{ flex: 1 }} contentContainerStyle={st.evalScroll} showsVerticalScrollIndicator={false}>
+                {/* ── Support d'évaluation (fixe pour la période) ── */}
                 <View style={st.contentCard}>
-                  <Text style={st.contentLabel}>Lettres à reconnaître</Text>
+                  <Text style={st.contentLabel}>Lettres</Text>
                   <View style={st.tokensRow}>
                     {activeDoc.lettres.map((l, i) => (
                       <View key={i} style={st.token}><Text style={st.tokenText}>{l}</Text></View>
                     ))}
                   </View>
-                  <Text style={st.contentHint}>Demandez à l'élève de dire le son de chaque lettre.</Text>
                 </View>
-                <ScoreInput
-                  label="Score — Lettres"
-                  hint="Nombre de lettres correctement lues"
-                  value={current.scores.lettres}
-                  max={10}
-                  onChange={v => updateScore("lettres", v)}
-                />
-
-                {/* Syllabes */}
                 <View style={st.contentCard}>
-                  <Text style={st.contentLabel}>Syllabes à lire</Text>
+                  <Text style={st.contentLabel}>Syllabes</Text>
                   <View style={st.tokensRow}>
-                    {activeDoc.syllabes.map((s, i) => (
-                      <View key={i} style={st.token}><Text style={st.tokenText}>{s}</Text></View>
+                    {activeDoc.syllabes.map((x, i) => (
+                      <View key={i} style={st.token}><Text style={st.tokenText}>{x}</Text></View>
                     ))}
                   </View>
-                  <Text style={st.contentHint}>Demandez à l'élève de lire chaque syllabe.</Text>
                 </View>
-                <ScoreInput
-                  label="Score — Syllabes"
-                  hint="Nombre de syllabes correctement lues"
-                  value={current.scores.syllabes}
-                  max={10}
-                  onChange={v => updateScore("syllabes", v)}
-                />
-
-                {/* Mots */}
                 <View style={st.contentCard}>
-                  <Text style={st.contentLabel}>Mots à lire</Text>
+                  <Text style={st.contentLabel}>Mots</Text>
                   <View style={st.tokensRow}>
-                    {activeDoc.mots.map((m, i) => (
-                      <View key={i} style={[st.token, st.tokenMot]}><Text style={st.tokenText}>{m}</Text></View>
+                    {activeDoc.mots.map((x, i) => (
+                      <View key={i} style={[st.token, st.tokenMot]}><Text style={st.tokenText}>{x}</Text></View>
                     ))}
                   </View>
-                  <Text style={st.contentHint}>Demandez à l'élève de lire chaque mot.</Text>
                 </View>
-                <ScoreInput
-                  label="Score — Mots"
-                  hint="Nombre de mots correctement lus"
-                  value={current.scores.mots}
-                  max={10}
-                  onChange={v => updateScore("mots", v)}
-                />
-
-                {/* ── Section MATHÉMATIQUES ───────────────────────────── */}
-                <View style={[st.sectionHeader, { marginTop: rs(6) }]}>
-                  <Feather name="hash" size={rs(15)} color={C.primary} />
-                  <Text style={st.sectionTitle}>Mathématiques</Text>
-                </View>
-
                 <View style={st.contentCard}>
-                  <Text style={st.contentLabel}>Opérations à effectuer</Text>
+                  <Text style={st.contentLabel}>Opérations</Text>
                   <View style={st.opsGrid}>
                     {activeDoc.operations.map((op, i) => (
-                      <View key={i} style={st.opItem}>
-                        <Text style={st.opText}>{op}</Text>
-                      </View>
+                      <View key={i} style={st.opItem}><Text style={st.opText}>{op}</Text></View>
                     ))}
                   </View>
-                  <Text style={st.contentHint}>Demandez à l'élève de résoudre chaque opération.</Text>
                 </View>
-                <ScoreInput
-                  label="Score — Opérations"
-                  hint="Nombre d'opérations réussies"
-                  value={current.scores.operations}
-                  max={4}
-                  onChange={v => updateScore("operations", v)}
-                />
 
-                {/* ── Autres élèves ───────────────────────────────────── */}
-                {evalEntries.length > 1 && (
+                {/* ── Résultat : 3 options ── */}
+                <Text style={st.resultTitle}>Résultat de l'élève</Text>
+                <View style={st.resultRow}>
+                  {RESULTATS.map(r => {
+                    const sel = results.get(current.tirage_id) === r.key;
+                    return (
+                      <TouchableOpacity
+                        key={r.key}
+                        style={[st.resultBtn, { borderColor: r.color + "55", backgroundColor: sel ? r.color : r.soft }]}
+                        onPress={() => chooseResult(r.key)}
+                        activeOpacity={0.8}
+                      >
+                        <Feather name={r.icon} size={rf(20)} color={sel ? "#fff" : r.color} />
+                        <Text style={[st.resultBtnTxt, { color: sel ? "#fff" : r.color }]}>{r.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                {/* ── Autres élèves ── */}
+                {evalList.length > 1 && (
                   <View style={st.otherEleves}>
-                    <Text style={st.otherElevesTitle}>Autres élèves</Text>
-                    {evalEntries.map((e, i) => {
-                      if (i === evalIndex) return null;
-                      const hasNote = Object.values(e.scores).some(v => v !== null);
+                    <Text style={st.otherElevesTitle}>Élèves à évaluer</Text>
+                    {evalList.map((t, i) => {
+                      const r = results.get(t.tirage_id);
+                      const cfg = RESULTATS.find(x => x.key === r);
                       return (
                         <TouchableOpacity
-                          key={e.eleve.id}
-                          style={st.otherEleveRow}
+                          key={t.tirage_id}
+                          style={[st.otherEleveRow, i === evalIndex && { backgroundColor: C.primarySoft + "50" }]}
                           onPress={() => setEvalIndex(i)}
                           activeOpacity={0.75}
                         >
-                          <Text style={st.otherEleveName} numberOfLines={1}>
-                            {e.eleve.prenom ? `${e.eleve.prenom} ` : ""}{e.eleve.nom}
-                          </Text>
-                          <View style={[st.miniBadge, hasNote ? { backgroundColor: C.successSoft } : { backgroundColor: C.surfaceAlt }]}>
-                            <Text style={[st.miniBadgeText, { color: hasNote ? C.success : C.textMuted }]}>
-                              {hasNote ? "✓ Noté" : "En attente"}
+                          <Text style={st.otherEleveName} numberOfLines={1}>{eleveName(t)}</Text>
+                          <View style={[st.miniBadge, { backgroundColor: cfg ? cfg.soft : C.surfaceAlt }]}>
+                            <Text style={[st.miniBadgeText, { color: cfg ? cfg.color : C.textMuted }]}>
+                              {cfg ? cfg.label : "En attente"}
                             </Text>
                           </View>
                         </TouchableOpacity>
@@ -700,7 +588,7 @@ export default function SupEvaluationScreen() {
                 )}
               </ScrollView>
 
-              {/* Boutons navigation + validation */}
+              {/* Navigation + envoi */}
               <View style={st.evalBtnBar}>
                 <View style={st.navRow}>
                   <TouchableOpacity
@@ -713,7 +601,7 @@ export default function SupEvaluationScreen() {
                     <Text style={[st.navBtnText, evalIndex === 0 && { color: C.textMuted }]}>Préc.</Text>
                   </TouchableOpacity>
 
-                  {evalIndex < evalEntries.length - 1 ? (
+                  {evalIndex < evalList.length - 1 ? (
                     <TouchableOpacity style={st.mainNavBtn} onPress={() => setEvalIndex(i => i + 1)} activeOpacity={0.85}>
                       <Text style={st.mainNavBtnText}>Suivant</Text>
                       <Feather name="chevron-right" size={rs(18)} color="#fff" />
@@ -723,15 +611,21 @@ export default function SupEvaluationScreen() {
                       <ActivityIndicator size="small" color={C.brand} />
                     </View>
                   ) : (
-                    <TouchableOpacity style={[st.mainNavBtn, { backgroundColor: C.success }]} onPress={submitAll} activeOpacity={0.85}>
-                      <Feather name="check" size={rs(17)} color="#fff" />
-                      <Text style={st.mainNavBtnText}>Valider tout</Text>
+                    <TouchableOpacity
+                      style={[st.mainNavBtn, { backgroundColor: nbEvalues < evalList.length ? C.surfaceAlt : C.success }]}
+                      onPress={submitAll}
+                      activeOpacity={0.85}
+                    >
+                      <Feather name="send" size={rs(16)} color={nbEvalues < evalList.length ? C.textMuted : "#fff"} />
+                      <Text style={[st.mainNavBtnText, nbEvalues < evalList.length && { color: C.textMuted }]}>
+                        Envoyer ({nbEvalues}/{evalList.length})
+                      </Text>
                     </TouchableOpacity>
                   )}
                 </View>
               </View>
             </>
-          )}
+          ) : null}
         </View>
       )}
 
@@ -751,43 +645,60 @@ const st = StyleSheet.create({
   viewTitle:  { fontSize: rf(22), fontWeight: "800", color: C.text },
   viewSub:    { fontSize: rf(13), color: C.textMuted, marginTop: rs(2) },
 
-  // Liste générique
   listContent: { paddingHorizontal: rs(14), paddingTop: rs(8), paddingBottom: rs(16), gap: rs(10) },
 
-  // Enseignants
-  teacherCard: {
+  // Sujets
+  sujetCard: {
+    flexDirection: "row", alignItems: "center", gap: rs(12),
     backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-    borderRadius: rs(16), overflow: "hidden",
+    borderRadius: rs(16), padding: rs(14),
   },
-  teacherCardHeader: {
-    flexDirection: "row", alignItems: "center", gap: rs(10),
-    paddingHorizontal: rs(14), paddingTop: rs(14), paddingBottom: rs(10),
-  },
-  teacherAvatar: {
-    width: rs(38), height: rs(38), borderRadius: rs(19),
+  sujetIconWrap: {
+    width: rs(44), height: rs(44), borderRadius: rs(13),
     backgroundColor: C.primarySoft, alignItems: "center", justifyContent: "center",
   },
-  teacherName:  { fontSize: rf(16), fontWeight: "700", color: C.text, flex: 1 },
-  noClassText:  { fontSize: rf(13), color: C.textMuted, paddingHorizontal: rs(14), paddingBottom: rs(12) },
-  classesList:  { borderTopWidth: 1, borderTopColor: C.border },
-  classeRow:    {
+  sujetTitre:   { fontSize: rf(15), fontWeight: "800", color: C.text },
+  sujetDesc:    { fontSize: rf(12), color: C.textMuted, marginTop: rs(1) },
+  sujetMetaRow: { flexDirection: "row", gap: rs(6), marginTop: rs(6), flexWrap: "wrap" },
+  sujetBadge: {
+    flexDirection: "row", alignItems: "center", gap: rs(4),
+    backgroundColor: C.primarySoft, borderRadius: rs(8),
+    paddingHorizontal: rs(7), paddingVertical: rs(3),
+  },
+  sujetBadgeTxt: { fontSize: rf(11), fontWeight: "700", color: C.primary },
+
+  // Sous-header
+  subHeader: {
     flexDirection: "row", alignItems: "center", gap: rs(10),
-    paddingHorizontal: rs(14), paddingVertical: rs(11),
-    borderBottomWidth: 1, borderBottomColor: C.border + "60",
+    paddingHorizontal: rs(14), paddingTop: rs(10), paddingBottom: rs(12),
+    borderBottomWidth: 1, borderBottomColor: C.border,
   },
-  classeIcon:   {
-    width: rs(28), height: rs(28), borderRadius: rs(8),
-    backgroundColor: C.primarySoft, alignItems: "center", justifyContent: "center",
+  backBtn:        { padding: rs(4) },
+  subHeaderTitle: { fontSize: rf(16), fontWeight: "800", color: C.text },
+  subHeaderSub:   { fontSize: rf(12), color: C.textMuted, marginTop: rs(1) },
+
+  // Présence
+  presCard: {
+    flexDirection: "row", alignItems: "center", gap: rs(10),
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+    borderRadius: rs(14), padding: rs(12),
   },
-  classeName:   { flex: 1, fontSize: rf(14), fontWeight: "600", color: C.text },
-  classeCount:  { fontSize: rf(12), color: C.textMuted, marginRight: rs(4) },
+  presBtns: { flexDirection: "row", gap: rs(8) },
+  presBtn: {
+    width: rs(38), height: rs(38), borderRadius: rs(11),
+    backgroundColor: C.successSoft, borderWidth: 1.5, borderColor: C.success + "55",
+    alignItems: "center", justifyContent: "center",
+  },
+  presBtnA:   { backgroundColor: C.dangerSoft, borderColor: C.danger + "55" },
+  presBtnOnP: { backgroundColor: C.success, borderColor: C.success },
+  presBtnOnA: { backgroundColor: C.danger, borderColor: C.danger },
+
+  eleveAvatar:     { width: rs(38), height: rs(38), borderRadius: rs(19), backgroundColor: C.surfaceAlt, alignItems: "center", justifyContent: "center" },
+  eleveAvatarText: { fontSize: rf(12), fontWeight: "700", color: C.textMuted },
+  eleveName:       { fontSize: rf(15), fontWeight: "600", color: C.text },
+  eleveGenre:      { fontSize: rf(12), color: C.textMuted },
 
   // Dossiers d'évaluation
-  evalDocHeader: {
-    flexDirection: "row", alignItems: "center", gap: rs(10),
-    paddingVertical: rs(8),
-  },
-  evalDocTitle:  { fontSize: rf(15), fontWeight: "700", color: C.text },
   docCard: {
     flexDirection: "row", alignItems: "center",
     backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
@@ -804,33 +715,7 @@ const st = StyleSheet.create({
   docTag:       { backgroundColor: C.surfaceAlt, paddingHorizontal: rs(8), paddingVertical: rs(2), borderRadius: rs(6) },
   docTagText:   { fontSize: rf(11), color: C.textMuted, fontWeight: "600" },
 
-  // Sous-header
-  subHeader: {
-    flexDirection: "row", alignItems: "center", gap: rs(10),
-    paddingHorizontal: rs(14), paddingTop: rs(10), paddingBottom: rs(12),
-    borderBottomWidth: 1, borderBottomColor: C.border,
-  },
-  backBtn:        { padding: rs(4) },
-  subHeaderTitle: { fontSize: rf(16), fontWeight: "800", color: C.text },
-  subHeaderSub:   { fontSize: rf(12), color: C.textMuted, marginTop: rs(1) },
-  selectAllBtn:   { paddingHorizontal: rs(12), paddingVertical: rs(6), backgroundColor: C.primarySoft, borderRadius: rs(8) },
-  selectAllText:  { fontSize: rf(13), fontWeight: "700", color: C.primary },
-  evalHeaderIcon: {
-    width: rs(34), height: rs(34), borderRadius: rs(17),
-    backgroundColor: C.primarySoft, alignItems: "center", justifyContent: "center",
-  },
-
-  // Élèves
-  eleveRow:         { flexDirection: "row", alignItems: "center", gap: rs(10), paddingVertical: rs(11), borderBottomWidth: 1, borderBottomColor: C.border },
-  eleveRowSelected: { backgroundColor: C.primarySoft + "50" },
-  checkbox:         { width: rs(22), height: rs(22), borderRadius: rs(6), borderWidth: 2, borderColor: C.border, alignItems: "center", justifyContent: "center" },
-  checkboxSelected: { backgroundColor: C.primary, borderColor: C.primary },
-  eleveAvatar:      { width: rs(36), height: rs(36), borderRadius: rs(18), backgroundColor: C.surfaceAlt, alignItems: "center", justifyContent: "center" },
-  eleveAvatarText:  { fontSize: rf(12), fontWeight: "700", color: C.textMuted },
-  eleveName:        { fontSize: rf(15), fontWeight: "600", color: C.text },
-  eleveGenre:       { fontSize: rf(12), color: C.textMuted },
-
-  // Bouton évaluer
+  // Bouton bas
   evalBtnBar: {
     backgroundColor: C.bg, paddingHorizontal: rs(16),
     paddingTop: rs(10), paddingBottom: rs(10),
@@ -844,14 +729,10 @@ const st = StyleSheet.create({
   // Évaluation
   progBarOuter: { height: rs(3), backgroundColor: C.border },
   progBarFill:  { height: "100%", backgroundColor: C.brand },
-
-  evalScroll:    { paddingHorizontal: rs(14), paddingTop: rs(14), paddingBottom: rs(24), gap: rs(12) },
-  sectionHeader: { flexDirection: "row", alignItems: "center", gap: rs(8), marginTop: rs(4) },
-  sectionTitle:  { fontSize: rf(16), fontWeight: "800", color: C.primary },
+  evalScroll:   { paddingHorizontal: rs(14), paddingTop: rs(14), paddingBottom: rs(24), gap: rs(12) },
 
   contentCard:  { backgroundColor: C.primarySoft + "60", borderRadius: rs(14), padding: rs(14), gap: rs(10) },
   contentLabel: { fontSize: rf(13), fontWeight: "700", color: C.primary },
-  contentHint:  { fontSize: rf(12), color: C.primary + "aa", fontStyle: "italic" },
   tokensRow:    { flexDirection: "row", flexWrap: "wrap", gap: rs(6) },
   token:        { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: rs(8), paddingHorizontal: rs(10), paddingVertical: rs(5) },
   tokenMot:     { paddingHorizontal: rs(12) },
@@ -859,6 +740,14 @@ const st = StyleSheet.create({
   opsGrid:      { flexDirection: "row", flexWrap: "wrap", gap: rs(8) },
   opItem:       { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: rs(10), paddingHorizontal: rs(14), paddingVertical: rs(8) },
   opText:       { fontSize: rf(16), fontWeight: "700", color: C.text, fontFamily: "monospace" },
+
+  resultTitle: { fontSize: rf(16), fontWeight: "800", color: C.text, marginTop: rs(4) },
+  resultRow:   { flexDirection: "row", gap: rs(8) },
+  resultBtn: {
+    flex: 1, alignItems: "center", justifyContent: "center", gap: rs(6),
+    borderRadius: rs(14), borderWidth: 1.5, paddingVertical: rs(14),
+  },
+  resultBtnTxt: { fontSize: rf(12), fontWeight: "800", textAlign: "center" },
 
   // Autres élèves
   otherEleves:      { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: rs(14), overflow: "hidden" },

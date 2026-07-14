@@ -5,6 +5,7 @@ import { useRouter } from "expo-router";
 import { rs, rf } from "../utils/responsive";
 import { C } from "../utils/theme";
 import { getFailedActions, clearFailedQueue, FailedQueueItem } from "../services/db";
+import { startFeatureTour } from "../components/FeatureTour";
 
 export default function ProfileScreen() {
   const { user, syncData, lastSync, logout, isOnline } = useStore();
@@ -106,6 +107,10 @@ export default function ProfileScreen() {
         </View>
       )}
 
+      <TouchableOpacity style={s.tutorialBtn} onPress={startFeatureTour} activeOpacity={0.8}>
+        <Text style={s.tutorialTxt}>Revoir la visite guidée</Text>
+      </TouchableOpacity>
+
       <TouchableOpacity style={s.logoutBtn} onPress={handleLogout} activeOpacity={0.8}>
         <Text style={s.logoutTxt}>Se déconnecter</Text>
       </TouchableOpacity>
@@ -130,6 +135,8 @@ const s = StyleSheet.create({
   rowBorder:   { borderBottomWidth: 1, borderBottomColor: C.border },
   rowLabel:    { fontSize: rf(13), color: C.textMuted, fontWeight: "500", flex: 1 },
   rowValue:    { fontSize: rf(13), color: C.text, fontWeight: "600", flex: 2, textAlign: "right" },
+  tutorialBtn: { backgroundColor: C.primarySoft, borderRadius: rs(14), paddingVertical: rs(14), paddingHorizontal: rs(40), marginBottom: rs(12) },
+  tutorialTxt: { color: C.primaryDark, fontWeight: "700", fontSize: rf(15) },
   logoutBtn:   { backgroundColor: C.dangerSoft, borderRadius: rs(14), paddingVertical: rs(14), paddingHorizontal: rs(40) },
   logoutTxt:   { color: C.danger, fontWeight: "700", fontSize: rf(15) },
   errorCard:   { backgroundColor: "#FFF3CD", borderRadius: rs(14), width: "100%", maxWidth: 480, padding: rs(16), marginBottom: rs(20), borderWidth: 1, borderColor: "#FFCA28" },
