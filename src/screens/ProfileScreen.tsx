@@ -5,7 +5,7 @@ import { useRouter } from "expo-router";
 import { rs, rf } from "../utils/responsive";
 import { C } from "../utils/theme";
 import { getFailedActions, clearFailedQueue, FailedQueueItem } from "../services/db";
-import { startFeatureTour } from "../components/FeatureTour";
+import { openAppGuide } from "../components/AppGuide";
 
 export default function ProfileScreen() {
   const { user, syncData, lastSync, logout, isOnline } = useStore();
@@ -107,8 +107,8 @@ export default function ProfileScreen() {
         </View>
       )}
 
-      <TouchableOpacity style={s.tutorialBtn} onPress={startFeatureTour} activeOpacity={0.8}>
-        <Text style={s.tutorialTxt}>Revoir la visite guidée</Text>
+      <TouchableOpacity style={s.tutorialBtn} onPress={openAppGuide} activeOpacity={0.8}>
+        <Text style={s.tutorialTxt}>Revoir le guide</Text>
       </TouchableOpacity>
 
       <TouchableOpacity style={s.logoutBtn} onPress={handleLogout} activeOpacity={0.8}>

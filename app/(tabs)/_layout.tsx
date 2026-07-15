@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Platform, View } from "react-native";
 import { C } from "../../src/utils/theme";
 import { rf, rs } from "../../src/utils/responsive";
-import FeatureTour from "../../src/components/FeatureTour";
+import AppGuide from "../../src/components/AppGuide";
 import { useStore } from "../../src/store/useStore";
 
 export default function TabsLayout() {
@@ -98,8 +98,7 @@ export default function TabsLayout() {
       />
     </Tabs>
 
-    {/* Visite guidée des fonctionnalités (première connexion) */}
-    {!timerOnly && <FeatureTour role="enseignant" tabCount={4} />}
+    {!timerOnly && <AppGuide role="enseignant" />}
     </View>
   );
 }

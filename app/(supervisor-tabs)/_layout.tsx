@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Platform, View } from "react-native";
 import { C } from "../../src/utils/theme";
 import { rf, rs } from "../../src/utils/responsive";
-import FeatureTour from "../../src/components/FeatureTour";
+import AppGuide from "../../src/components/AppGuide";
 
 export default function SupervisorTabsLayout() {
   const insets = useSafeAreaInsets();
@@ -77,8 +77,7 @@ export default function SupervisorTabsLayout() {
       />
     </Tabs>
 
-    {/* Visite guidée des fonctionnalités (première connexion) */}
-    <FeatureTour role="superviseur" tabCount={4} />
+    <AppGuide role="superviseur" />
     </View>
   );
 }
