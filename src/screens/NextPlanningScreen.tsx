@@ -7,7 +7,7 @@ import { useStore } from "../store/useStore";
 import { rs, rf } from "../utils/responsive";
 import { C } from "../utils/theme";
 
-const JOURS_FR = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
+const JOURS_NUM = Array.from({ length: 7 }, (_, i) => `Jour ${i + 1}`);
 
 function toMin(t: string): number {
   const [h, m] = t.split(":").map(Number);
@@ -24,13 +24,12 @@ function segTitle(seg: any): string {
 
 export default function NextPlanningScreen() {
   const router = useRouter();
-  const { dayIdx, dateStr } = useLocalSearchParams<{ dayIdx: string, dateStr: string }>();
-  
+  const { dayIdx } = useLocalSearchParams<{ dayIdx: string }>();
+
   const { syncData } = useStore();
   const planning = syncData?.planning ?? [];
 
   const targetDayIdx = parseInt(dayIdx ?? "0", 10);
-  const targetDate = dateStr ? new Date(decodeURIComponent(dateStr)) : new Date();
 
   const targetPlan = useMemo(() => {
     return [...planning]
@@ -91,10 +90,9 @@ export default function NextPlanningScreen() {
 
       <ScrollView contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={s.topDateSection}>
-          <Text style={s.topDay}>{JOURS_FR[targetDayIdx]}</Text>
+          <Text style={s.topDay}>{JOURS_NUM[targetDayIdx]}</Text>
           <Text style={s.topDateStr}>
-            {targetDate.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
-            {"  ·  "}{targetPlan.length} séance{targetPlan.length > 1 ? "s" : ""}
+            {targetPlan.length} séance{targetPlan.length > 1 ? "s" : ""}
           </Text>
         </View>
 

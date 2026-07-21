@@ -17,13 +17,8 @@ import { seancesApi } from "../services/api";
 import { rs, rf } from "../utils/responsive";
 import { C } from "../utils/theme";
 
-const JOURS_COURT = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
-const JOURS_LONG  = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
-
-function todayIndex(): number {
-  const d = new Date().getDay(); // 0 = dimanche
-  return d === 0 ? 6 : d - 1;
-}
+const JOURS_COURT = Array.from({ length: 7 }, (_, i) => `J.${i + 1}`);
+const JOURS_LONG  = Array.from({ length: 7 }, (_, i) => `Jour ${i + 1}`);
 
 /** Calcule la durée en "Xh Ym" entre deux chaînes "HH:MM:SS". */
 function duration(start: string, end: string): string {
@@ -43,7 +38,7 @@ export default function PlanningScreen() {
   const planning      = syncData?.planning ?? [];
   const activeSession = syncData?.active_session;
 
-  const [selectedDay, setSelectedDay] = useState<number>(todayIndex());
+  const [selectedDay, setSelectedDay] = useState<number>(0);
   const [refreshing,  setRefreshing]  = useState(false);
   // ID du segment en cours de démarrage (pour le spinner)
   const [startingSegId, setStartingSegId] = useState<string | null>(null);
@@ -145,8 +140,6 @@ export default function PlanningScreen() {
     router.push("/(tabs)/home");
   };
 
-  const isToday = selectedDay === todayIndex();
-
   return (
     <View style={s.screen}>
       {/* En-tête */}
@@ -172,7 +165,6 @@ export default function PlanningScreen() {
           contentContainerStyle={s.dayScroll}
         >
           {JOURS_COURT.map((j, i) => {
-            const isTodayDay = i === todayIndex();
             const isSelected = i === selectedDay;
             const count      = countByDay[i];
             return (
@@ -183,9 +175,6 @@ export default function PlanningScreen() {
                 activeOpacity={0.75}
               >
                 <Text style={[s.dayLabel, isSelected && s.dayLabelSelected]}>{j}</Text>
-                {isTodayDay && (
-                  <View style={[s.todayDot, isSelected && { backgroundColor: "#fff" }]} />
-                )}
                 {count > 0 && (
                   <View style={[s.badge, isSelected && s.badgeSelected]}>
                     <Text style={[s.badgeText, isSelected && s.badgeTextSelected]}>{count}</Text>
@@ -216,11 +205,6 @@ export default function PlanningScreen() {
       >
         <View style={s.dayTitleRow}>
           <Text style={s.dayTitle}>{JOURS_LONG[selectedDay]}</Text>
-          {isToday && (
-            <View style={s.todayPill}>
-              <Text style={s.todayPillText}>Aujourd'hui</Text>
-            </View>
-          )}
         </View>
 
         {daySegments.length === 0 ? (
@@ -256,41 +240,39 @@ export default function PlanningScreen() {
                     </Text>
                   </View>
 
-                  {/* ── Bouton Commencer (jour courant uniquement) ─────────────────── */}
-                  {isToday && (
-                    <View style={s.actionRow}>
-                      {isActiveForThisSeg ? (
-                        /* Séance en cours pour ce segment → bouton "Voir le timer" */
-                        <TouchableOpacity
-                          style={[s.btn, s.btnActive]}
-                          onPress={() => router.push("/(tabs)/home")}
-                          activeOpacity={0.8}
-                        >
-                          <View style={s.activeDot} />
-                          <Text style={s.btnActiveText}>En cours — Voir le timer</Text>
-                        </TouchableOpacity>
-                      ) : activeSeance ? (
-                        /* Une autre séance est déjà active → désactivé */
-                        <View style={[s.btn, s.btnDisabled]}>
-                          <Text style={s.btnDisabledText}>Autre séance en cours</Text>
-                        </View>
-                      ) : (
-                        /* Aucune séance active → bouton Commencer */
-                        <TouchableOpacity
-                          style={[s.btn, s.btnStart, isStarting && s.btnLoading]}
-                          onPress={() => handleStartSeg(seg)}
-                          activeOpacity={0.8}
-                          disabled={isStarting}
-                        >
-                          {isStarting ? (
-                            <ActivityIndicator size="small" color="#fff" />
-                          ) : (
-                            <Text style={s.btnStartText}>▶ Commencer</Text>
-                          )}
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  )}
+                  {/* ── Bouton Commencer ─────────────────── */}
+                  <View style={s.actionRow}>
+                    {isActiveForThisSeg ? (
+                      /* Séance en cours pour ce segment → bouton "Voir le timer" */
+                      <TouchableOpacity
+                        style={[s.btn, s.btnActive]}
+                        onPress={() => router.push("/(tabs)/home")}
+                        activeOpacity={0.8}
+                      >
+                        <View style={s.activeDot} />
+                        <Text style={s.btnActiveText}>En cours — Voir le timer</Text>
+                      </TouchableOpacity>
+                    ) : activeSeance ? (
+                      /* Une autre séance est déjà active → désactivé */
+                      <View style={[s.btn, s.btnDisabled]}>
+                        <Text style={s.btnDisabledText}>Autre séance en cours</Text>
+                      </View>
+                    ) : (
+                      /* Aucune séance active → bouton Commencer */
+                      <TouchableOpacity
+                        style={[s.btn, s.btnStart, isStarting && s.btnLoading]}
+                        onPress={() => handleStartSeg(seg)}
+                        activeOpacity={0.8}
+                        disabled={isStarting}
+                      >
+                        {isStarting ? (
+                          <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                          <Text style={s.btnStartText}>▶ Commencer</Text>
+                        )}
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </View>
               </View>
             );

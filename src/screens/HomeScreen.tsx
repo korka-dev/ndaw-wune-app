@@ -55,13 +55,15 @@ function toHHMM(totalMin: number): string {
 }
 function segTitle(seg: any): string { return seg.titre ?? seg.matiere ?? seg.classe ?? ""; }
 
-const JOURS_FR = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
+const JOURS_FR  = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
+const JOURS_NUM = Array.from({ length: 7 }, (_, i) => `Jour ${i + 1}`);
 
 /* ── Composant ───────────────────────────────────────────────── */
 export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, syncData, activeSeance, setActiveSeance, isOnline, syncOffline } = useStore();
+  const noTimer = (user as any)?.app_access === "no_timer";
   const planning = syncData?.planning ?? [];
 
   const jsDay     = new Date().getDay();
@@ -71,7 +73,7 @@ export default function HomeScreen() {
   const [periode, setPeriode] = useState<{ semaine: number; jour: number } | null>(null);
   const [periodeLoaded, setPeriodeLoaded] = useState(false);
   const [draftSemaine, setDraftSemaine] = useState<number | null>(null);
-  const [draftJour, setDraftJour] = useState<number>(todayIdx);
+  const [draftJour, setDraftJour] = useState<number>(0);
 
   const selectedJour = periode?.jour ?? todayIdx;
   const todayPlan = [...planning]
@@ -80,24 +82,24 @@ export default function HomeScreen() {
     .sort((a, b) => a.heure_debut.localeCompare(b.heure_debut));
 
   /**
-   * Prochain jour avec un planning.
-   * Cherche jusqu'à 7 jours en avant (cycle hebdomadaire).
+   * Prochain jour avec un planning (Jour suivant dans la même semaine de progression).
    */
   const nextScheduledDay = useMemo(() => {
-    for (let offset = 1; offset <= 7; offset++) {
-      const dayIdx = (todayIdx + offset) % 7;
-      const segs   = [...planning]
+    if (!periode) return null;
+    for (let offset = 1; offset <= 6; offset++) {
+      const dayIdx = periode.jour + offset;
+      if (dayIdx >= 7) break;
+      const segs = [...planning]
         .filter(p => p.jour === dayIdx)
+        .filter(p => p.semaine == null || p.semaine === periode.semaine)
         .sort((a, b) => a.heure_debut.localeCompare(b.heure_debut));
       if (segs.length > 0) {
-        const d = new Date();
-        d.setDate(d.getDate() + offset);
-        return { dayIdx, segs, offset, date: d };
+        return { dayIdx, segs, offset };
       }
     }
     return null;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planning, todayIdx]);
+  }, [planning, periode]);
 
   /* ── État démarrage explicite de la séance ── */
   const [seanceStarted, setSeanceStarted] = useState(false);
@@ -295,12 +297,7 @@ export default function HomeScreen() {
   const activeSeg = pendingSegs[0] ?? null;
   const nextSeg   = pendingSegs[1] ?? null;
 
-  // La restriction "5 minutes avant l'heure de début" ne s'applique qu'à la
-  // toute première tâche de la journée. Pour les suivantes, on laisse la main.
-  const isFirstTaskOfDay = activeSeg ? todayPlan[0]?.id === activeSeg.id : false;
-  const canStartActiveSeg = activeSeg
-    ? (isFirstTaskOfDay ? curMin >= toMin(activeSeg.heure_debut) - 5 : true)
-    : false;
+  const canStartActiveSeg = !!activeSeg;
 
   const durMin  = activeSeg ? segDurMin(activeSeg.heure_debut, activeSeg.heure_fin) : 0;
   const durSec  = durMin * 60;
@@ -312,8 +309,7 @@ export default function HomeScreen() {
   // le segment n'est ni complété ni manqué ni en cours → le marquer comme manqué.
   useEffect(() => {
     if (activeSeance) return; // ne pas marquer pendant une séance en cours
-    // Ne marquer des tâches manquées que si le planning affiché est celui du jour réel
-    if (!periode || periode.jour !== todayIdx) return;
+    if (!periode) return;
 
     const newlyMissed: string[] = [];
     for (const seg of todayPlan) {
@@ -443,13 +439,6 @@ export default function HomeScreen() {
 
   const handleStartSeance = () => {
     if (!activeSeg) return;
-    if (!canStartActiveSeg) {
-      Alert.alert(
-        "Pas encore disponible",
-        `Vous pourrez démarrer cette activité à partir de ${toHHMM(toMin(activeSeg.heure_debut) - 5)}, soit 5 minutes avant son heure de début (${activeSeg.heure_debut.slice(0, 5)}).`
-      );
-      return;
-    }
     const startedAt  = new Date().toISOString();
     const localId    = `offline-seance-${Date.now()}`;
     const sessionId  = syncData?.active_session?.id ?? "";
@@ -806,8 +795,7 @@ export default function HomeScreen() {
               <Feather name="calendar" size={rf(32)} color={C.brand} style={{ marginBottom: rs(10) }} />
               <Text style={s.segEmptyTitle}>Prochain planning</Text>
               <Text style={s.segEmptyMsg}>
-                {JOURS_FR[nextScheduledDay.dayIdx]}{" "}
-                {nextScheduledDay.date.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
+                {JOURS_NUM[nextScheduledDay.dayIdx]}
                 {" · "}{nextScheduledDay.segs.length} cours
               </Text>
 
@@ -815,8 +803,7 @@ export default function HomeScreen() {
               <TouchableOpacity
                 style={[s.nextCourseBtn, { marginTop: rs(16), width: '80%' }]}
                 onPress={() => {
-                  const dateStr = nextScheduledDay.date.toISOString();
-                  router.push(`/next-planning?dayIdx=${nextScheduledDay.dayIdx}&dateStr=${encodeURIComponent(dateStr)}`);
+                  router.push(`/next-planning?dayIdx=${nextScheduledDay.dayIdx}`);
                 }}
                 activeOpacity={0.8}
               >
@@ -902,13 +889,15 @@ export default function HomeScreen() {
 
           <Text style={s.segTitle}>{displayTitle}</Text>
 
-          <View style={s.segTimerRow}>
-            <View style={{ flex: 1, marginRight: rs(12) }}>
-              <Text style={s.timerText} numberOfLines={1} adjustsFontSizeToFit>
-                {displayTimer}
-              </Text>
-              <Text style={s.timerSub} numberOfLines={2}>{displaySub}</Text>
-            </View>
+          <View style={[s.segTimerRow, noTimer && { justifyContent: "flex-end" }]}>
+            {!noTimer && (
+              <View style={{ flex: 1, marginRight: rs(12) }}>
+                <Text style={s.timerText} numberOfLines={1} adjustsFontSizeToFit>
+                  {displayTimer}
+                </Text>
+                <Text style={s.timerSub} numberOfLines={2}>{displaySub}</Text>
+              </View>
+            )}
 
             <View style={{ flexDirection: "column", gap: rs(8) }}>
               {isPaused ? (
@@ -946,26 +935,6 @@ export default function HomeScreen() {
     const displayTimeRange = activeSeg
       ? `${activeSeg.heure_debut.slice(0, 5)} – ${activeSeg.heure_fin.slice(0, 5)}`
       : "—";
-
-    // 5a. Le créneau n'est pas encore disponible (plus de 5 min avant son début)
-    //     -> on fige cette zone sur le planning du jour, en attendant l'ouverture.
-    if (activeSeg && !canStartActiveSeg) {
-      return (
-        <View style={s.segCard}>
-          <View style={s.segTopRow}>
-            <View style={[s.segBadge, { backgroundColor: "rgba(255,255,255,0.22)" }]}>
-              <Feather name="clock" size={rf(10)} color="#fff" style={{ marginRight: rs(4) }} />
-              <Text style={s.segBadgeTxt}>PROCHAINE ACTIVITÉ</Text>
-            </View>
-            <Text style={s.segTimeRange}>{displayTimeRange}</Text>
-          </View>
-          <Text style={s.segTitle}>{displayTitle}</Text>
-          <Text style={s.pendingRowTxt}>
-            Disponible à partir de {toHHMM(toMin(activeSeg.heure_debut) - 5)} (5 min avant le début)
-          </Text>
-        </View>
-      );
-    }
 
     return (
       <View style={s.segCard}>
@@ -1095,7 +1064,7 @@ export default function HomeScreen() {
 
             <Text style={[s.periodeLabel, { marginTop: rs(16) }]}>Jour</Text>
             <View style={s.periodeJours}>
-              {JOURS_FR.map((j, i) => {
+              {JOURS_NUM.map((j, i) => {
                 const sel = draftJour === i;
                 return (
                   <TouchableOpacity
@@ -1105,7 +1074,7 @@ export default function HomeScreen() {
                     activeOpacity={0.75}
                   >
                     <Text style={[s.periodeCellTxt, sel && s.periodeCellTxtSel]}>
-                      {j.slice(0, 3)}{i === todayIdx ? " •" : ""}
+                      {j}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -1138,7 +1107,7 @@ export default function HomeScreen() {
               <TouchableOpacity style={s.periodePill} onPress={() => setPeriode(null)} activeOpacity={0.8}>
                 <Feather name="calendar" size={rf(12)} color={C.brand} />
                 <Text style={s.periodePillTxt}>
-                  Semaine {periode.semaine} · {JOURS_FR[periode.jour]}
+                  Semaine {periode.semaine} · {JOURS_NUM[periode.jour]}
                 </Text>
                 <Text style={s.periodePillChange}>Changer</Text>
               </TouchableOpacity>
@@ -1159,15 +1128,13 @@ export default function HomeScreen() {
               {nextScheduledDay ? (
                 <>
                   <Text style={s.segEmptyMsg}>
-                    {JOURS_FR[nextScheduledDay.dayIdx]}{" "}
-                    {nextScheduledDay.date.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
+                    {JOURS_NUM[nextScheduledDay.dayIdx]}
                     {" · "}{nextScheduledDay.segs.length} cours
                   </Text>
                   <TouchableOpacity
                     style={[s.nextCourseBtn, { marginTop: rs(4), width: "80%" }]}
                     onPress={() => {
-                      const dateStr = nextScheduledDay.date.toISOString();
-                      router.push(`/next-planning?dayIdx=${nextScheduledDay.dayIdx}&dateStr=${encodeURIComponent(dateStr)}`);
+                      router.push(`/next-planning?dayIdx=${nextScheduledDay.dayIdx}`);
                     }}
                     activeOpacity={0.8}
                   >
@@ -1194,7 +1161,7 @@ export default function HomeScreen() {
               <TouchableOpacity style={s.periodePill} onPress={() => setPeriode(null)} activeOpacity={0.8}>
                 <Feather name="calendar" size={rf(12)} color={C.brand} />
                 <Text style={s.periodePillTxt}>
-                  Semaine {periode.semaine} · {JOURS_FR[periode.jour]}
+                  Semaine {periode.semaine} · {JOURS_NUM[periode.jour]}
                 </Text>
                 <Text style={s.periodePillChange}>Changer</Text>
               </TouchableOpacity>
