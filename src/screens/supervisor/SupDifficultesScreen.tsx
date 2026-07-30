@@ -27,6 +27,7 @@ export default function SupDifficultesScreen() {
   const [error,      setError]      = useState<string | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [selectedTeacherId, setSelectedTeacherId] = useState<string | null>(null);
+  const [resolvingKey, setResolvingKey] = useState<string | null>(null);
 
   const fetchDifficultes = useCallback(async () => {
     try {
@@ -58,6 +59,22 @@ export default function SupDifficultesScreen() {
   const formatDate = (iso: string) => {
     const d = new Date(iso);
     return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
+  };
+
+  const toggleResolve = async (rapportId: string, label: string) => {
+    const key = `${rapportId}:${label}`;
+    const item = items.find(it => it.id === rapportId);
+    const nextValue = !(item?.resolutions?.[label] ?? false);
+    setResolvingKey(key);
+    try {
+      await superviseurApi.resolveDifficulte(rapportId, label, nextValue);
+      setItems(prev => prev.map(it =>
+        it.id === rapportId
+          ? { ...it, resolutions: { ...it.resolutions, [label]: nextValue } }
+          : it
+      ));
+    } catch { /* silencieux — hors-ligne ou erreur réseau */ }
+    finally { setResolvingKey(null); }
   };
 
   // ── Regroupement par enseignant ──────────────────────────────────────────
@@ -128,11 +145,24 @@ export default function SupDifficultesScreen() {
                   </View>
 
                   <View style={styles.diffTags}>
-                    {item.difficultes.map((d, i) => (
-                      <View key={i} style={styles.diffTag}>
-                        <Text style={styles.diffTagText}>{d}</Text>
-                      </View>
-                    ))}
+                    {item.difficultes.map((d, i) => {
+                      const isResolved = !!item.resolutions?.[d];
+                      const isBusy = resolvingKey === `${item.id}:${d}`;
+                      return (
+                        <View key={i} style={[styles.diffTag, isResolved && styles.diffTagResolved]}>
+                          <Text style={[styles.diffTagText, isResolved && styles.diffTagTextResolved]}>{d}</Text>
+                          <TouchableOpacity
+                            style={[styles.resolveBtn, isResolved && styles.resolveBtnResolved]}
+                            disabled={isBusy}
+                            onPress={() => toggleResolve(item.id, d)}
+                          >
+                            <Text style={[styles.resolveBtnText, isResolved && styles.resolveBtnTextResolved]}>
+                              {isBusy ? "…" : isResolved ? "✓ Résolu" : "Régler"}
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    })}
                   </View>
 
                   {item.autres_difficultes && (
@@ -140,6 +170,15 @@ export default function SupDifficultesScreen() {
                   )}
                   {item.description_difficultes && (
                     <Text style={styles.diffDetail}>{item.description_difficultes}</Text>
+                  )}
+                  {item.nb_absences > 0 && (
+                    <View style={styles.absenceRow}>
+                      <Feather name="user-x" size={rs(13)} color={C.danger} />
+                      <Text style={styles.absenceText}>
+                        {item.nb_absences} absence{item.nb_absences !== 1 ? "s" : ""}
+                        {item.absents ? ` — ${item.absents}` : ""}
+                      </Text>
+                    </View>
                   )}
                 </View>
               ))}
@@ -246,8 +285,18 @@ const styles = StyleSheet.create({
   cardSub:     { fontSize: rf(12.5), color: C.textMuted, marginTop: rs(1) },
 
   diffTags:    { flexDirection: "row", flexWrap: "wrap", gap: rs(6) },
-  diffTag:     { backgroundColor: C.dangerSoft, borderRadius: rs(8), paddingHorizontal: rs(10), paddingVertical: rs(5) },
+  diffTag:     { flexDirection: "row", alignItems: "center", gap: rs(6), backgroundColor: C.dangerSoft, borderRadius: rs(8), paddingLeft: rs(10), paddingRight: rs(4), paddingVertical: rs(4) },
+  diffTagResolved: { backgroundColor: C.successSoft },
   diffTagText: { fontSize: rf(12), fontWeight: "600", color: C.danger },
+  diffTagTextResolved: { color: C.success },
+
+  resolveBtn:  { backgroundColor: "rgba(255,255,255,0.7)", borderRadius: rs(6), paddingHorizontal: rs(8), paddingVertical: rs(3) },
+  resolveBtnResolved: { backgroundColor: C.success },
+  resolveBtnText: { fontSize: rf(10.5), fontWeight: "700", color: C.danger },
+  resolveBtnTextResolved: { color: "#fff" },
+
+  absenceRow:  { flexDirection: "row", alignItems: "center", gap: rs(6) },
+  absenceText: { fontSize: rf(12.5), fontWeight: "600", color: C.danger },
 
   diffDetail:  { fontSize: rf(13), color: C.textMuted, lineHeight: rf(19) },
 });

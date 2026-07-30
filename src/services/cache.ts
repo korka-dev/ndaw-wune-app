@@ -25,6 +25,7 @@ export interface SyncPayload {
   school: {
     id: string; name: string; region: string | null;
     city: string | null; director: string | null;
+    langue?: string | null;
   } | null;
   active_session: {
     id: string; name: string; date_debut: string; date_fin: string;
@@ -41,6 +42,9 @@ export interface SyncPayload {
     id: string; label: string; type: string;
     options: string[] | null; required: boolean; ordre: number;
   }[];
+  rapport_difficultes?: { id: string; label: string; ordre: number }[];
+  nb_semaines?: number;   // nombre de semaines de progression proposées au tuteur (défaut 10)
+  nb_jours?: number;      // nombre de jours par semaine proposés au tuteur (défaut 3)
   stats?: {
     nb_eleves?: number;
     nb_tests?: number;
@@ -124,6 +128,9 @@ export interface DifficulteItem {
   difficultes: string[];
   autres_difficultes: string | null;
   description_difficultes: string | null;
+  nb_absences: number;
+  absents: string | null;
+  resolutions: Record<string, boolean>;
 }
 
 export async function getCachedDifficultes(): Promise<DifficulteItem[] | null> {

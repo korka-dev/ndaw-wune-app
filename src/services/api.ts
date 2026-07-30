@@ -206,6 +206,22 @@ export const superviseurApi = {
   /** Difficultés signalées par les enseignants assignés (rapports journaliers). */
   getDifficultes: () => api.get("/app/supervisor/difficultes"),
 
+  /** Marque une difficulté individuelle d'un rapport comme résolue/non résolue. */
+  resolveDifficulte: (
+    rapportId: string,
+    difficulteLabel: string,
+    resolue: boolean,
+    commentaireResolution?: string
+  ) =>
+    api.patch(`/app/supervisor/difficultes/${rapportId}/resolve`, {
+      difficulte_label: difficulteLabel,
+      resolue,
+      commentaire_resolution: commentaireResolution,
+    }),
+
+  /** Progression (semaine/jour) des enseignants assignés, dérivée du dernier rapport soumis. */
+  getProgression: () => api.get("/app/supervisor/progression"),
+
   /** Sujets d'évaluation avec les élèves assignés à ce superviseur. */
   evaluationSujets: () => api.get("/app/supervisor/evaluation-sujets"),
 
@@ -244,6 +260,18 @@ export const remarquesApi = {
   submit: (d: { categorie: string; message: string; ecole?: string | null }) =>
     api.post("/app/remarques", d),
   list: () => api.get("/app/remarques"),
+};
+
+// ── Remplacement d'élève (vue enseignant) ─────────────────────────────────────
+export const remplacementsApi = {
+  /** Remplace un élève par un autre, avec motif. Effet immédiat sur le roster. */
+  create: (d: {
+    ancien_eleve_id?: string | null;
+    ancien_eleve_nom?: string | null;
+    nouveau_eleve_nom: string;
+    classe: string;
+    motif: string;
+  }) => api.post("/app/remplacements", d),
 };
 
 // ── Ressources pédagogiques ───────────────────────────────────────────────────

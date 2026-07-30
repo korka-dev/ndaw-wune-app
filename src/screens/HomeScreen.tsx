@@ -56,7 +56,6 @@ function toHHMM(totalMin: number): string {
 function segTitle(seg: any): string { return seg.titre ?? seg.matiere ?? seg.classe ?? ""; }
 
 const JOURS_FR  = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
-const JOURS_NUM = Array.from({ length: 7 }, (_, i) => `Jour ${i + 1}`);
 
 /* ── Composant ───────────────────────────────────────────────── */
 export default function HomeScreen() {
@@ -65,6 +64,12 @@ export default function HomeScreen() {
   const { user, syncData, activeSeance, setActiveSeance, isOnline, syncOffline } = useStore();
   const noTimer = (user as any)?.app_access === "no_timer";
   const planning = syncData?.planning ?? [];
+  const nbSemaines = syncData?.nb_semaines ?? 10;
+  const nbJours = syncData?.nb_jours ?? 3;
+  const JOURS_NUM = useMemo(
+    () => Array.from({ length: nbJours }, (_, i) => `Jour ${i + 1}`),
+    [nbJours]
+  );
 
   const jsDay     = new Date().getDay();
   const todayIdx  = jsDay === 0 ? 6 : jsDay - 1;
@@ -86,9 +91,9 @@ export default function HomeScreen() {
    */
   const nextScheduledDay = useMemo(() => {
     if (!periode) return null;
-    for (let offset = 1; offset <= 6; offset++) {
+    for (let offset = 1; offset < nbJours; offset++) {
       const dayIdx = periode.jour + offset;
-      if (dayIdx >= 7) break;
+      if (dayIdx >= nbJours) break;
       const segs = [...planning]
         .filter(p => p.jour === dayIdx)
         .filter(p => p.semaine == null || p.semaine === periode.semaine)
@@ -99,7 +104,7 @@ export default function HomeScreen() {
     }
     return null;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planning, periode]);
+  }, [planning, periode, nbJours]);
 
   /* ── État démarrage explicite de la séance ── */
   const [seanceStarted, setSeanceStarted] = useState(false);
@@ -824,41 +829,10 @@ export default function HomeScreen() {
       );
     }
 
-    // 3. Tâche manquée — afficher l'alerte si aucune séance n'est en cours
-    if (!activeSeance && missedAlertSeg && todayPlan.some((s: any) => s.id === missedAlertSeg.id)) {
-      const missedTitle     = segTitle(missedAlertSeg);
-      const missedTimeRange = `${missedAlertSeg.heure_debut.slice(0, 5)} – ${missedAlertSeg.heure_fin.slice(0, 5)}`;
-      const hasNextSeg      = pendingSegs.length > 0;
-
-      return (
-        <View style={[s.segCard, { backgroundColor: "#FFF3F3", borderWidth: 1.5, borderColor: C.danger }]}>
-          <View style={s.segTopRow}>
-            <View style={[s.segBadge, { backgroundColor: C.danger }]}>
-              <Feather name="alert-triangle" size={rf(10)} color="#fff" style={{ marginRight: rs(4) }} />
-              <Text style={s.segBadgeTxt}>TÂCHE MANQUÉE</Text>
-            </View>
-            <Text style={s.segTimeRange}>{missedTimeRange}</Text>
-          </View>
-
-          <Text style={[s.segTitle, { color: C.danger }]}>{missedTitle}</Text>
-
-          <Text style={{ color: "#666", fontSize: rf(13), marginBottom: rs(16), lineHeight: rs(19) }}>
-            Cette activité n'a pas été démarrée dans le créneau prévu.
-          </Text>
-
-          <TouchableOpacity
-            style={[s.btnAction, { backgroundColor: hasNextSeg ? C.brand : "#999", alignSelf: "flex-start" }]}
-            onPress={() => setMissedAlertSeg(null)}
-            activeOpacity={0.8}
-          >
-            <Feather name={hasNextSeg ? "skip-forward" : "check"} size={rf(13)} color="#fff" style={{ marginRight: rs(6) }} />
-            <Text style={s.btnActionTxt}>
-              {hasNextSeg ? "Passer à la tâche suivante" : "Fermer"}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      );
-    }
+    // Note : la carte d'alerte "TÂCHE MANQUÉE" a été retirée à la demande des
+    // tuteurs (jugée trop complexe/stressante). Le suivi backend du statut
+    // "manquee" et la détection ci-dessus restent inchangés pour la recherche —
+    // seul l'affichage de cette alerte au tuteur a été supprimé.
 
     const isSeanceActive = !!activeSeance;
 
@@ -1047,7 +1021,7 @@ export default function HomeScreen() {
 
             <Text style={s.periodeLabel}>Semaine de progression</Text>
             <View style={s.periodeGrid}>
-              {Array.from({ length: 25 }, (_, i) => i + 1).map(n => {
+              {Array.from({ length: nbSemaines }, (_, i) => i + 1).map(n => {
                 const sel = draftSemaine === n;
                 return (
                   <TouchableOpacity

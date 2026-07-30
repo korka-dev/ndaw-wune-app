@@ -4,6 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import * as SplashScreen from "expo-splash-screen";
 import NetworkWatcher from "../src/components/NetworkWatcher";
+import UpdateBanner from "../src/components/UpdateBanner";
 import { initDB } from "../src/services/db";
 import {
   setupNotifications,
@@ -76,6 +77,7 @@ export default function RootLayout() {
         translucent={false}
       />
       <NetworkWatcher />
+      <UpdateBanner />
       <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="welcome" />

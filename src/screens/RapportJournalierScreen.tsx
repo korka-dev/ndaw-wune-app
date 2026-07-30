@@ -26,7 +26,10 @@ import { rapportJournalierApi } from "../services/api";
 // ── Constantes ─────────────────────────────────────────────────────────────
 
 
-const DIFFICULTES_LIST = [
+// Repli utilisé si la synchronisation n'a jamais eu lieu (1er lancement hors-ligne).
+// En temps normal, la liste vient de `syncData.rapport_difficultes` (configurable
+// par l'admin dans le dashboard, section "Questions de Rapport").
+const DIFFICULTES_FALLBACK = [
   "Gestion des groupes",
   "Gestion du temps",
   "Enseignement de la leçon de lecture",
@@ -129,6 +132,12 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
   // Questions complémentaires configurées par l'admin (dynamiques)
   const rapportQuestions = syncData?.rapport_questions ?? [];
   const [reponses, setReponses] = useState<Record<string, string>>({});
+
+  // Liste des difficultés configurée par l'admin (repli si jamais synchronisé)
+  const difficultesSync = syncData?.rapport_difficultes ?? [];
+  const DIFFICULTES_LIST = difficultesSync.length > 0
+    ? difficultesSync.map(d => d.label)
+    : DIFFICULTES_FALLBACK;
 
   // Étape 6 — Photos (jusqu'à 3)
   const [photos, setPhotos] = useState<{ uri: string; base64: string | null }[]>([]);
