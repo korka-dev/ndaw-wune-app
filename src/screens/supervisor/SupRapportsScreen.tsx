@@ -8,7 +8,12 @@ import { format } from "date-fns";
 import { useStore } from "../../store/useStore";
 import { C } from "../../utils/theme";
 import { rf, rs } from "../../utils/responsive";
-import { rapportJournalierApi } from "../../services/api";
+import { rapportJournalierApi, superviseurApi } from "../../services/api";
+import {
+  getCachedSupRapportQuestions,
+  setCachedSupRapportQuestions,
+  SupRapportQuestionItem,
+} from "../../services/cache";
 import {
   getRapportsJournalier,
   insertRapportJournalier,
@@ -49,6 +54,22 @@ export default function SupRapportsScreen() {
 
   useFocusEffect(useCallback(() => { loadAndSync(); }, [loadAndSync]));
 
+  // Questions complémentaires configurées par l'admin (dynamiques, cible = superviseur)
+  const [supQuestions, setSupQuestions] = useState<SupRapportQuestionItem[]>([]);
+  const [reponses,     setReponses]     = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    getCachedSupRapportQuestions().then(cached => { if (cached) setSupQuestions(cached); }).catch(() => {});
+    if (!isOnline) return;
+    superviseurApi.sync()
+      .then(({ data }) => {
+        const items: SupRapportQuestionItem[] = data.rapport_questions ?? [];
+        setSupQuestions(items);
+        setCachedSupRapportQuestions(items).catch(() => {});
+      })
+      .catch(() => {});
+  }, [isOnline]);
+
   useEffect(() => {
     if (!isOnline) return;
     const all = getRapportsJournalier();
@@ -83,6 +104,7 @@ export default function SupRapportsScreen() {
     setFormStep(0);
     setView("menu");
     setClassesTerminees(4); setIncidents(null); setIncidentDetail(""); setBilan(null); setCommentaire("");
+    setReponses({});
   };
 
   const startForm = () => setFormStep(1);
@@ -97,8 +119,14 @@ export default function SupRapportsScreen() {
 
   const goPrev = () => setFormStep(1);
 
+  const missingRequiredQuestion = supQuestions.find(q => q.required && !reponses[q.id]?.trim());
+
   const handleSend = async () => {
     if (bilan === null) return;
+    if (missingRequiredQuestion) {
+      Alert.alert("Champ manquant", `Veuillez répondre : « ${missingRequiredQuestion.label} »`);
+      return;
+    }
     setSending(true);
     try {
       const now = new Date();
@@ -114,6 +142,7 @@ export default function SupRapportsScreen() {
 
       const commentFinal = commentaire.trim() ? `${resume}\n\n${commentaire.trim()}` : resume;
       const diffsJson = JSON.stringify(incidents ? [incidentDetail.trim() || "Incident signalé"] : []);
+      const reponsesJson = Object.keys(reponses).length > 0 ? JSON.stringify(reponses) : null;
 
       insertRapportJournalier({
         id: localId, date_rapport: dateIso,
@@ -130,7 +159,7 @@ export default function SupRapportsScreen() {
         soumis_en_offline: offline ? 1 : 0,
         photo_classe: null,
         photos_classe: null,
-        reponses_questions: null,
+        reponses_questions: reponsesJson,
       });
 
       const apiBody = {
@@ -147,6 +176,7 @@ export default function SupRapportsScreen() {
         commentaires: commentFinal,
         soumis_en_offline: offline,
         photo_classe_url: null,
+        reponses_questions: reponsesJson,
       };
 
       if (isOnline) {
@@ -308,7 +338,7 @@ export default function SupRapportsScreen() {
 
   /* ── Page 2 : Bilan global → fin ── */
   if (formStep === 2) {
-    const canSend = bilan !== null;
+    const canSend = bilan !== null && !missingRequiredQuestion;
     return (
       <KeyboardAvoidingView
         style={[styles.formRoot, { paddingTop: insets.top }]}
@@ -348,6 +378,93 @@ export default function SupRapportsScreen() {
             <TextInput value={commentaire} onChangeText={setCommentaire} multiline numberOfLines={4} placeholder="Observations, points positifs, difficultés rencontrées…" placeholderTextColor={C.textMuted}
               style={styles.textarea} />
           </View>
+
+          {/* Questions complémentaires configurées par l'admin (dynamiques) */}
+          {supQuestions.map(q => (
+            <View key={q.id} style={styles.fieldCard}>
+              <View style={styles.fieldCardHeader}>
+                <View style={[styles.fieldIconWrap, { backgroundColor: C.surfaceAlt }]}>
+                  <Feather name="help-circle" size={rf(17)} color={C.textMuted} />
+                </View>
+                <Text style={styles.fieldLabel}>{q.label}{q.required ? " *" : ""}</Text>
+              </View>
+
+              {(q.type === "texte_court" || q.type === "nombre") && (
+                <TextInput
+                  value={reponses[q.id] ?? ""}
+                  onChangeText={(v) => setReponses(prev => ({ ...prev, [q.id]: v }))}
+                  placeholder="Votre réponse…" placeholderTextColor={C.textMuted}
+                  keyboardType={q.type === "nombre" ? "numeric" : "default"}
+                  style={[styles.textarea, { minHeight: undefined }]}
+                />
+              )}
+
+              {q.type === "texte_long" && (
+                <TextInput
+                  value={reponses[q.id] ?? ""}
+                  onChangeText={(v) => setReponses(prev => ({ ...prev, [q.id]: v }))}
+                  placeholder="Votre réponse…" placeholderTextColor={C.textMuted}
+                  multiline numberOfLines={4}
+                  style={styles.textarea}
+                />
+              )}
+
+              {q.type === "oui_non" && (
+                <View style={styles.optionRow}>
+                  <TouchableOpacity
+                    onPress={() => setReponses(prev => ({ ...prev, [q.id]: "oui" }))}
+                    style={[styles.bilanBtn, reponses[q.id] === "oui" && { borderColor: C.success, backgroundColor: C.success + "22" }]}
+                  >
+                    <Text style={[styles.bilanText, reponses[q.id] === "oui" && { color: C.success }]}>Oui</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setReponses(prev => ({ ...prev, [q.id]: "non" }))}
+                    style={[styles.bilanBtn, reponses[q.id] === "non" && { borderColor: C.danger, backgroundColor: C.danger + "22" }]}
+                  >
+                    <Text style={[styles.bilanText, reponses[q.id] === "non" && { color: C.danger }]}>Non</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {q.type === "choix_unique" && (
+                <View style={{ gap: rs(8) }}>
+                  {(q.options ?? []).map(opt => {
+                    const sel = reponses[q.id] === opt;
+                    return (
+                      <TouchableOpacity
+                        key={opt}
+                        onPress={() => setReponses(prev => ({ ...prev, [q.id]: opt }))}
+                        style={[styles.choiceRow, sel && styles.choiceRowSel]}
+                      >
+                        <Text style={[styles.choiceTxt, sel && styles.choiceTxtSel]}>{opt}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+
+              {q.type === "choix_multiple" && (
+                <View style={{ gap: rs(8) }}>
+                  {(q.options ?? []).map(opt => {
+                    const selected = (reponses[q.id] ?? "").split("||").filter(Boolean);
+                    const checked = selected.includes(opt);
+                    return (
+                      <TouchableOpacity
+                        key={opt}
+                        onPress={() => {
+                          const next = checked ? selected.filter(o => o !== opt) : [...selected, opt];
+                          setReponses(prev => ({ ...prev, [q.id]: next.join("||") }));
+                        }}
+                        style={[styles.choiceRow, checked && styles.choiceRowSel]}
+                      >
+                        <Text style={[styles.choiceTxt, checked && styles.choiceTxtSel]}>{opt}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+          ))}
         </ScrollView>
 
         <View style={styles.navRow}>
@@ -628,6 +745,10 @@ const styles = StyleSheet.create({
   bilanBtn:   { flex:1, paddingVertical:rs(12), borderRadius:rs(11), borderWidth:2, borderColor:C.border, alignItems:"center" },
   bilanText:  { fontSize:rf(15), fontWeight:"700", color:C.textMuted },
   textarea:   { borderWidth:1.5, borderColor:C.border, borderRadius:rs(12), padding:rs(12), color:C.text, fontSize:rf(15), minHeight:rs(100), textAlignVertical:"top", backgroundColor:C.bg, width:"100%", alignSelf:"stretch" },
+  choiceRow:    { flexDirection:"row", alignItems:"center", paddingVertical:rs(11), paddingHorizontal:rs(14), borderRadius:rs(11), borderWidth:1.5, borderColor:C.border, backgroundColor:C.bg },
+  choiceRowSel: { borderColor:C.brand, backgroundColor:C.brandSoft },
+  choiceTxt:    { fontSize:rf(14), color:C.text, fontWeight:"500" },
+  choiceTxtSel: { color:C.brand, fontWeight:"700" },
   navRow:     { padding:rs(16), borderTopWidth:1, borderTopColor:C.border, backgroundColor:C.surface },
   nextBtn:    { backgroundColor:C.brand, paddingVertical:rs(15), borderRadius:rs(14), flexDirection:"row", alignItems:"center", justifyContent:"center" },
   nextBtnDisabled: { backgroundColor:C.surfaceAlt },

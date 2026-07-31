@@ -74,7 +74,9 @@ export default function HomeScreen() {
   const jsDay     = new Date().getDay();
   const todayIdx  = jsDay === 0 ? 6 : jsDay - 1;
 
-  /* ── Période (Semaine + Jour) choisie par le tuteur avant d'afficher le planning ── */
+  /* ── Période (Semaine + Jour de progression — "Jour 1", "Jour 2"…, PAS le
+     jour réel de la semaine) choisie manuellement par le tuteur avant
+     d'afficher le planning correspondant ── */
   const [periode, setPeriode] = useState<{ semaine: number; jour: number } | null>(null);
   const [periodeLoaded, setPeriodeLoaded] = useState(false);
   const [draftSemaine, setDraftSemaine] = useState<number | null>(null);
@@ -85,26 +87,6 @@ export default function HomeScreen() {
     .filter(p => p.jour === selectedJour)
     .filter(p => p.semaine == null || !periode || p.semaine === periode.semaine)
     .sort((a, b) => a.heure_debut.localeCompare(b.heure_debut));
-
-  /**
-   * Prochain jour avec un planning (Jour suivant dans la même semaine de progression).
-   */
-  const nextScheduledDay = useMemo(() => {
-    if (!periode) return null;
-    for (let offset = 1; offset < nbJours; offset++) {
-      const dayIdx = periode.jour + offset;
-      if (dayIdx >= nbJours) break;
-      const segs = [...planning]
-        .filter(p => p.jour === dayIdx)
-        .filter(p => p.semaine == null || p.semaine === periode.semaine)
-        .sort((a, b) => a.heure_debut.localeCompare(b.heure_debut));
-      if (segs.length > 0) {
-        return { dayIdx, segs, offset };
-      }
-    }
-    return null;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planning, periode, nbJours]);
 
   /* ── État démarrage explicite de la séance ── */
   const [seanceStarted, setSeanceStarted] = useState(false);
@@ -791,25 +773,6 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
           )}
-
-          {/* Carte 2 : Prochain planning */}
-          {nextScheduledDay ? (
-            <View style={[s.segCard, s.segCardEmpty, { marginTop: 0 }]}>
-              <Feather name="calendar" size={rf(32)} color={C.brand} style={{ marginBottom: rs(10) }} />
-              <Text style={s.segEmptyTitle}>Prochain planning</Text>
-              <Text style={s.segEmptyMsg}>
-                {JOURS_NUM[nextScheduledDay.dayIdx]}
-                {" · "}{nextScheduledDay.segs.length} cours
-              </Text>
-            </View>
-          ) : (
-            /* Aucun prochain planning dans la semaine */
-            <View style={[s.segCard, s.segCardEmpty, { marginTop: 0 }]}>
-              <Feather name="calendar" size={rf(32)} color={C.brand} style={{ marginBottom: rs(10) }} />
-              <Text style={s.segEmptyTitle}>Prochain planning</Text>
-              <Text style={s.segEmptyMsg}>Aucun cours planifié cette semaine</Text>
-            </View>
-          )}
         </View>
       );
     }
@@ -998,7 +961,7 @@ export default function HomeScreen() {
               <Text style={s.periodeTitle}>Choisissez la période</Text>
             </View>
             <Text style={s.periodeSub}>
-              Sélectionnez la semaine de progression et le jour pour afficher le planning adapté.
+              Sélectionnez la semaine de progression et le jour pour afficher le planning correspondant.
             </Text>
 
             <Text style={s.periodeLabel}>Semaine de progression</Text>
@@ -1068,26 +1031,11 @@ export default function HomeScreen() {
               </View>
             )}
 
-            {/* Carte 1 — Pas de cours */}
+            {/* Carte — Pas de cours */}
             <View style={[s.segCard, s.segCardEmpty]}>
               <Feather name="calendar" size={rf(32)} color={C.brand} style={{ marginBottom: rs(10) }} />
               <Text style={s.segEmptyTitle}>Pas de cours pour cette période</Text>
               <Text style={s.segEmptyMsg}>Aucun créneau pour la semaine et le jour choisis</Text>
-            </View>
-
-            {/* Carte 2 — Prochain planning (toujours visible) */}
-            <View style={[s.segCard, s.segCardEmpty, { marginTop: rs(12) }]}>
-              <Feather name="arrow-right-circle" size={rf(32)} color={C.brand} style={{ marginBottom: rs(10) }} />
-              <Text style={s.segEmptyTitle}>Prochain planning</Text>
-
-              {nextScheduledDay ? (
-                <Text style={s.segEmptyMsg}>
-                  {JOURS_NUM[nextScheduledDay.dayIdx]}
-                  {" · "}{nextScheduledDay.segs.length} cours
-                </Text>
-              ) : (
-                <Text style={s.segEmptyMsg}>Aucun cours planifié cette semaine</Text>
-              )}
             </View>
           </View>
         </ScrollView>

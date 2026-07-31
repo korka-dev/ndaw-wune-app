@@ -14,6 +14,7 @@ const SUP_EVALS_KEY  = "ared_supervisor_evaluations";
 const SUP_ELEVES_KEY = "ared_supervisor_eleves";
 const SUP_COMPETENCES_KEY = "ared_evaluation_competences";
 const SUP_DIFFICULTES_KEY = "ared_supervisor_difficultes";
+const SUP_RAPPORT_QUESTIONS_KEY = "ared_supervisor_rapport_questions";
 const TEACHER_EVALS_KEY   = "ared_teacher_evaluations";
 
 export interface SyncPayload {
@@ -70,7 +71,21 @@ export async function getLastSyncDate(): Promise<string | null> {
 }
 
 export async function clearCache(): Promise<void> {
-  await AsyncStorage.multiRemove([SYNC_KEY, SYNC_DATE_KEY, SUP_EVALS_KEY, SUP_ELEVES_KEY, SUP_COMPETENCES_KEY, SUP_DIFFICULTES_KEY, TEACHER_EVALS_KEY]);
+  await AsyncStorage.multiRemove([SYNC_KEY, SYNC_DATE_KEY, SUP_EVALS_KEY, SUP_ELEVES_KEY, SUP_COMPETENCES_KEY, SUP_DIFFICULTES_KEY, SUP_RAPPORT_QUESTIONS_KEY, TEACHER_EVALS_KEY]);
+}
+
+/** Questions complémentaires (configurées par l'admin) destinées au rapport du superviseur. */
+export interface SupRapportQuestionItem {
+  id: string; label: string; type: string;
+  options: string[] | null; required: boolean; ordre: number;
+}
+
+export async function getCachedSupRapportQuestions(): Promise<SupRapportQuestionItem[] | null> {
+  return getEncryptedItem<SupRapportQuestionItem[]>(SUP_RAPPORT_QUESTIONS_KEY);
+}
+
+export async function setCachedSupRapportQuestions(items: SupRapportQuestionItem[]): Promise<void> {
+  await setEncryptedItem(SUP_RAPPORT_QUESTIONS_KEY, items);
 }
 
 /** Cache local des compétences d'évaluation configurées par l'admin (superviseur), pour usage hors-ligne. */
