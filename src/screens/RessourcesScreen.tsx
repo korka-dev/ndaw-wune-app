@@ -513,11 +513,15 @@ export default function RessourcesScreen() {
         type: doc.mime_type || "application/pdf",
       });
     } catch {
-      const token = await getSecure("access_token").catch(() => null);
-      if (token) {
+      // Jeton de courte durée (2 min, scopé à ce document) — jamais le token
+      // d'accès complet, pour limiter les dégâts si l'app externe le capture.
+      try {
+        const { data } = await ressourcesApi.getDownloadToken(doc.id);
         await Linking.openURL(
-          `${ressourcesApi.downloadUrl(doc.id)}?access_token=${token}`
+          `${ressourcesApi.downloadUrl(doc.id)}?access_token=${data.token}`
         ).catch(() => {});
+      } catch {
+        /* silencieux — pas de connexion ou session expirée */
       }
     }
   }, [downloads]);

@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { authApi, superviseurApi } from "../services/api";
-import { setSecure, clearAuthTokens } from "../services/secureStorage";
-import { fetchAndCache, getCached, clearCache, setCachedLangueEnseignement, SyncPayload } from "../services/cache";
+import { setSecure, getSecure, clearAuthTokens } from "../services/secureStorage";
+import { fetchAndCache, getCached, clearCache, SyncPayload } from "../services/cache";
 import { clearAllLocalData } from "../services/db";
 import { flushQueue, clearOfflineIdMap } from "../services/queue";
 import { cancelAllSessionAlerts } from "../services/notifications";
@@ -40,7 +40,6 @@ interface AppStore {
   setActiveSeance:   (s: ActiveSeance | null) => void;
   setIsOnline:       (v: boolean) => void;
   clearPasswordFlag: () => void;
-  setLangueEnseignement: (langue: string) => Promise<void>;
 }
 
 export const useStore = create<AppStore>((set, get) => ({
@@ -54,15 +53,6 @@ export const useStore = create<AppStore>((set, get) => ({
   activeSeance:       null,
 
   setIsOnline:       (v) => set({ isOnline: v }),
-  setLangueEnseignement: async (langue) => {
-    const { user, syncData } = get();
-    if (!user) return;
-    set({
-      user:     { ...user, langue_enseignement: langue },
-      syncData: syncData ? { ...syncData, profile: { ...syncData.profile, langue_enseignement: langue } } : syncData,
-    });
-    await setCachedLangueEnseignement(langue).catch(() => {});
-  },
   setActiveSeance:   (s) => {
     set({ activeSeance: s });
     // Persister dans AsyncStorage pour survie au redémarrage / background kill
@@ -154,8 +144,11 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   logout: async () => {
-    // Tenter de révoquer le token côté serveur (best-effort)
-    try { await authApi.logout(); } catch {}
+    // Tenter de révoquer le token d'accès ET le refresh token côté serveur (best-effort)
+    try {
+      const refreshToken = await getSecure("refresh_token").catch(() => null);
+      await authApi.logout(refreshToken);
+    } catch {}
 
     await cancelAllSessionAlerts(); // Annule les rappels de séance planifiés
     await clearAuthTokens();        // SecureStore : access_token, refresh_token, user_role

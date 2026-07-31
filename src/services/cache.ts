@@ -1,9 +1,12 @@
 /**
  * Service de cache offline.
  * Stocke le SyncPayload dans AsyncStorage pour utilisation sans connexion.
+ * Les valeurs sont chiffrées au repos (voir cryptoStorage.ts) — le cache
+ * contient de vraies données d'élèves et d'enseignants.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { syncApi } from "./api";
+import { getEncryptedItem, setEncryptedItem } from "./cryptoStorage";
 
 const SYNC_KEY      = "ared_sync_payload";
 const SYNC_DATE_KEY = "ared_sync_date";
@@ -20,7 +23,6 @@ export interface SyncPayload {
     email: string | null; phone: string | null;
     role: string; school_id: string | null; classes: string[] | null;
     app_access?: string;                    // "full" | "timer_only"
-    langue_enseignement?: string | null;
   };
   school: {
     id: string; name: string; region: string | null;
@@ -54,31 +56,21 @@ export interface SyncPayload {
 
 export async function fetchAndCache(): Promise<SyncPayload> {
   const { data } = await syncApi.sync();
-  await AsyncStorage.setItem(SYNC_KEY, JSON.stringify(data));
+  await setEncryptedItem(SYNC_KEY, data);
   await AsyncStorage.setItem(SYNC_DATE_KEY, new Date().toISOString());
   return data as SyncPayload;
 }
 
 export async function getCached(): Promise<SyncPayload | null> {
-  const raw = await AsyncStorage.getItem(SYNC_KEY);
-  if (!raw) return null;
-  return JSON.parse(raw) as SyncPayload;
+  return getEncryptedItem<SyncPayload>(SYNC_KEY);
 }
 
 export async function getLastSyncDate(): Promise<string | null> {
   return AsyncStorage.getItem(SYNC_DATE_KEY);
 }
 
-/** Met à jour la langue d'enseignement dans le cache local (préférence appareil). */
-export async function setCachedLangueEnseignement(langue: string): Promise<void> {
-  const cached = await getCached();
-  if (!cached) return;
-  cached.profile.langue_enseignement = langue;
-  await AsyncStorage.setItem(SYNC_KEY, JSON.stringify(cached));
-}
-
 export async function clearCache(): Promise<void> {
-  await AsyncStorage.multiRemove([SYNC_KEY, SYNC_DATE_KEY, "access_token", "refresh_token", "user_role", SUP_EVALS_KEY, SUP_ELEVES_KEY, SUP_COMPETENCES_KEY, SUP_DIFFICULTES_KEY, TEACHER_EVALS_KEY]);
+  await AsyncStorage.multiRemove([SYNC_KEY, SYNC_DATE_KEY, SUP_EVALS_KEY, SUP_ELEVES_KEY, SUP_COMPETENCES_KEY, SUP_DIFFICULTES_KEY, TEACHER_EVALS_KEY]);
 }
 
 /** Cache local des compétences d'évaluation configurées par l'admin (superviseur), pour usage hors-ligne. */
@@ -87,22 +79,20 @@ export interface EvaluationCompetenceItem {
 }
 
 export async function getCachedEvaluationCompetences(): Promise<EvaluationCompetenceItem[] | null> {
-  const raw = await AsyncStorage.getItem(SUP_COMPETENCES_KEY);
-  return raw ? JSON.parse(raw) : null;
+  return getEncryptedItem<EvaluationCompetenceItem[]>(SUP_COMPETENCES_KEY);
 }
 
 export async function setCachedEvaluationCompetences(items: EvaluationCompetenceItem[]): Promise<void> {
-  await AsyncStorage.setItem(SUP_COMPETENCES_KEY, JSON.stringify(items));
+  await setEncryptedItem(SUP_COMPETENCES_KEY, items);
 }
 
 /** Cache local des classes/élèves du superviseur, pour consultation hors-ligne. */
 export async function getCachedSupEleves(): Promise<any[] | null> {
-  const raw = await AsyncStorage.getItem(SUP_ELEVES_KEY);
-  return raw ? JSON.parse(raw) : null;
+  return getEncryptedItem<any[]>(SUP_ELEVES_KEY);
 }
 
 export async function setCachedSupEleves(classes: any[]): Promise<void> {
-  await AsyncStorage.setItem(SUP_ELEVES_KEY, JSON.stringify(classes));
+  await setEncryptedItem(SUP_ELEVES_KEY, classes);
 }
 
 /**
@@ -110,12 +100,11 @@ export async function setCachedSupEleves(classes: any[]): Promise<void> {
  * Stocké sous forme de paires [clé, résultat] — clé = "<competence>:<eleve_id>".
  */
 export async function getCachedEvaluations(): Promise<[string, string][]> {
-  const raw = await AsyncStorage.getItem(SUP_EVALS_KEY);
-  return raw ? JSON.parse(raw) : [];
+  return (await getEncryptedItem<[string, string][]>(SUP_EVALS_KEY)) ?? [];
 }
 
 export async function setCachedEvaluations(entries: [string, string][]): Promise<void> {
-  await AsyncStorage.setItem(SUP_EVALS_KEY, JSON.stringify(entries));
+  await setEncryptedItem(SUP_EVALS_KEY, entries);
 }
 
 /** Cache local des difficultés signalées par les enseignants assignés (superviseur), pour consultation hors-ligne. */
@@ -134,12 +123,11 @@ export interface DifficulteItem {
 }
 
 export async function getCachedDifficultes(): Promise<DifficulteItem[] | null> {
-  const raw = await AsyncStorage.getItem(SUP_DIFFICULTES_KEY);
-  return raw ? JSON.parse(raw) : null;
+  return getEncryptedItem<DifficulteItem[]>(SUP_DIFFICULTES_KEY);
 }
 
 export async function setCachedDifficultes(items: DifficulteItem[]): Promise<void> {
-  await AsyncStorage.setItem(SUP_DIFFICULTES_KEY, JSON.stringify(items));
+  await setEncryptedItem(SUP_DIFFICULTES_KEY, items);
 }
 
 /** Cache local des évaluations reçues par l'enseignant (depuis les superviseurs). */
@@ -156,10 +144,9 @@ export interface TeacherEvalItem {
 }
 
 export async function getCachedTeacherEvaluations(): Promise<TeacherEvalItem[]> {
-  const raw = await AsyncStorage.getItem(TEACHER_EVALS_KEY);
-  return raw ? JSON.parse(raw) : [];
+  return (await getEncryptedItem<TeacherEvalItem[]>(TEACHER_EVALS_KEY)) ?? [];
 }
 
 export async function setCachedTeacherEvaluations(items: TeacherEvalItem[]): Promise<void> {
-  await AsyncStorage.setItem(TEACHER_EVALS_KEY, JSON.stringify(items));
+  await setEncryptedItem(TEACHER_EVALS_KEY, items);
 }

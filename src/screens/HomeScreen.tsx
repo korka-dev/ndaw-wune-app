@@ -509,8 +509,6 @@ export default function HomeScreen() {
   /* ── Profil ── */
   const [showProfile, setShowProfile] = useState(false);
 
-  /* ── Tâches non faites (modal "Voir plus") ── */
-  const [showPendingTasks, setShowPendingTasks] = useState(false);
 
   /* ── Rapport modal ── */
   const [showRapport, setShowRapport] = useState(false);
@@ -803,19 +801,6 @@ export default function HomeScreen() {
                 {JOURS_NUM[nextScheduledDay.dayIdx]}
                 {" · "}{nextScheduledDay.segs.length} cours
               </Text>
-
-              {/* Bouton Voir plus */}
-              <TouchableOpacity
-                style={[s.nextCourseBtn, { marginTop: rs(16), width: '80%' }]}
-                onPress={() => {
-                  router.push(`/next-planning?dayIdx=${nextScheduledDay.dayIdx}`);
-                }}
-                activeOpacity={0.8}
-              >
-                <Feather name="eye" size={rf(14)} color="#fff" style={{ marginRight: rs(6) }} />
-                <Text style={s.nextCourseBtnTxt}>Voir plus</Text>
-                <Feather name="chevron-right" size={rf(14)} color="#fff" style={{ marginLeft: rs(6) }} />
-              </TouchableOpacity>
             </View>
           ) : (
             /* Aucun prochain planning dans la semaine */
@@ -934,9 +919,6 @@ export default function HomeScreen() {
             <Text style={s.pendingRowTxt}>
               {pendingSegs.length} tâches non faites aujourd'hui
             </Text>
-            <TouchableOpacity onPress={() => setShowPendingTasks(true)} activeOpacity={0.7}>
-              <Text style={s.pendingRowLink}>Voir plus</Text>
-            </TouchableOpacity>
           </View>
         )}
       </View>
@@ -1078,13 +1060,12 @@ export default function HomeScreen() {
             <Text style={s.greetingCenter}>Bonjour, {greetName} 👋</Text>
 
             {periode && (
-              <TouchableOpacity style={s.periodePill} onPress={() => setPeriode(null)} activeOpacity={0.8}>
+              <View style={s.periodePill}>
                 <Feather name="calendar" size={rf(12)} color={C.brand} />
                 <Text style={s.periodePillTxt}>
                   Semaine {periode.semaine} · {JOURS_NUM[periode.jour]}
                 </Text>
-                <Text style={s.periodePillChange}>Changer</Text>
-              </TouchableOpacity>
+              </View>
             )}
 
             {/* Carte 1 — Pas de cours */}
@@ -1100,23 +1081,10 @@ export default function HomeScreen() {
               <Text style={s.segEmptyTitle}>Prochain planning</Text>
 
               {nextScheduledDay ? (
-                <>
-                  <Text style={s.segEmptyMsg}>
-                    {JOURS_NUM[nextScheduledDay.dayIdx]}
-                    {" · "}{nextScheduledDay.segs.length} cours
-                  </Text>
-                  <TouchableOpacity
-                    style={[s.nextCourseBtn, { marginTop: rs(4), width: "80%" }]}
-                    onPress={() => {
-                      router.push(`/next-planning?dayIdx=${nextScheduledDay.dayIdx}`);
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <Feather name="eye" size={rf(14)} color="#fff" style={{ marginRight: rs(6) }} />
-                    <Text style={s.nextCourseBtnTxt}>Voir plus</Text>
-                    <Feather name="chevron-right" size={rf(14)} color="#fff" style={{ marginLeft: rs(6) }} />
-                  </TouchableOpacity>
-                </>
+                <Text style={s.segEmptyMsg}>
+                  {JOURS_NUM[nextScheduledDay.dayIdx]}
+                  {" · "}{nextScheduledDay.segs.length} cours
+                </Text>
               ) : (
                 <Text style={s.segEmptyMsg}>Aucun cours planifié cette semaine</Text>
               )}
@@ -1132,13 +1100,12 @@ export default function HomeScreen() {
             <Text style={s.greeting}>Bonjour, {greetName} 👋</Text>
 
             {periode && (
-              <TouchableOpacity style={s.periodePill} onPress={() => setPeriode(null)} activeOpacity={0.8}>
+              <View style={s.periodePill}>
                 <Feather name="calendar" size={rf(12)} color={C.brand} />
                 <Text style={s.periodePillTxt}>
                   Semaine {periode.semaine} · {JOURS_NUM[periode.jour]}
                 </Text>
-                <Text style={s.periodePillChange}>Changer</Text>
-              </TouchableOpacity>
+              </View>
             )}
 
             <TourTarget id="home.seance">
@@ -1270,21 +1237,6 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Modal tâches non faites */}
-      <Modal visible={showPendingTasks} animationType="slide" transparent onRequestClose={() => setShowPendingTasks(false)}>
-        <TouchableOpacity style={s.overlay} activeOpacity={1} onPress={() => setShowPendingTasks(false)}>
-          <TouchableOpacity activeOpacity={1} style={[s.sheet, { paddingBottom: rs(20) + insets.bottom }]} onPress={() => {}}>
-            <View style={s.handle} />
-            <Text style={s.sheetTitle}>Tâches non faites</Text>
-            <Text style={s.sheetSub}>{pendingSegs.length} tâche(s) restante(s) aujourd'hui</Text>
-
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {pendingSegs.map(renderPlanRow)}
-              <View style={{ height: rs(16) }} />
-            </ScrollView>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
     </View>
   );
 }
@@ -1329,7 +1281,6 @@ const s = StyleSheet.create({
     marginTop: rs(6), marginBottom: rs(4),
   },
   periodePillTxt:    { fontSize: rf(12), fontWeight: "700", color: C.brand },
-  periodePillChange: { fontSize: rf(12), fontWeight: "700", color: C.brand, textDecorationLine: "underline", marginLeft: rs(4) },
 
   remarquesFab: {
     position: "absolute", right: rs(18),
@@ -1350,10 +1301,6 @@ const s = StyleSheet.create({
   dateLabelCenter:   { fontSize: rf(15), color: C.textMuted, fontWeight: "500", marginBottom: rs(4), textAlign: "center" },
   greetingCenter:    { fontSize: rf(24), fontWeight: "800", color: C.text, marginBottom: rs(20), textAlign: "center" },
 
-  /* Bouton Voir Planning */
-  nextCourseBtn:     { flexDirection: "row", alignItems: "center", justifyContent: "center", backgroundColor: C.brand, paddingVertical: rs(14), borderRadius: rs(14), marginTop: rs(12), width: "100%" },
-  nextCourseBtnTxt:  { fontSize: rf(16), fontWeight: "700", color: "#fff" },
-
   dateLabel:  { fontSize: rf(15), color: C.textMuted, fontWeight: "500", marginBottom: rs(4) },
   greeting:   { fontSize: rf(24), fontWeight: "800", color: C.text, marginBottom: rs(16) },
 
@@ -1366,7 +1313,6 @@ const s = StyleSheet.create({
 
   pendingRow:    { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: rs(14), paddingTop: rs(12), borderTopWidth: 1, borderTopColor: "rgba(255,255,255,0.22)" },
   pendingRowTxt: { color: "#fff", fontSize: rf(13), fontWeight: "600", opacity: 0.9 },
-  pendingRowLink:{ color: "#fff", fontSize: rf(13), fontWeight: "800", textDecorationLine: "underline" },
 
   segTitle:     { color: "#fff", fontSize: rf(20), fontWeight: "800", marginBottom: rs(14), lineHeight: rf(26) },
   segTimerRow:  { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: rs(14) },

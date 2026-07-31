@@ -27,6 +27,34 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
+// ── Rafraîchissement mutualisé ────────────────────────────────────────────────
+// Plusieurs requêtes peuvent échouer en 401 au même instant (expiration du
+// token pendant que plusieurs écrans appellent l'API en parallèle). Sans
+// mutex, chacune déclencherait son propre POST /auth/refresh avec le même
+// refresh token — inutile, et risqué si le backend venait à faire tourner les
+// refresh tokens à usage unique (un seul des appels concurrents réussirait,
+// les autres provoqueraient une déconnexion forcée alors que la session était
+// valide). Toutes les requêtes en attente partagent donc la même promesse.
+let refreshPromise: Promise<{ access_token: string; refresh_token: string }> | null = null;
+
+async function performSharedRefresh(): Promise<{ access_token: string; refresh_token: string }> {
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      const refresh = await getSecure("refresh_token");
+      if (!refresh) throw new Error("Aucun refresh token disponible.");
+      const { data } = await axios.post(`${API_URL}/auth/refresh`, {
+        refresh_token: refresh,
+      });
+      await setSecure("access_token",  data.access_token);
+      await setSecure("refresh_token", data.refresh_token);
+      return data;
+    })().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
 // ── Intercepteur réponse : refresh automatique sur 401 ───────────────────────
 api.interceptors.response.use(
   (res) => res,
@@ -34,21 +62,14 @@ api.interceptors.response.use(
     const original = error.config;
     if (error.response?.status === 401 && !original._retry) {
       original._retry = true;
-      const refresh = await getSecure("refresh_token");
-      if (refresh) {
-        try {
-          const { data } = await axios.post(`${API_URL}/auth/refresh`, {
-            refresh_token: refresh,
-          });
-          await setSecure("access_token",  data.access_token);
-          await setSecure("refresh_token", data.refresh_token);
-          original.headers.Authorization = `Bearer ${data.access_token}`;
-          return api(original);
-        } catch {
-          // Refresh expiré → effacer les tokens et forcer le retour au login
-          await clearAuthTokens();
-          dispatchAuthFailure();
-        }
+      try {
+        const data = await performSharedRefresh();
+        original.headers.Authorization = `Bearer ${data.access_token}`;
+        return api(original);
+      } catch {
+        // Refresh expiré → effacer les tokens et forcer le retour au login
+        await clearAuthTokens();
+        dispatchAuthFailure();
       }
     }
     return Promise.reject(error);
@@ -75,7 +96,10 @@ export const authApi = {
     api.post("/auth/reset-password", { identifier, new_password, confirm_password }),
 
   /** Déconnexion : révoque le token d'accès côté serveur. */
-  logout: () => api.post("/auth/logout"),
+  /** Envoie aussi le refresh_token pour qu'il soit révoqué côté serveur, pas
+   *  seulement le token d'accès — sinon un refresh token volé survivrait au logout. */
+  logout: (refresh_token?: string | null) =>
+    api.post("/auth/logout", refresh_token ? { refresh_token } : {}),
 
   refresh: (refresh_token: string) =>
     api.post("/auth/refresh", { refresh_token }),
@@ -282,4 +306,8 @@ export const ressourcesApi = {
     api.get(`/app/ressources/${id}/download`, { responseType: "blob" }),
   /** URL directe pour ouvrir via Linking (authentification par header non possible). */
   downloadUrl: (id: string) => `${api.defaults.baseURL}/app/ressources/${id}/download`,
+  /** Jeton de téléchargement de courte durée (2 min, scopé à ce document) — à utiliser
+   *  dans downloadUrl() pour une ouverture externe, jamais le token d'accès complet. */
+  getDownloadToken: (id: string) =>
+    api.post<{ token: string; expires_in: number }>(`/app/ressources/${id}/download-token`),
 };

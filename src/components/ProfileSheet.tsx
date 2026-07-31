@@ -11,16 +11,16 @@
 import React, { useState } from "react";
 import {
   View, Text, TouchableOpacity, StyleSheet, Modal,
-  ScrollView, Alert, Platform, useWindowDimensions,
+  ScrollView, Alert, Platform, useWindowDimensions, ActivityIndicator,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as Updates from "expo-updates";
+import Constants from "expo-constants";
 import { useStore } from "../store/useStore";
 import { C } from "../utils/theme";
 import { rs, rf } from "../utils/responsive";
-
-const LANGUES_ENSEIGNEMENT = ["Wolof", "Sereer", "Pulaar"];
 
 interface Props {
   visible: boolean;
@@ -38,12 +38,13 @@ function initials(name: string): string {
 }
 
 export default function ProfileSheet({ visible, onClose }: Props) {
-  const { user, syncData, logout, setLangueEnseignement } = useStore();
+  const { user, syncData, logout } = useStore();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { height: screenH } = useWindowDimensions();
-  const [langueModalVisible, setLangueModalVisible] = useState(false);
   const [classeModalVisible, setClasseModalVisible] = useState(false);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const appVersion = Constants.expoConfig?.version ?? "—";
 
   if (!user) return null;
 
@@ -53,9 +54,37 @@ export default function ProfileSheet({ visible, onClose }: Props) {
   const school   = syncData?.school?.name ?? "—";
   const classe   = user.classes?.join(", ") ?? "—";
   const phone    = user.phone ?? "—";
-  const langue   = user.langue_enseignement ?? "Wolof";
+  const langue   = syncData?.school?.langue ?? "—";
   const eleves   = syncData?.eleves ?? [];
   const nbEleves = isEnseignant ? eleves.length : (syncData?.stats?.nb_eleves ?? 0);
+
+  const handleCheckForUpdate = async () => {
+    if (!Updates.isEnabled) {
+      Alert.alert("Indisponible", "Les mises à jour ne sont pas disponibles dans cette version de développement.");
+      return;
+    }
+    setCheckingUpdate(true);
+    try {
+      const result = await Updates.checkForUpdateAsync();
+      if (!result.isAvailable) {
+        Alert.alert("À jour", "Vous utilisez déjà la dernière version de l'application.");
+        return;
+      }
+      await Updates.fetchUpdateAsync();
+      Alert.alert(
+        "Mise à jour disponible",
+        "Une nouvelle version a été téléchargée. Redémarrer l'application maintenant ?",
+        [
+          { text: "Plus tard", style: "cancel" },
+          { text: "Redémarrer", onPress: () => Updates.reloadAsync() },
+        ]
+      );
+    } catch {
+      Alert.alert("Erreur", "Impossible de vérifier les mises à jour. Vérifiez votre connexion.");
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
 
   const handleLogout = () => {
     Alert.alert("Déconnexion", "Voulez-vous vous déconnecter ?", [
@@ -155,12 +184,8 @@ export default function ProfileSheet({ visible, onClose }: Props) {
                 </TouchableOpacity>
               )}
 
-              {/* Langue d'enseignement */}
-              <TouchableOpacity
-                style={[s.menuRow, s.menuBorder]}
-                activeOpacity={0.6}
-                onPress={() => setLangueModalVisible(true)}
-              >
+              {/* Langue d'enseignement (déterminée par l'école, non modifiable) */}
+              <View style={[s.menuRow, s.menuBorder]}>
                 <View style={s.menuIconBox}>
                   <Feather name="globe" size={rf(22)} color={C.brand} />
                 </View>
@@ -168,10 +193,7 @@ export default function ProfileSheet({ visible, onClose }: Props) {
                   <Text style={s.menuLabel}>Langue d'enseignement</Text>
                   <Text style={s.menuSub}>{langue}</Text>
                 </View>
-                <View style={s.changerBtn}>
-                  <Text style={s.changerTxt}>Changer</Text>
-                </View>
-              </TouchableOpacity>
+              </View>
 
               {/* Aide */}
               <TouchableOpacity style={s.menuRow} activeOpacity={0.6}>
@@ -182,6 +204,18 @@ export default function ProfileSheet({ visible, onClose }: Props) {
                 <Feather name="chevron-right" size={rf(20)} color="#AAA" />
               </TouchableOpacity>
             </View>
+
+            {/* ── Bouton mise à jour ── */}
+            <TouchableOpacity
+              style={s.updateBtn}
+              onPress={handleCheckForUpdate}
+              disabled={checkingUpdate}
+              activeOpacity={0.7}
+            >
+              {checkingUpdate
+                ? <ActivityIndicator size="small" color={C.brand} />
+                : <Text style={s.updateTxt}>Vérifier les mises à jour · v{appVersion}</Text>}
+            </TouchableOpacity>
 
             {/* ── Bouton Déconnexion ── */}
             <TouchableOpacity
@@ -198,39 +232,6 @@ export default function ProfileSheet({ visible, onClose }: Props) {
           </ScrollView>
         </View>
       </View>
-
-      {/* ── Modal sélection langue d'enseignement ── */}
-      <Modal
-        visible={langueModalVisible}
-        animationType="fade"
-        transparent
-        statusBarTranslucent
-        onRequestClose={() => setLangueModalVisible(false)}
-      >
-        <TouchableOpacity
-          style={s.langueOverlay}
-          activeOpacity={1}
-          onPress={() => setLangueModalVisible(false)}
-        >
-          <View style={s.langueCard} onStartShouldSetResponder={() => true}>
-            <Text style={s.langueTitle}>Langue d'enseignement</Text>
-            {LANGUES_ENSEIGNEMENT.map(opt => (
-              <TouchableOpacity
-                key={opt}
-                style={[s.langueOption, langue === opt && s.langueOptionSel]}
-                activeOpacity={0.7}
-                onPress={async () => {
-                  await setLangueEnseignement(opt);
-                  setLangueModalVisible(false);
-                }}
-              >
-                <Text style={[s.langueOptionTxt, langue === opt && s.langueOptionTxtSel]}>{opt}</Text>
-                {langue === opt && <Feather name="check" size={rf(20)} color={C.brand} />}
-              </TouchableOpacity>
-            ))}
-          </View>
-        </TouchableOpacity>
-      </Modal>
 
       {/* ── Modal liste des élèves de la classe ── */}
       <Modal
@@ -379,11 +380,14 @@ const s = StyleSheet.create({
   menuSub: {
     fontSize: rf(15), fontWeight: "500", color: "#666", marginTop: rs(3),
   },
-  changerBtn: {
-    borderWidth: 2, borderColor: C.brand,
-    borderRadius: rs(10), paddingHorizontal: rs(14), paddingVertical: rs(7),
+
+  /* ── Mise à jour ── */
+  updateBtn: {
+    backgroundColor: "#FFFFFF", borderWidth: 1.5, borderColor: "#E8E0CC",
+    borderRadius: rs(14), paddingVertical: rs(14),
+    alignItems: "center", justifyContent: "center", marginBottom: rs(12),
   },
-  changerTxt: { fontSize: rf(15), fontWeight: "800", color: C.brand },
+  updateTxt: { color: C.brand, fontWeight: "700", fontSize: rf(15) },
 
   /* ── Déconnexion ── */
   logoutBtn: {
@@ -396,32 +400,13 @@ const s = StyleSheet.create({
     color: "#C0392B", fontWeight: "800", fontSize: rf(18), marginLeft: rs(10),
   },
 
-  /* ── Modal langue d'enseignement ── */
+  /* ── Modal overlay générique (Ma classe) ── */
   langueOverlay: {
     flex: 1, backgroundColor: "rgba(0,0,0,0.5)",
     alignItems: "center", justifyContent: "center", padding: rs(24),
   },
-  langueCard: {
-    width: "100%", maxWidth: rs(360),
-    backgroundColor: "#FFFFFF", borderRadius: rs(18), padding: rs(18),
-  },
   langueTitle: {
     fontSize: rf(18), fontWeight: "800", color: "#1A1A1A", marginBottom: rs(12),
-  },
-  langueOption: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingVertical: rs(14), paddingHorizontal: rs(14),
-    borderRadius: rs(12), marginBottom: rs(8),
-    borderWidth: 1.5, borderColor: "#E8E0CC",
-  },
-  langueOptionSel: {
-    borderColor: C.brand, backgroundColor: "#F5EDDA",
-  },
-  langueOptionTxt: {
-    fontSize: rf(16), fontWeight: "600", color: "#1A1A1A",
-  },
-  langueOptionTxtSel: {
-    color: C.brand, fontWeight: "800",
   },
 
   /* ── Modal Ma classe (liste des élèves) ── */

@@ -44,8 +44,6 @@ function makeInitials(name: string) {
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
-const JOURS_FR = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
-
 function daysSince(dateStr: string | null): number | null {
   if (!dateStr) return null;
   const d = new Date(dateStr);
@@ -70,13 +68,18 @@ export default function SupPresencesScreen() {
 
   const [recapOpen,    setRecapOpen]    = useState(false);
 
+  /* ── Nombre de semaines/jours du programme (même config que la partie tuteur) ── */
+  const [nbSemaines, setNbSemaines] = useState(10);
+  const [nbJours,    setNbJours]    = useState(3);
+  const JOURS_NUM = React.useMemo(
+    () => Array.from({ length: nbJours }, (_, i) => `Jour ${i + 1}`),
+    [nbJours]
+  );
+
   /* ── Période (Semaine + Jour) choisie avant le pointage ── */
   const [periode, setPeriode] = useState<{ semaine: number; jour: number } | null>(null);
   const [draftSemaine, setDraftSemaine] = useState<number | null>(null);
-  const [draftJour, setDraftJour] = useState<number>(() => {
-    const d = new Date().getDay();
-    return d === 0 ? 6 : d - 1;
-  });
+  const [draftJour, setDraftJour] = useState<number>(0);
 
   useEffect(() => {
     AsyncStorage.getItem(`sup-periode-${todayIso()}`)
@@ -132,6 +135,9 @@ export default function SupPresencesScreen() {
 
         const rawTeachers: { id: string; name: string; classes?: string[]; last_rapport_date?: string | null }[] =
           data.assigned_teachers ?? [];
+
+        setNbSemaines(data.nb_semaines ?? 10);
+        setNbJours(data.nb_jours ?? 3);
 
         if (rawTeachers.length === 0) {
           setProfs([]);
@@ -387,6 +393,15 @@ export default function SupPresencesScreen() {
   const absentsCount  = profs.filter(p => p.present === false).length;
   const defined       = profs.filter(p => p.present !== null).length;
 
+  /* ── Auto-validation : dès que tous les enseignants du jour sont pointés,
+     on soumet automatiquement et on bascule vers l'écran récapitulatif,
+     sans action manuelle supplémentaire. ── */
+  useEffect(() => {
+    if (!loading && !locked && !validating && profs.length > 0 && defined === profs.length) {
+      handleValidate();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defined, profs.length, locked, validating, loading]);
 
   const avatarBg    = (p: Prof) => p.present === true ? C.successSoft : p.present === false ? C.dangerSoft : C.surfaceAlt;
   const avatarColor = (p: Prof) => p.present === true ? C.success    : p.present === false ? C.danger     : C.textMuted;
@@ -492,7 +507,7 @@ export default function SupPresencesScreen() {
 
               <Text style={styles.periodeLabel}>Semaine de progression</Text>
               <View style={styles.periodeGrid}>
-                {Array.from({ length: 25 }, (_, i) => i + 1).map(n => {
+                {Array.from({ length: nbSemaines }, (_, i) => i + 1).map(n => {
                   const sel = draftSemaine === n;
                   return (
                     <TouchableOpacity
@@ -509,7 +524,7 @@ export default function SupPresencesScreen() {
 
               <Text style={[styles.periodeLabel, { marginTop: rs(14) }]}>Jour de cours</Text>
               <View style={styles.periodeGrid}>
-                {JOURS_FR.map((j, i) => {
+                {JOURS_NUM.map((j, i) => {
                   const sel = draftJour === i;
                   return (
                     <TouchableOpacity
@@ -518,7 +533,7 @@ export default function SupPresencesScreen() {
                       onPress={() => setDraftJour(i)}
                       activeOpacity={0.75}
                     >
-                      <Text style={[styles.periodeCellTxt, sel && styles.periodeCellTxtSel]}>{j.slice(0, 3)}</Text>
+                      <Text style={[styles.periodeCellTxt, sel && styles.periodeCellTxtSel]}>{j}</Text>
                     </TouchableOpacity>
                   );
                 })}
@@ -563,7 +578,7 @@ export default function SupPresencesScreen() {
               <TouchableOpacity style={styles.periodePill} onPress={() => setPeriode(null)} activeOpacity={0.8}>
                 <Feather name="calendar" size={rf(12)} color={C.brand} />
                 <Text style={styles.periodePillTxt}>
-                  Semaine {periode.semaine} · {JOURS_FR[periode.jour]}
+                  Semaine {periode.semaine} · {JOURS_NUM[periode.jour]}
                 </Text>
                 <Text style={styles.periodePillChange}>Changer</Text>
               </TouchableOpacity>

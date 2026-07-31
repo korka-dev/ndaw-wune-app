@@ -9,12 +9,12 @@
     "splash": {
       "image": "./assets/logo.png",
       "resizeMode": "contain",
-      "backgroundColor": "#FAF7F1"
+      "backgroundColor": "#FFFFFF"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#1a56db"
+        "backgroundColor": "#FFFFFF"
       },
       "package": "sn.aroka.ared.ndawune",
       "permissions": [
@@ -69,7 +69,13 @@
         }
       ],
       "expo-secure-store",
-      "expo-file-system"
+      "expo-file-system",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Ndaw Wune utilise Face ID pour verrouiller l'accès à l'application."
+        }
+      ]
     ],
     "scheme": "ared-ndawune",
     "runtimeVersion": {

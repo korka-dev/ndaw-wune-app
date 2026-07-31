@@ -30,7 +30,7 @@ export default function ProfileScreen() {
   const school    = syncData?.school?.name ?? "—";
   const classe    = user.classes?.join(", ") ?? "—";
   const phone     = user.phone ?? "—";
-  const langue    = user.langue_enseignement ?? "Wolof";
+  const langue    = syncData?.school?.langue ?? "—";
   const nbEleves  = syncData?.stats?.nb_eleves  ?? 0;
   const nbTests   = syncData?.stats?.nb_tests   ?? 0;
   const nbFiches  = syncData?.stats?.nb_fiches  ?? 0;
@@ -102,8 +102,8 @@ export default function ProfileScreen() {
             <Feather name="chevron-right" size={20} color="#999" />
           </TouchableOpacity>
 
-          {/* Langue d'enseignement */}
-          <TouchableOpacity style={[s.menuRow, s.menuBorder]} activeOpacity={0.6}>
+          {/* Langue d'enseignement (déterminée par l'école, non modifiable) */}
+          <View style={[s.menuRow, s.menuBorder]}>
             <View style={s.menuIconBox}>
               <Feather name="globe" size={22} color={C.brand} />
             </View>
@@ -111,10 +111,7 @@ export default function ProfileScreen() {
               <Text style={s.menuLabel}>Langue d'enseignement</Text>
               <Text style={s.menuSub}>{langue}</Text>
             </View>
-            <View style={s.changerBtn}>
-              <Text style={s.changerTxt}>Changer</Text>
-            </View>
-          </TouchableOpacity>
+          </View>
 
           {/* Mode sombre */}
           <View style={[s.menuRow, s.menuBorder]}>
@@ -259,14 +256,6 @@ const s = StyleSheet.create({
     fontWeight: "500",
     color: "#666",
     marginTop: 3,
-  },
-
-  changerBtn: {
-    borderWidth: 2, borderColor: C.brand,
-    borderRadius: 10, paddingHorizontal: 14, paddingVertical: 7,
-  },
-  changerTxt: {
-    fontSize: 15, fontWeight: "800", color: C.brand,
   },
 
   /* ── Bouton Déconnexion ── */
