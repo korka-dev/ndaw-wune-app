@@ -139,6 +139,10 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
     ? difficultesSync.map(d => d.label)
     : DIFFICULTES_FALLBACK;
 
+  // Libellés des champs fixes du formulaire, configurés par l'admin (repli = texte par défaut)
+  const libelles = syncData?.rapport_libelles ?? {};
+  const L = (cle: string, fallback: string) => libelles[cle] || fallback;
+
   // Étape 6 — Photos (jusqu'à 3)
   const [photos, setPhotos] = useState<{ uri: string; base64: string | null }[]>([]);
   const MAX_PHOTOS = 3;
@@ -408,7 +412,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
         return (
           <ScrollView style={s.stepBody} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             {/* Progression */}
-            <Text style={s.question}>Semaine de progression</Text>
+            <Text style={s.question}>{L("tuteur.semaine_label", "Semaine de progression")}</Text>
 
             {/* Banner sélection */}
             {semaine ? (
@@ -473,7 +477,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
             <View style={s.divider} />
 
             {/* Absences — Oui / Non */}
-            <Text style={s.question}>Y a-t-il des absences aujourd'hui ?</Text>
+            <Text style={s.question}>{L("tuteur.absences_question", "Y a-t-il des absences aujourd'hui ?")}</Text>
             <View style={s.toggleRow}>
               <TouchableOpacity
                 style={[s.toggleBtn, hasAbsences === false && s.toggleBtnNo]}
@@ -496,7 +500,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
             {/* Liste des élèves — uniquement si "Oui" */}
             {hasAbsences === true && (
               <>
-                <Text style={[s.question, { marginTop: rs(16) }]}>Sélectionnez les élèves absents</Text>
+                <Text style={[s.question, { marginTop: rs(16) }]}>{L("tuteur.absents_select_label", "Sélectionnez les élèves absents")}</Text>
                 {elevesDisponibles.length > 0 ? (
                   <>
                     {elevesDisponibles.map(eleve => (
@@ -546,7 +550,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
             automaticallyAdjustKeyboardInsets={true}
             showsVerticalScrollIndicator={false}
           >
-            <Text style={s.question}>Difficultés rencontrées</Text>
+            <Text style={s.question}>{L("tuteur.difficultes_question", "Difficultés rencontrées")}</Text>
             {DIFFICULTES_LIST.map(o => (
               <Check key={o} label={o} checked={difficultes.includes(o)} onPress={() => toggleDiff(o)} />
             ))}
@@ -596,7 +600,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
         return (
           <ScrollView style={s.stepBody} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             {/* Supervision */}
-            <Text style={s.question}>Le directeur / superviseur est-il venu ?</Text>
+            <Text style={s.question}>{L("tuteur.directeur_venu_question", "Le directeur / superviseur est-il venu ?")}</Text>
             <View style={s.ouiNonRow}>
               <TouchableOpacity
                 style={[s.ouiNonBtn, directeurVenu === true  && s.ouiNonSel]}
@@ -614,7 +618,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
               </TouchableOpacity>
             </View>
 
-            <Text style={[s.question, { marginTop: rs(20) }]}>Besoin d'appui pédagogique ?</Text>
+            <Text style={[s.question, { marginTop: rs(20) }]}>{L("tuteur.besoin_appui_question", "Besoin d'appui pédagogique ?")}</Text>
             <View style={s.ouiNonRow}>
               <TouchableOpacity
                 style={[s.ouiNonBtn, besoinAppui === true  && s.ouiNonSel]}
@@ -634,7 +638,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
 
             {besoinAppui === true && (
               <>
-                <Text style={[s.question, { marginTop: rs(16) }]}>Domaines d'appui</Text>
+                <Text style={[s.question, { marginTop: rs(16) }]}>{L("tuteur.domaines_appui_label", "Domaines d'appui")}</Text>
                 <TextInput
                   style={s.area} value={domainesAppui} onChangeText={setDomainesAppui}
                   placeholder="Ex : Lecture, Mathématiques…" placeholderTextColor={C.textMuted}
@@ -646,7 +650,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
             <View style={s.divider} />
 
             {/* Observations */}
-            <Text style={s.question}>Avez-vous des observations ou commentaires ?</Text>
+            <Text style={s.question}>{L("tuteur.observations_question", "Avez-vous des observations ou commentaires ?")}</Text>
             <View style={s.ouiNonRow}>
               <TouchableOpacity
                 style={[s.ouiNonBtn, hasObservations === true  && s.ouiNonSel]}
@@ -755,7 +759,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
         return (
           <View style={[s.stepBody, { alignItems: "center" }]}>
             <Text style={[s.question, { textAlign: "center", marginBottom: rs(8) }]}>
-              Ajoutez des photos de la classe
+              {L("tuteur.photos_label", "Ajoutez des photos de la classe")}
             </Text>
             <Text style={[s.photoHint, { textAlign: "center", marginBottom: rs(20) }]}>
               {photos.length}/{MAX_PHOTOS} photo{photos.length > 1 ? "s" : ""} — au moins 1 requise

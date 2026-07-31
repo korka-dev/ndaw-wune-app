@@ -1,21 +1,50 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Modal, TextInput, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Modal, TextInput, ActivityIndicator, RefreshControl, Platform } from "react-native";
 import { useStore } from "../store/useStore";
 import { useRouter } from "expo-router";
 import { rs, rf } from "../utils/responsive";
 import { C } from "../utils/theme";
 import { getFailedActions, clearFailedQueue, FailedQueueItem } from "../services/db";
 import { openAppGuide } from "../components/AppGuide";
-import { remplacementsApi } from "../services/api";
+import { remplacementsApi, syncApi, api } from "../services/api";
+import { fetchAndCache } from "../services/cache";
 import * as Updates from "expo-updates";
 import Constants from "expo-constants";
 
 export default function ProfileScreen() {
-  const { user, syncData, lastSync, logout, isOnline } = useStore();
+  const { user, syncData, lastSync, logout, isOnline, syncOffline } = useStore();
   const router = useRouter();
   const [failedActions, setFailedActions] = useState<FailedQueueItem[]>([]);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const appVersion = Constants.expoConfig?.version ?? "—";
+
+  const handleRefresh = async (silent = false) => {
+    if (!isOnline) {
+      if (!silent) Alert.alert("Hors-ligne", "Impossible d'actualiser sans connexion Internet.");
+      return;
+    }
+    setRefreshing(true);
+    try {
+      // 1) Invalide le cache Redis côté serveur pour forcer une reconstruction
+      try { await syncApi.invalidate(); } catch {}
+      // 2) Re-télécharge le payload frais et met à jour le cache local + le store
+      const payload = await fetchAndCache();
+      useStore.setState({ syncData: payload, user: payload.profile, lastSync: payload.synced_at });
+      if (!silent) {
+        Alert.alert(
+          "Actualisé",
+          `École : ${payload.school?.name ?? "—"}\nClasses : ${(payload.profile.classes ?? []).join(", ") || "—"}\nÉlèves reçus : ${payload.eleves?.length ?? 0}`
+        );
+      }
+    } catch (e: any) {
+      if (!silent) {
+        Alert.alert("Erreur", `Impossible d'actualiser.\n${e?.message ?? e ?? ""}`);
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const handleCheckForUpdate = async () => {
     if (!Updates.isEnabled) {
@@ -85,6 +114,11 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     setFailedActions(getFailedActions());
+    // Sync silencieuse à l'ouverture de l'écran quand on est en ligne, pour
+    // éviter d'afficher des données obsolètes (nb d'élèves, école, etc.).
+    if (isOnline) {
+      handleRefresh(true);
+    }
   }, []);
 
   const handleClearFailed = () => {
@@ -112,25 +146,93 @@ export default function ProfileScreen() {
     ]);
   };
 
-  if (!user) return null;
-  const initials = user.name.split(" ").map((p: string) => p[0] ?? "").join("").slice(0, 2).toUpperCase();
+  // ── Rôle formatté ─────────────────────────────────────────────────────────
+  let displayRole = "Utilisateur";
+  if (user.role === "superviseur") displayRole = "Superviseur";
+  else if (user.role === "enseignant") displayRole = "Enseignant";
+  else if (user.role === "coordonnateur") displayRole = "Coordonnateur";
+  else if (user.role === "admin") displayRole = "Administrateur";
+
+  // ── Données conditionnelles par rôle ──────────────────────────────────────
+  const [nbElevesSup, setNbElevesSup] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (user?.role === "superviseur") {
+      import("../services/cache").then(m => {
+        m.getCachedSupEleves().then(data => {
+          if (data && Array.isArray(data)) {
+            let total = 0;
+            for (const teacher of data) {
+              if (teacher.classes && Array.isArray(teacher.classes)) {
+                for (const cls of teacher.classes) {
+                  total += cls.nb_eleves || 0;
+                }
+              }
+            }
+            setNbElevesSup(total);
+          } else {
+            setNbElevesSup(0);
+          }
+        });
+      });
+    }
+  }, [user?.role]);
+
+  const initials = (user.name ?? "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(w => w[0]?.toUpperCase() ?? "")
+    .join("") || "?";
+
+  const cap = (s?: string | null) =>
+    s ? s.charAt(0).toUpperCase() + s.slice(1) : "—";
 
   const rows: [string, string][] = [
     ["E-mail",    user.email    ?? "—"],
     ["Téléphone", user.phone    ?? "—"],
-    ["Rôle",      user.role === "coordonnateur" ? "Coordonnateur" : "Administrateur"],
-    ["École",     syncData?.school?.name ?? "—"],
-    ["Langue",    syncData?.school?.langue ?? "—"],
-    ["Classes",   user.classes?.join(", ") ?? "—"],
-    ["Session",   syncData?.active_session?.name ?? "Aucune session active"],
+    ["Rôle",      displayRole],
   ];
+  if (user.status) rows.push(["Statut", cap(user.status)]);
+
+  if (user.role === "superviseur") {
+    rows.push(
+      ["Enseignants", `${syncData?.assigned_teachers?.length ?? 0} assignés`],
+      ["Élèves",      nbElevesSup !== null ? `${nbElevesSup} au total` : "Calcul..."],
+      ["Session",     syncData?.active_session?.nom ?? syncData?.active_session?.name ?? "Aucune session active"]
+    );
+  } else {
+    const school = syncData?.school;
+    rows.push(
+      ["École",       school?.name ?? "—"],
+      ["Code école",  school?.code_ecole != null ? String(school.code_ecole) : "—"],
+      ["Région",      school?.region ?? "—"],
+      ["Ville",       school?.city ?? "—"],
+      ["Directeur",   school?.director ?? "—"],
+      ["Tél. directeur", school?.director_phone ?? "—"],
+      ["Langue",      cap(school?.langue)],
+      ["Niveau",      user.niveau?.join(", ") ?? "—"],
+      ["Classes",     user.classes?.join(", ") ?? "—"],
+      ["Groupe",      cap(user.groupe_recherche)],
+      ["Accès app",   user.app_access === "timer_only" ? "Minuteur uniquement" : "Complet"],
+      ["Élèves",      syncData?.stats?.nb_eleves !== undefined ? `${syncData.stats.nb_eleves}` : (syncData?.eleves ? `${syncData.eleves.length}` : "—")],
+      ["Session",     syncData?.active_session?.nom ?? syncData?.active_session?.name ?? "Aucune session active"]
+    );
+  }
 
   const syncLabel = lastSync
     ? new Date(lastSync).toLocaleTimeString("fr", { hour: "2-digit", minute: "2-digit" })
     : null;
 
   return (
-    <ScrollView style={s.screen} contentContainerStyle={s.container} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={s.screen}
+      contentContainerStyle={s.container}
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={C.brand} colors={[C.brand]} />
+      }
+    >
       {/* Avatar */}
       <View style={s.avatarWrap}>
         <View style={s.avatar}>
@@ -178,6 +280,17 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
       )}
+
+      <TouchableOpacity
+        style={s.refreshBtn}
+        onPress={() => handleRefresh(false)}
+        disabled={refreshing}
+        activeOpacity={0.8}
+      >
+        {refreshing
+          ? <ActivityIndicator size="small" color="#fff" />
+          : <Text style={s.refreshTxt}>Actualiser les données</Text>}
+      </TouchableOpacity>
 
       <TouchableOpacity style={s.tutorialBtn} onPress={openAppGuide} activeOpacity={0.8}>
         <Text style={s.tutorialTxt}>Revoir le guide</Text>
@@ -289,6 +402,7 @@ const s = StyleSheet.create({
   online:      { backgroundColor: C.successSoft },
   offline:     { backgroundColor: C.warnSoft },
   networkTxt:  { fontSize: rf(13), fontWeight: "500", color: C.text },
+  debugTxt:    { fontSize: rf(10), color: C.textMuted, textAlign: "center", marginBottom: rs(12), fontFamily: Platform.OS === "ios" ? "Menlo" : "monospace" },
   infoCard:    { backgroundColor: C.surface, borderRadius: rs(16), width: "100%", maxWidth: 480, overflow: "hidden", shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 8, elevation: 2, marginBottom: rs(24), borderWidth: 1, borderColor: C.border },
   row:         { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: rs(12), paddingHorizontal: rs(16) },
   rowBorder:   { borderBottomWidth: 1, borderBottomColor: C.border },
@@ -296,6 +410,8 @@ const s = StyleSheet.create({
   rowValue:    { fontSize: rf(13), color: C.text, fontWeight: "600", flex: 2, textAlign: "right" },
   tutorialBtn: { backgroundColor: C.primarySoft, borderRadius: rs(14), paddingVertical: rs(14), paddingHorizontal: rs(40), marginBottom: rs(12) },
   tutorialTxt: { color: C.primaryDark, fontWeight: "700", fontSize: rf(15) },
+  refreshBtn:  { backgroundColor: C.brand, borderRadius: rs(14), paddingVertical: rs(14), paddingHorizontal: rs(40), marginBottom: rs(12), minHeight: rs(48), alignItems: "center", justifyContent: "center" },
+  refreshTxt:  { color: "#fff", fontWeight: "700", fontSize: rf(15) },
   remplacementBtn: { backgroundColor: C.warnSoft, borderRadius: rs(14), paddingVertical: rs(14), paddingHorizontal: rs(40), marginBottom: rs(12) },
   remplacementTxt: { color: C.text, fontWeight: "700", fontSize: rf(15) },
   updateBtn:   { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: rs(14), paddingVertical: rs(12), paddingHorizontal: rs(40), marginBottom: rs(12), minHeight: rs(44), alignItems: "center", justifyContent: "center" },

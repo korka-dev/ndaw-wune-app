@@ -65,24 +65,41 @@ export default function HomeScreen() {
   const noTimer = (user as any)?.app_access === "no_timer";
   const planning = syncData?.planning ?? [];
   const nbSemaines = syncData?.nb_semaines ?? 10;
-  const nbJours = syncData?.nb_jours ?? 3;
-  const JOURS_NUM = useMemo(
-    () => Array.from({ length: nbJours }, (_, i) => `Jour ${i + 1}`),
-    [nbJours]
-  );
 
   const jsDay     = new Date().getDay();
   const todayIdx  = jsDay === 0 ? 6 : jsDay - 1;
 
-  /* ── Période (Semaine + Jour de progression — "Jour 1", "Jour 2"…, PAS le
-     jour réel de la semaine) choisie manuellement par le tuteur avant
-     d'afficher le planning correspondant ── */
+  /* ── Jours proposés au sélecteur : le "jour" du planning est un index
+     arbitraire défini par l'admin dans le dashboard (pas le jour réel de la
+     semaine — un même "Jour 3" peut tomber n'importe quel jour calendaire
+     selon l'école). On liste donc tous les jours réellement présents dans le
+     planning synchronisé, peu importe le jour où l'app est ouverte, pour ne
+     jamais masquer un créneau existant. ── */
+  const joursDisponibles = useMemo(() => {
+    const set = new Set<number>(planning.map(p => p.jour));
+    if (set.size === 0) {
+      const nbJours = syncData?.nb_jours ?? 3;
+      return Array.from({ length: nbJours }, (_, i) => i);
+    }
+    return Array.from(set).sort((a, b) => a - b);
+  }, [planning, syncData?.nb_jours]);
+
+  /* ── Période (Semaine de progression + Jour du planning admin) choisie
+     manuellement par le tuteur avant d'afficher le planning correspondant ── */
   const [periode, setPeriode] = useState<{ semaine: number; jour: number } | null>(null);
   const [periodeLoaded, setPeriodeLoaded] = useState(false);
   const [draftSemaine, setDraftSemaine] = useState<number | null>(null);
   const [draftJour, setDraftJour] = useState<number>(0);
 
-  const selectedJour = periode?.jour ?? todayIdx;
+  // Garde draftJour valide dès que le planning est chargé (tant qu'aucune période n'est déjà choisie)
+  useEffect(() => {
+    if (!periode && joursDisponibles.length && !joursDisponibles.includes(draftJour)) {
+      setDraftJour(joursDisponibles[0]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [joursDisponibles]);
+
+  const selectedJour = periode?.jour ?? joursDisponibles[0] ?? 0;
   const todayPlan = [...planning]
     .filter(p => p.jour === selectedJour)
     .filter(p => p.semaine == null || !periode || p.semaine === periode.semaine)
@@ -983,17 +1000,17 @@ export default function HomeScreen() {
 
             <Text style={[s.periodeLabel, { marginTop: rs(16) }]}>Jour</Text>
             <View style={s.periodeJours}>
-              {JOURS_NUM.map((j, i) => {
-                const sel = draftJour === i;
+              {joursDisponibles.map(jour => {
+                const sel = draftJour === jour;
                 return (
                   <TouchableOpacity
-                    key={j}
+                    key={jour}
                     style={[s.periodeJour, sel && s.periodeCellSel]}
-                    onPress={() => setDraftJour(i)}
+                    onPress={() => setDraftJour(jour)}
                     activeOpacity={0.75}
                   >
                     <Text style={[s.periodeCellTxt, sel && s.periodeCellTxtSel]}>
-                      {j}
+                      {`Jour ${jour + 1}`}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -1026,7 +1043,7 @@ export default function HomeScreen() {
               <View style={s.periodePill}>
                 <Feather name="calendar" size={rf(12)} color={C.brand} />
                 <Text style={s.periodePillTxt}>
-                  Semaine {periode.semaine} · {JOURS_NUM[periode.jour]}
+                  Semaine {periode.semaine} · {`Jour ${periode.jour + 1}`}
                 </Text>
               </View>
             )}
@@ -1051,7 +1068,7 @@ export default function HomeScreen() {
               <View style={s.periodePill}>
                 <Feather name="calendar" size={rf(12)} color={C.brand} />
                 <Text style={s.periodePillTxt}>
-                  Semaine {periode.semaine} · {JOURS_NUM[periode.jour]}
+                  Semaine {periode.semaine} · {`Jour ${periode.jour + 1}`}
                 </Text>
               </View>
             )}

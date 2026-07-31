@@ -13,6 +13,8 @@ import {
   getCachedSupRapportQuestions,
   setCachedSupRapportQuestions,
   SupRapportQuestionItem,
+  getCachedSupRapportLibelles,
+  setCachedSupRapportLibelles,
 } from "../../services/cache";
 import {
   getRapportsJournalier,
@@ -58,14 +60,22 @@ export default function SupRapportsScreen() {
   const [supQuestions, setSupQuestions] = useState<SupRapportQuestionItem[]>([]);
   const [reponses,     setReponses]     = useState<Record<string, string>>({});
 
+  // Libellés des champs fixes de ce rapport, configurés par l'admin (repli = texte par défaut)
+  const [libelles, setLibelles] = useState<Record<string, string>>({});
+  const L = (cle: string, fallback: string) => libelles[cle] || fallback;
+
   useEffect(() => {
     getCachedSupRapportQuestions().then(cached => { if (cached) setSupQuestions(cached); }).catch(() => {});
+    getCachedSupRapportLibelles().then(cached => { if (cached) setLibelles(cached); }).catch(() => {});
     if (!isOnline) return;
     superviseurApi.sync()
       .then(({ data }) => {
         const items: SupRapportQuestionItem[] = data.rapport_questions ?? [];
         setSupQuestions(items);
         setCachedSupRapportQuestions(items).catch(() => {});
+        const libs: Record<string, string> = data.rapport_libelles ?? {};
+        setLibelles(libs);
+        setCachedSupRapportLibelles(libs).catch(() => {});
       })
       .catch(() => {});
   }, [isOnline]);
@@ -285,7 +295,7 @@ export default function SupRapportsScreen() {
               <View style={[styles.fieldIconWrap, { backgroundColor: C.successSoft }]}>
                 <Feather name="check-square" size={rf(17)} color={C.success} />
               </View>
-              <Text style={styles.fieldLabel}>Classes ayant terminé leur planning</Text>
+              <Text style={styles.fieldLabel}>{L("superviseur.classes_terminees_label", "Classes ayant terminé leur planning")}</Text>
             </View>
             <View style={styles.counterRow}>
               <TouchableOpacity onPress={() => setClassesTerminees(p => Math.max(0,p-1))} style={styles.counterBtn}><Text style={styles.counterBtnText}>−</Text></TouchableOpacity>
@@ -299,7 +309,7 @@ export default function SupRapportsScreen() {
               <View style={[styles.fieldIconWrap, { backgroundColor: C.dangerSoft }]}>
                 <Feather name="alert-triangle" size={rf(17)} color={C.danger} />
               </View>
-              <Text style={styles.fieldLabel}>Incidents signalés ?</Text>
+              <Text style={styles.fieldLabel}>{L("superviseur.incidents_question", "Incidents signalés ?")}</Text>
             </View>
             <View style={styles.optionRow}>
               {([{v:false,l:"Non ✓",c:C.success},{v:true,l:"Oui ⚠",c:C.danger}] as {v:boolean;l:string;c:string}[]).map(opt => {
@@ -355,7 +365,7 @@ export default function SupRapportsScreen() {
               <View style={[styles.fieldIconWrap, { backgroundColor: C.brandSoft }]}>
                 <Feather name="bar-chart-2" size={rf(17)} color={C.brand} />
               </View>
-              <Text style={styles.fieldLabel}>Bilan global</Text>
+              <Text style={styles.fieldLabel}>{L("superviseur.bilan_label", "Bilan global")}</Text>
             </View>
             <View style={styles.optionRow}>
               {BILANS.map(b => {
@@ -373,7 +383,7 @@ export default function SupRapportsScreen() {
               <View style={[styles.fieldIconWrap, { backgroundColor: C.surfaceAlt }]}>
                 <Feather name="message-square" size={rf(17)} color={C.textMuted} />
               </View>
-              <Text style={styles.fieldLabel}>Commentaire <Text style={styles.fieldLabelOptional}>(optionnel)</Text></Text>
+              <Text style={styles.fieldLabel}>{L("superviseur.commentaire_label", "Commentaire")} <Text style={styles.fieldLabelOptional}>(optionnel)</Text></Text>
             </View>
             <TextInput value={commentaire} onChangeText={setCommentaire} multiline numberOfLines={4} placeholder="Observations, points positifs, difficultés rencontrées…" placeholderTextColor={C.textMuted}
               style={styles.textarea} />

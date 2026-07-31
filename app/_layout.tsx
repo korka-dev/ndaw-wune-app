@@ -5,7 +5,6 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import * as SplashScreen from "expo-splash-screen";
 import NetworkWatcher from "../src/components/NetworkWatcher";
 import UpdateBanner from "../src/components/UpdateBanner";
-import AppLockGate from "../src/components/AppLockGate";
 import { initDB } from "../src/services/db";
 import {
   setupNotifications,
@@ -79,43 +78,41 @@ export default function RootLayout() {
       />
       <NetworkWatcher />
       <UpdateBanner />
-      <AppLockGate>
-        <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
-          <Stack.Screen name="index" />
-          <Stack.Screen name="welcome" />
-          <Stack.Screen
-            name="onboarding"
-            options={{ animation: "slide_from_right" }}
-          />
-          <Stack.Screen
-            name="user-type"
-            options={{ animation: "slide_from_right" }}
-          />
-          <Stack.Screen
-            name="login"
-            options={{ animation: "slide_from_right" }}
-          />
-          <Stack.Screen
-            name="forgot-password"
-            options={{ animation: "slide_from_right" }}
-          />
-          <Stack.Screen name="change-password" />
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="(supervisor-tabs)" />
-          <Stack.Screen
-            name="today-summary"
-            options={{ animation: "slide_from_right" }}
-          />
-          <Stack.Screen
-            name="next-planning"
-            options={{ animation: "slide_from_right" }}
-          />
-          <Stack.Screen
-            name="remarques"
-            options={{ animation: "slide_from_bottom" }}
-          />
-        </Stack>
-      </AppLockGate>
+      <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
+        <Stack.Screen name="index" />
+        <Stack.Screen name="welcome" />
+        <Stack.Screen
+          name="onboarding"
+          options={{ animation: "slide_from_right" }}
+        />
+        <Stack.Screen
+          name="user-type"
+          options={{ animation: "slide_from_right" }}
+        />
+        <Stack.Screen
+          name="login"
+          options={{ animation: "slide_from_right" }}
+        />
+        <Stack.Screen
+          name="forgot-password"
+          options={{ animation: "slide_from_right" }}
+        />
+        <Stack.Screen name="change-password" />
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="(supervisor-tabs)" />
+        <Stack.Screen
+          name="today-summary"
+          options={{ animation: "slide_from_right" }}
+        />
+        <Stack.Screen
+          name="next-planning"
+          options={{ animation: "slide_from_right" }}
+        />
+        <Stack.Screen
+          name="remarques"
+          options={{ animation: "slide_from_bottom" }}
+        />
+      </Stack>
     </SafeAreaProvider>
   );
 }

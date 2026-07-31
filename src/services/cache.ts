@@ -15,6 +15,7 @@ const SUP_ELEVES_KEY = "ared_supervisor_eleves";
 const SUP_COMPETENCES_KEY = "ared_evaluation_competences";
 const SUP_DIFFICULTES_KEY = "ared_supervisor_difficultes";
 const SUP_RAPPORT_QUESTIONS_KEY = "ared_supervisor_rapport_questions";
+const SUP_RAPPORT_LIBELLES_KEY = "ared_supervisor_rapport_libelles";
 const TEACHER_EVALS_KEY   = "ared_teacher_evaluations";
 
 export interface SyncPayload {
@@ -22,12 +23,19 @@ export interface SyncPayload {
   profile: {
     id: string; name: string; title: string | null;
     email: string | null; phone: string | null;
-    role: string; school_id: string | null; classes: string[] | null;
+    role: string; status?: string | null;
+    school_id: string | null;
+    niveau?: string[] | null; classes: string[] | null;
+    groupe_recherche?: string | null;       // "traitement" | "controle"
     app_access?: string;                    // "full" | "timer_only"
   };
   school: {
-    id: string; name: string; region: string | null;
-    city: string | null; director: string | null;
+    id: string; name: string;
+    code_ecole?: number | null;
+    region: string | null;
+    city: string | null;
+    director: string | null;
+    director_phone?: string | null;
     langue?: string | null;
   } | null;
   active_session: {
@@ -46,6 +54,7 @@ export interface SyncPayload {
     options: string[] | null; required: boolean; ordre: number;
   }[];
   rapport_difficultes?: { id: string; label: string; ordre: number }[];
+  rapport_libelles?: Record<string, string>;
   nb_semaines?: number;   // nombre de semaines de progression proposées au tuteur (défaut 10)
   nb_jours?: number;      // nombre de jours par semaine proposés au tuteur (défaut 3)
   stats?: {
@@ -71,7 +80,7 @@ export async function getLastSyncDate(): Promise<string | null> {
 }
 
 export async function clearCache(): Promise<void> {
-  await AsyncStorage.multiRemove([SYNC_KEY, SYNC_DATE_KEY, SUP_EVALS_KEY, SUP_ELEVES_KEY, SUP_COMPETENCES_KEY, SUP_DIFFICULTES_KEY, SUP_RAPPORT_QUESTIONS_KEY, TEACHER_EVALS_KEY]);
+  await AsyncStorage.multiRemove([SYNC_KEY, SYNC_DATE_KEY, SUP_EVALS_KEY, SUP_ELEVES_KEY, SUP_COMPETENCES_KEY, SUP_DIFFICULTES_KEY, SUP_RAPPORT_QUESTIONS_KEY, SUP_RAPPORT_LIBELLES_KEY, TEACHER_EVALS_KEY]);
 }
 
 /** Questions complémentaires (configurées par l'admin) destinées au rapport du superviseur. */
@@ -86,6 +95,14 @@ export async function getCachedSupRapportQuestions(): Promise<SupRapportQuestion
 
 export async function setCachedSupRapportQuestions(items: SupRapportQuestionItem[]): Promise<void> {
   await setEncryptedItem(SUP_RAPPORT_QUESTIONS_KEY, items);
+}
+
+export async function getCachedSupRapportLibelles(): Promise<Record<string, string> | null> {
+  return getEncryptedItem<Record<string, string>>(SUP_RAPPORT_LIBELLES_KEY);
+}
+
+export async function setCachedSupRapportLibelles(items: Record<string, string>): Promise<void> {
+  await setEncryptedItem(SUP_RAPPORT_LIBELLES_KEY, items);
 }
 
 /** Cache local des compétences d'évaluation configurées par l'admin (superviseur), pour usage hors-ligne. */
