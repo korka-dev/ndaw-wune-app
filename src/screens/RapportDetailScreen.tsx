@@ -1,11 +1,10 @@
 /**
  * Écran Détail d'un rapport journalier — page dédiée (pas de modal)
  */
-import React from "react";
+import React, { useState } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Image,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { format, parseISO } from "date-fns";
@@ -14,6 +13,9 @@ import { fr } from "date-fns/locale";
 import { rs, rf } from "../utils/responsive";
 import { C } from "../utils/theme";
 import { getRapportJournalierById } from "../services/db";
+import { useStore } from "../store/useStore";
+import AppHeader from "../components/AppHeader";
+import ProfileSheet from "../components/ProfileSheet";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -42,12 +44,33 @@ function Block({ children }: { children: React.ReactNode }) {
 export default function RapportDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { user, isOnline, syncOffline } = useStore();
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  const handleManualSync = async () => {
+    if (syncing || !isOnline) return;
+    setSyncing(true);
+    try { await syncOffline(true); } catch {} finally { setSyncing(false); }
+  };
+
+  const header = (
+    <AppHeader
+      userName={user?.name ?? ""}
+      onAvatarPress={() => setProfileOpen(true)}
+      onSyncPress={handleManualSync}
+      syncing={syncing}
+      isOnline={isOnline}
+      sectionLabel="Espace Tuteur"
+    />
+  );
 
   const item = id ? getRapportJournalierById(id) : null;
 
   if (!item) {
     return (
-      <SafeAreaView style={s.root} edges={["top"]}>
+      <View style={s.root}>
+        {header}
         <View style={s.topBar}>
           <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
             <Feather name="arrow-left" size={rf(20)} color={C.text} />
@@ -58,7 +81,8 @@ export default function RapportDetailScreen() {
           <Feather name="alert-circle" size={rf(36)} color={C.border} />
           <Text style={s.notFoundTxt}>Rapport introuvable</Text>
         </View>
-      </SafeAreaView>
+        <ProfileSheet visible={profileOpen} onClose={() => setProfileOpen(false)} />
+      </View>
     );
   }
 
@@ -70,7 +94,8 @@ export default function RapportDetailScreen() {
     ? diffs.join(", ") : "Aucune";
 
   return (
-    <SafeAreaView style={s.root} edges={["top"]}>
+    <View style={s.root}>
+      {header}
 
       {/* ── Barre titre ── */}
       <View style={s.topBar}>
@@ -196,7 +221,9 @@ export default function RapportDetailScreen() {
 
         <View style={{ height: rs(32) }} />
       </ScrollView>
-    </SafeAreaView>
+
+      <ProfileSheet visible={profileOpen} onClose={() => setProfileOpen(false)} />
+    </View>
   );
 }
 

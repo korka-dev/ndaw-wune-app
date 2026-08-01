@@ -7,7 +7,7 @@ import {
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useStore } from "../store/useStore";
-import { teacherEvalApi } from "../services/api";
+import { teacherEvalApi, syncApi } from "../services/api";
 import {
   getCachedTeacherEvaluations, setCachedTeacherEvaluations,
   getCachedEvaluationCompetences,
@@ -129,6 +129,19 @@ export default function EvaluationResultatsScreen() {
     setRefreshing(false);
   };
 
+  // Sync manuelle depuis le bouton du header : données globales + évaluations
+  const { syncOffline } = useStore();
+  const [syncing, setSyncing] = useState(false);
+  const handleManualSync = async () => {
+    if (syncing || !isOnline) return;
+    setSyncing(true);
+    try {
+      await syncApi.invalidate().catch(() => {});
+      await Promise.all([syncOffline(true), fetchEvaluations()]);
+    } catch {}
+    finally { setSyncing(false); }
+  };
+
   // ── Données calculées ─────────────────────────────────────────────────────
 
   const groups = groupByCompetence(evals, competencesList);
@@ -159,7 +172,10 @@ export default function EvaluationResultatsScreen() {
       <AppHeader
         userName={user?.name ?? ""}
         onAvatarPress={() => setProfileOpen(true)}
+        onSyncPress={handleManualSync}
+        syncing={syncing}
         isOnline={isOnline}
+        sectionLabel="Espace Tuteur"
       />
 
       <View style={styles.content}>

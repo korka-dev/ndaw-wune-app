@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { authApi, superviseurApi } from "../services/api";
+import { authApi } from "../services/api";
 import { setSecure, getSecure, clearAuthTokens } from "../services/secureStorage";
-import { fetchAndCache, getCached, clearCache, SyncPayload } from "../services/cache";
+import { fetchAndCache, fetchAndCacheSupervisor, getCached, clearCache, SyncPayload } from "../services/cache";
 import { clearAllLocalData } from "../services/db";
 import { flushQueue, clearOfflineIdMap } from "../services/queue";
 import { cancelAllSessionAlerts } from "../services/notifications";
@@ -123,15 +123,8 @@ export const useStore = create<AppStore>((set, get) => ({
           console.warn("[Store] Impossible de charger le profil après login :", meErr);
         }
 
-        const role = get().user?.role;
-        // Les superviseurs ont leur propre sync (/app/supervisor/sync) — pas la sync enseignant
-        if (role === "superviseur") {
-          try {
-            await superviseurApi.sync();
-          } catch (syncErr) {
-            console.warn("[Store] Sync superviseur échoué :", syncErr);
-          }
-        } else if (role) {
+        // syncOffline route lui-même vers la bonne sync (enseignant ou superviseur)
+        if (get().user?.role) {
           await get().syncOffline(true);
         }
       }
@@ -167,13 +160,16 @@ export const useStore = create<AppStore>((set, get) => ({
 
   syncOffline: async (online) => {
     if (online) {
-      // 1. Rafraîchir les données depuis le serveur
+      // 1. Rafraîchir les données depuis le serveur — chaque rôle a sa sync :
+      //    enseignant → /app/sync ; superviseur → /app/supervisor/sync.
       try {
-        const payload = await fetchAndCache();
+        const role = get().user?.role ?? (await getSecure("user_role").catch(() => null));
+        const payload = role === "superviseur"
+          ? await fetchAndCacheSupervisor()
+          : await fetchAndCache();
         set({ syncData: payload, user: payload.profile, lastSync: payload.synced_at });
       } catch {
-        // Réseau défaillant OU endpoint inaccessible (ex : 403 pour les superviseurs
-        // qui n'ont pas accès à /app/sync) → fallback cache local.
+        // Réseau défaillant → fallback cache local.
         // On ne sort PAS ici : si l'appareil est en ligne, la queue doit quand
         // même être vidée (flushQueue détecte lui-même les vraies erreurs réseau).
         const cached = await getCached();

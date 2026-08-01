@@ -5,7 +5,7 @@
  * contient de vraies données d'élèves et d'enseignants.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { syncApi } from "./api";
+import { syncApi, superviseurApi } from "./api";
 import { getEncryptedItem, setEncryptedItem } from "./cryptoStorage";
 
 const SYNC_KEY      = "ared_sync_payload";
@@ -62,12 +62,40 @@ export interface SyncPayload {
     nb_tests?: number;
     nb_fiches?: number;
   };
+  /** Superviseur uniquement — enseignants assignés (payload /app/supervisor/sync). */
+  assigned_teachers?: {
+    id: string; name: string; phone: string | null; email: string | null;
+    last_rapport_date: string | null;
+  }[];
 }
 
 export async function fetchAndCache(): Promise<SyncPayload> {
   const { data } = await syncApi.sync();
-  await setEncryptedItem(SYNC_KEY, data);
-  await AsyncStorage.setItem(SYNC_DATE_KEY, new Date().toISOString());
+  // Écriture du cache best-effort : un échec de chiffrement/stockage ne doit
+  // JAMAIS empêcher l'app d'utiliser les données fraîchement téléchargées
+  // (sinon l'UI reste vide alors que le serveur a répondu correctement).
+  try {
+    await setEncryptedItem(SYNC_KEY, data);
+    await AsyncStorage.setItem(SYNC_DATE_KEY, new Date().toISOString());
+  } catch (e) {
+    console.warn("[Cache] Écriture du cache offline échouée (données servies quand même) :", e);
+  }
+  return data as SyncPayload;
+}
+
+/**
+ * Variante superviseur : télécharge /app/supervisor/sync et met en cache sous
+ * la même clé (un seul utilisateur connecté à la fois, vidée au logout).
+ * Le payload partage la même forme générale (profile, school, synced_at…).
+ */
+export async function fetchAndCacheSupervisor(): Promise<SyncPayload> {
+  const { data } = await superviseurApi.sync();
+  try {
+    await setEncryptedItem(SYNC_KEY, data);
+    await AsyncStorage.setItem(SYNC_DATE_KEY, new Date().toISOString());
+  } catch (e) {
+    console.warn("[Cache] Écriture du cache superviseur échouée (données servies quand même) :", e);
+  }
   return data as SyncPayload;
 }
 

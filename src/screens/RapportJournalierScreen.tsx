@@ -8,7 +8,8 @@ import {
   ScrollView, ActivityIndicator, Alert, Image,
   KeyboardAvoidingView, Platform, Keyboard,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import AppHeader from "../components/AppHeader";
+import ProfileSheet from "../components/ProfileSheet";
 import { Feather } from "@expo/vector-icons";
 import { format } from "date-fns";
 import * as ImagePicker from "expo-image-picker";
@@ -83,9 +84,36 @@ interface Props {
 // ── Écran ──────────────────────────────────────────────────────────────────
 
 export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
-  const { syncData, isOnline } = useStore();
+  const { syncData, isOnline, syncOffline } = useStore();
   const profile = syncData?.profile;
   const school  = syncData?.school;
+
+  // Re-sync silencieuse à l'ouverture du formulaire : garantit que les
+  // questions/libellés/difficultés configurés dans le dashboard admin sont
+  // à jour au moment de remplir le rapport (best-effort, jamais bloquant).
+  useEffect(() => {
+    if (isOnline) syncOffline(true).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── En-tête commun de l'app (logo + sync + avatar) ─────────────────────
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const handleManualSync = async () => {
+    if (syncing || !isOnline) return;
+    setSyncing(true);
+    try { await syncOffline(true); } catch {} finally { setSyncing(false); }
+  };
+  const appHeader = (
+    <AppHeader
+      userName={profile?.name ?? ""}
+      onAvatarPress={() => setProfileOpen(true)}
+      onSyncPress={handleManualSync}
+      syncing={syncing}
+      isOnline={isOnline}
+      sectionLabel="Espace Tuteur"
+    />
+  );
 
   // ── Scroll vers le champ actif (étape 2) ─────────────────────────────
   const step2ScrollRef = useRef<ScrollView>(null);
@@ -379,7 +407,8 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
   // ── Vue succès ────────────────────────────────────────────────────────
   if (submitted) {
     return (
-      <SafeAreaView style={s.root} edges={["top"]}>
+      <View style={s.root}>
+        {appHeader}
         <View style={s.successWrap}>
           <Feather name="check-circle" size={rf(60)} color={C.success} />
           <Text style={s.successTitle}>Rapport soumis !</Text>
@@ -391,7 +420,8 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
             <Text style={s.newBtnTxt}>Nouveau rapport</Text>
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+        <ProfileSheet visible={profileOpen} onClose={() => setProfileOpen(false)} />
+      </View>
     );
   }
 
@@ -806,7 +836,8 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
   const meta = STEPS_META[step - 1];
 
   return (
-    <SafeAreaView style={s.root} edges={["top"]}>
+    <View style={s.root}>
+      {appHeader}
 
       {/* ── Barre titre ── */}
       <View style={s.topBar}>
@@ -874,7 +905,8 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
         </View>
       </KeyboardAvoidingView>
 
-    </SafeAreaView>
+      <ProfileSheet visible={profileOpen} onClose={() => setProfileOpen(false)} />
+    </View>
   );
 }
 

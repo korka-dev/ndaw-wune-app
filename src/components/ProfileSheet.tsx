@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Updates from "expo-updates";
 import Constants from "expo-constants";
 import { useStore } from "../store/useStore";
+import { openAppGuide } from "./AppGuide";
 import { C } from "../utils/theme";
 import { rs, rf } from "../utils/responsive";
 
@@ -37,13 +38,17 @@ function initials(name: string): string {
     .toUpperCase();
 }
 
+function cap(v?: string | null): string {
+  return v ? v.charAt(0).toUpperCase() + v.slice(1) : "—";
+}
+
 export default function ProfileSheet({ visible, onClose }: Props) {
-  const { user, syncData, logout } = useStore();
+  const { user, syncData, isOnline, syncOffline, logout } = useStore();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { height: screenH } = useWindowDimensions();
-  const [classeModalVisible, setClasseModalVisible] = useState(false);
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const appVersion = Constants.expoConfig?.version ?? "—";
 
   if (!user) return null;
@@ -51,12 +56,21 @@ export default function ProfileSheet({ visible, onClose }: Props) {
   const isEnseignant = user.role === "enseignant";
 
   const ini      = initials(user.name);
-  const school   = syncData?.school?.name ?? "—";
+  const school   = syncData?.school;
   const classe   = user.classes?.join(", ") ?? "—";
   const phone    = user.phone ?? "—";
-  const langue   = syncData?.school?.langue ?? "—";
-  const eleves   = syncData?.eleves ?? [];
-  const nbEleves = isEnseignant ? eleves.length : (syncData?.stats?.nb_eleves ?? 0);
+  const nbEleves = syncData?.stats?.nb_eleves ?? syncData?.eleves?.length ?? 0;
+
+  const schoolLieu = [school?.city, school?.region].filter(Boolean).join(", ");
+
+  const handleRefresh = async () => {
+    if (!isOnline) {
+      Alert.alert("Hors-ligne", "Impossible d'actualiser sans connexion Internet.");
+      return;
+    }
+    setRefreshing(true);
+    try { await syncOffline(true); } finally { setRefreshing(false); }
+  };
 
   const handleCheckForUpdate = async () => {
     if (!Updates.isEnabled) {
@@ -101,6 +115,12 @@ export default function ProfileSheet({ visible, onClose }: Props) {
     ]);
   };
 
+  const infoRows: { icon: keyof typeof Feather.glyphMap; label: string; value: string }[] = [
+    { icon: "home",      label: "École",   value: school?.name ? `${school.name}${schoolLieu ? ` · ${schoolLieu}` : ""}` : "—" },
+    ...(isEnseignant ? [{ icon: "book-open" as const, label: "Classe", value: classe }] : []),
+    { icon: "globe",     label: "Langue d'enseignement", value: cap(school?.langue) },
+  ];
+
   return (
     <Modal
       visible={visible}
@@ -144,7 +164,7 @@ export default function ProfileSheet({ visible, onClose }: Props) {
               <View style={{ flex: 1 }}>
                 <Text style={s.userName}>{user.name}</Text>
                 <Text style={s.userMeta}>
-                  {school}{classe ? ` · ${classe}` : ""}
+                  {school?.name ?? "—"}{isEnseignant && classe !== "—" ? ` · ${classe}` : ""}
                 </Text>
                 <Text style={s.userPhone}>{phone}</Text>
               </View>
@@ -153,50 +173,35 @@ export default function ProfileSheet({ visible, onClose }: Props) {
             {/* Stats */}
             {isEnseignant && (
               <View style={s.statsRow}>
-                {[{ val: nbEleves, label: "Élèves" }].map(({ val, label }) => (
-                  <View key={label} style={s.statCard}>
-                    <Text style={s.statVal}>{val}</Text>
-                    <Text style={s.statLabel}>{label}</Text>
-                  </View>
-                ))}
+                <View style={s.statCard}>
+                  <Text style={s.statVal}>{nbEleves}</Text>
+                  <Text style={s.statLabel}>Élèves</Text>
+                </View>
               </View>
             )}
 
-            {/* ── Menu ── */}
+            {/* ── Informations ── */}
             <View style={s.menuCard}>
-              {/* Ma classe */}
-              {isEnseignant && (
-                <TouchableOpacity
-                  style={[s.menuRow, s.menuBorder]}
-                  activeOpacity={0.6}
-                  onPress={() => setClasseModalVisible(true)}
-                >
+              {infoRows.map(({ icon, label, value }, i) => (
+                <View key={label} style={[s.menuRow, i < infoRows.length - 1 && s.menuBorder]}>
                   <View style={s.menuIconBox}>
-                    <Feather name="users" size={rf(22)} color={C.brand} />
+                    <Feather name={icon} size={rf(22)} color={C.brand} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={s.menuLabel}>Ma classe</Text>
-                    {nbEleves > 0 && (
-                      <Text style={s.menuSub}>{nbEleves} élèves</Text>
-                    )}
+                    <Text style={s.menuLabel}>{label}</Text>
+                    <Text style={s.menuSub}>{value}</Text>
                   </View>
-                  <Feather name="chevron-right" size={rf(20)} color="#AAA" />
-                </TouchableOpacity>
-              )}
-
-              {/* Langue d'enseignement (déterminée par l'école, non modifiable) */}
-              <View style={[s.menuRow, s.menuBorder]}>
-                <View style={s.menuIconBox}>
-                  <Feather name="globe" size={rf(22)} color={C.brand} />
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.menuLabel}>Langue d'enseignement</Text>
-                  <Text style={s.menuSub}>{langue}</Text>
-                </View>
-              </View>
+              ))}
+            </View>
 
-              {/* Aide */}
-              <TouchableOpacity style={s.menuRow} activeOpacity={0.6}>
+            {/* ── Aide ── */}
+            <View style={s.menuCard}>
+              <TouchableOpacity
+                style={s.menuRow}
+                activeOpacity={0.6}
+                onPress={() => { onClose(); openAppGuide(); }}
+              >
                 <View style={s.menuIconBox}>
                   <Feather name="help-circle" size={rf(22)} color={C.brand} />
                 </View>
@@ -204,6 +209,18 @@ export default function ProfileSheet({ visible, onClose }: Props) {
                 <Feather name="chevron-right" size={rf(20)} color="#AAA" />
               </TouchableOpacity>
             </View>
+
+            {/* ── Bouton actualiser ── */}
+            <TouchableOpacity
+              style={s.refreshBtn}
+              onPress={handleRefresh}
+              disabled={refreshing}
+              activeOpacity={0.7}
+            >
+              {refreshing
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Text style={s.refreshTxt}>Actualiser les données</Text>}
+            </TouchableOpacity>
 
             {/* ── Bouton mise à jour ── */}
             <TouchableOpacity
@@ -232,48 +249,6 @@ export default function ProfileSheet({ visible, onClose }: Props) {
           </ScrollView>
         </View>
       </View>
-
-      {/* ── Modal liste des élèves de la classe ── */}
-      <Modal
-        visible={classeModalVisible}
-        animationType="fade"
-        transparent
-        statusBarTranslucent
-        onRequestClose={() => setClasseModalVisible(false)}
-      >
-        <TouchableOpacity
-          style={s.langueOverlay}
-          activeOpacity={1}
-          onPress={() => setClasseModalVisible(false)}
-        >
-          <View style={[s.classeCard, { maxHeight: screenH * 0.7 }]} onStartShouldSetResponder={() => true}>
-            <Text style={s.langueTitle}>
-              Ma classe{classe !== "—" ? ` · ${classe}` : ""}
-            </Text>
-            <ScrollView style={s.classeList} showsVerticalScrollIndicator={false}>
-              {eleves.length === 0 ? (
-                <Text style={s.classeEmpty}>Aucun élève trouvé.</Text>
-              ) : (
-                eleves.map((e, i) => (
-                  <View
-                    key={e.id}
-                    style={[s.classeRow, i < eleves.length - 1 && s.classeRowBorder]}
-                  >
-                    <View style={s.classeAvatar}>
-                      <Text style={s.classeAvatarTxt}>
-                        {(e.nom?.charAt(0) ?? "").toUpperCase()}{(e.prenom?.charAt(0) ?? "").toUpperCase()}
-                      </Text>
-                    </View>
-                    <Text style={s.classeEleveName} numberOfLines={1}>
-                      {e.nom}{e.prenom ? ` ${e.prenom}` : ""}
-                    </Text>
-                  </View>
-                ))
-              )}
-            </ScrollView>
-          </View>
-        </TouchableOpacity>
-      </Modal>
     </Modal>
   );
 }
@@ -329,7 +304,7 @@ const s = StyleSheet.create({
     padding: rs(18),
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: rs(14),
+    marginBottom: rs(10),
   },
   userAvatar: {
     width: rs(56), height: rs(56), borderRadius: rs(28),
@@ -356,13 +331,13 @@ const s = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderRadius: rs(16),
     borderWidth: 1.5, borderColor: "#E8E0CC",
-    marginBottom: rs(18),
+    marginBottom: rs(14),
     overflow: "hidden",
   },
   menuRow: {
     flexDirection: "row", alignItems: "center",
-    paddingHorizontal: rs(16), paddingVertical: rs(18),
-    minHeight: rs(68),
+    paddingHorizontal: rs(16), paddingVertical: rs(14),
+    minHeight: rs(60),
   },
   menuBorder: {
     borderBottomWidth: 1, borderBottomColor: "#F0EBE0",
@@ -374,12 +349,21 @@ const s = StyleSheet.create({
     marginRight: rs(14),
   },
   menuLabel: {
-    fontSize: rf(18), fontWeight: "700", color: "#1A1A1A", flex: 1,
+    fontSize: rf(16), fontWeight: "700", color: "#1A1A1A", flex: 1,
     ...(IS_ANDROID && { fontFamily: "sans-serif-medium" }),
   },
   menuSub: {
     fontSize: rf(15), fontWeight: "500", color: "#666", marginTop: rs(3),
   },
+
+  /* ── Actualiser ── */
+  refreshBtn: {
+    backgroundColor: C.brand,
+    borderRadius: rs(14), paddingVertical: rs(14),
+    alignItems: "center", justifyContent: "center", marginBottom: rs(12),
+    minHeight: rs(48),
+  },
+  refreshTxt: { color: "#fff", fontWeight: "700", fontSize: rf(15) },
 
   /* ── Mise à jour ── */
   updateBtn: {
@@ -398,45 +382,5 @@ const s = StyleSheet.create({
   },
   logoutTxt: {
     color: "#C0392B", fontWeight: "800", fontSize: rf(18), marginLeft: rs(10),
-  },
-
-  /* ── Modal overlay générique (Ma classe) ── */
-  langueOverlay: {
-    flex: 1, backgroundColor: "rgba(0,0,0,0.5)",
-    alignItems: "center", justifyContent: "center", padding: rs(24),
-  },
-  langueTitle: {
-    fontSize: rf(18), fontWeight: "800", color: "#1A1A1A", marginBottom: rs(12),
-  },
-
-  /* ── Modal Ma classe (liste des élèves) ── */
-  classeCard: {
-    width: "100%", maxWidth: rs(400),
-    backgroundColor: "#FFFFFF", borderRadius: rs(18), padding: rs(18),
-  },
-  classeList: {
-    marginTop: rs(4),
-  },
-  classeEmpty: {
-    fontSize: rf(15), color: "#888", textAlign: "center", paddingVertical: rs(20),
-  },
-  classeRow: {
-    flexDirection: "row", alignItems: "center",
-    paddingVertical: rs(12),
-  },
-  classeRowBorder: {
-    borderBottomWidth: 1, borderBottomColor: "#F0EBE0",
-  },
-  classeAvatar: {
-    width: rs(38), height: rs(38), borderRadius: rs(19),
-    backgroundColor: "#F5EDDA",
-    alignItems: "center", justifyContent: "center",
-    marginRight: rs(12),
-  },
-  classeAvatarTxt: {
-    fontSize: rf(14), fontWeight: "800", color: C.brand,
-  },
-  classeEleveName: {
-    fontSize: rf(16), fontWeight: "600", color: "#1A1A1A", flex: 1,
   },
 });

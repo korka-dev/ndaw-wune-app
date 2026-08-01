@@ -40,7 +40,7 @@ import { C } from "../utils/theme";
 import AppHeader from "../components/AppHeader";
 import ProfileSheet from "../components/ProfileSheet";
 import TourTarget from "../components/TourTarget";
-import { ressourcesApi } from "../services/api";
+import { ressourcesApi, syncApi } from "../services/api";
 import { getSecure } from "../services/secureStorage";
 import { useStore } from "../store/useStore";
 
@@ -401,6 +401,18 @@ export default function RessourcesScreen() {
     fetchDocs(true);
   }, [fetchDocs]);
 
+  // Sync manuelle depuis le bouton du header : données globales + ressources
+  const syncOffline = useStore(st => st.syncOffline);
+  const handleManualSync = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await syncApi.invalidate().catch(() => {});
+      await Promise.all([syncOffline(true).catch(() => {}), fetchDocs(true)]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchDocs, syncOffline]);
+
   // ── Téléchargement avec progression ──────────────────────────────────────
   const handleDownload = useCallback(async (doc: Document) => {
     if (!isOnline) {
@@ -609,9 +621,10 @@ export default function RessourcesScreen() {
       <AppHeader
         userName={user?.name ?? ""}
         onAvatarPress={() => setProfileOpen(true)}
-        onSyncPress={() => { setRefreshing(true); fetchDocs(true); }}
+        onSyncPress={handleManualSync}
         syncing={refreshing}
         isOnline={isOnline}
+        sectionLabel="Espace Tuteur"
       />
 
       {activeDoc && viewerSource ? (

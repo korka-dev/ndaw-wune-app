@@ -4,12 +4,16 @@
  * Le superviseur ne choisit plus les élèves : le programme les tire au sort
  * lors de la création du sujet d'évaluation par l'admin.
  *
+ * Le superviseur ne choisit pas non plus la langue du dossier d'évaluation :
+ * le serveur ne lui envoie que celui de la langue d'enseignement de son école
+ * (wolof, seereer ou pulaar), qui est appliqué automatiquement.
+ *
  * Flux :
  *   1. "sujets"    → sujets d'évaluation avec les élèves tirés au sort
  *   2. "presence"  → marquer les élèves tirés présents / absents, puis valider
- *   3. "doc"       → choix du dossier d'évaluation (support fixe par période)
- *   4. "evaluer"   → pour chaque élève présent : Réussi / Intermédiaire / Pas réussi
- *   5. envoi des résultats
+ *   3. "evaluer"   → pour chaque élève présent : Réussi / Intermédiaire / Pas réussi
+ *      (le dossier de la langue de l'école est appliqué automatiquement)
+ *   4. envoi des résultats
  */
 import React, { useState, useEffect, useCallback } from "react";
 import {
@@ -57,7 +61,7 @@ interface SujetApp {
   eleves:      TirageApp[];
 }
 
-type ViewType = "sujets" | "presence" | "doc" | "evaluer";
+type ViewType = "sujets" | "presence" | "evaluer";
 
 type Resultat = "reussi" | "intermediaire" | "pas_reussi";
 
@@ -75,7 +79,13 @@ function eleveName(t: TirageApp): string {
 
 export default function SupEvaluationScreen() {
   useEffect(() => { trackUsage("evaluations").catch(() => {}); }, []);
-  const { user, isOnline } = useStore();
+  const { user, isOnline, syncData } = useStore();
+  // Langue d'enseignement de l'école du superviseur — les dossiers d'évaluation
+  // sont filtrés dessus côté serveur ; on l'affiche pour lever toute ambiguïté.
+  const langueRaw = syncData?.school?.langue ?? null;
+  const langueEcole = langueRaw
+    ? langueRaw.charAt(0).toUpperCase() + langueRaw.slice(1)
+    : null;
 
   // Données
   const [sujets,      setSujets]      = useState<SujetApp[]>([]);
@@ -125,6 +135,18 @@ export default function SupEvaluationScreen() {
     setRefreshing(false);
   };
 
+  // Sync manuelle depuis le bouton du header : sync superviseur globale
+  // (profil, école, questions, enseignants) + données de cet écran
+  const syncOffline = useStore(st => st.syncOffline);
+  const [syncing, setSyncing] = useState(false);
+  const handleManualSync = async () => {
+    if (syncing || !isOnline) return;
+    setSyncing(true);
+    try {
+      await Promise.all([syncOffline(true).catch(() => {}), fetchData()]);
+    } finally { setSyncing(false); }
+  };
+
   // ── Étape 1 → 2 : ouvrir un sujet ──────────────────────────────────────────
 
   const openSujet = (sujet: SujetApp) => {
@@ -144,7 +166,7 @@ export default function SupEvaluationScreen() {
     setPresenceMap(prev => new Map(prev).set(tirageId, present));
   };
 
-  // ── Étape 2 → 3 : valider les présences ────────────────────────────────────
+  // ── Étape 2 → 3 : valider les présences, puis évaluer ──────────────────────
 
   const validatePresences = async () => {
     if (!activeSujet || savingPresence) return;
@@ -170,8 +192,16 @@ export default function SupEvaluationScreen() {
         Alert.alert("Pointage enregistré", "Aucun élève présent restant à évaluer pour ce sujet.");
         await fetchData();
         goTo("sujets");
+      } else if (evalDocs.length === 0) {
+        Alert.alert(
+          "Dossier d'évaluation manquant",
+          `Aucun dossier d'évaluation${langueEcole ? ` en ${langueEcole}` : ""} n'est disponible. Contactez l'administrateur.`
+        );
       } else {
-        setView("doc");
+        // Le dossier est imposé par la langue d'enseignement de l'école : le
+        // serveur n'en envoie que celui-là, on l'applique sans rien demander.
+        setActiveDoc(evalDocs[0]);
+        setView("evaluer");
       }
     } catch {
       Alert.alert("Erreur", "Impossible d'enregistrer les présences. Vérifiez votre connexion.");
@@ -180,14 +210,7 @@ export default function SupEvaluationScreen() {
     }
   };
 
-  // ── Étape 3 → 4 : choix du dossier ─────────────────────────────────────────
-
-  const chooseDoc = (doc: EvalDoc) => {
-    setActiveDoc(doc);
-    setView("evaluer");
-  };
-
-  // ── Étape 4 : évaluation à 3 options ───────────────────────────────────────
+  // ── Étape 3 : évaluation à 3 options ───────────────────────────────────────
 
   const current = evalList[evalIndex] ?? null;
   const nbEvalues = evalList.filter(t => results.has(t.tirage_id)).length;
@@ -257,6 +280,8 @@ export default function SupEvaluationScreen() {
       <AppHeader
         userName={user?.name ?? ""}
         onAvatarPress={() => setProfileOpen(true)}
+        onSyncPress={handleManualSync}
+        syncing={syncing}
         isOnline={isOnline}
         sectionLabel="Espace Superviseur"
       />
@@ -359,7 +384,7 @@ export default function SupEvaluationScreen() {
             <View style={{ flex: 1 }}>
               <Text style={st.subHeaderTitle} numberOfLines={1}>{activeSujet.titre}</Text>
               <Text style={st.subHeaderSub}>
-                Étape 1/3 — Pointez les élèves tirés au sort · {nbPointes}/{activeSujet.eleves.length}
+                Étape 1/2 — Pointez les élèves tirés au sort · {nbPointes}/{activeSujet.eleves.length}
               </Text>
             </View>
           </View>
@@ -431,55 +456,16 @@ export default function SupEvaluationScreen() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════ */}
-      {/* VUE 3 — Choix du dossier d'évaluation (support fixe par période)   */}
-      {/* ═══════════════════════════════════════════════════════════════════ */}
-      {view === "doc" && activeSujet && (
-        <View style={{ flex: 1 }}>
-          <View style={st.subHeader}>
-            <TouchableOpacity onPress={() => setView("presence")} style={st.backBtn}>
-              <Feather name="arrow-left" size={rs(20)} color={C.text} />
-            </TouchableOpacity>
-            <View style={{ flex: 1 }}>
-              <Text style={st.subHeaderTitle} numberOfLines={1}>{activeSujet.titre}</Text>
-              <Text style={st.subHeaderSub}>Étape 2/3 — Choisissez le dossier d'évaluation</Text>
-            </View>
-          </View>
-
-          <ScrollView contentContainerStyle={st.listContent} showsVerticalScrollIndicator={false}>
-            {evalDocs.length === 0 ? (
-              <View style={st.emptyState}>
-                <Feather name="file-text" size={rs(40)} color={C.textMuted} />
-                <Text style={st.emptyText}>Aucun dossier d'évaluation disponible.{"\n"}Contactez l'administrateur.</Text>
-              </View>
-            ) : null}
-            {evalDocs.map(doc => (
-              <TouchableOpacity key={doc.id} style={st.docCard} onPress={() => chooseDoc(doc)} activeOpacity={0.8}>
-                <View style={st.docCardLeft}>
-                  <View style={st.docLangBadge}>
-                    <Text style={st.docLangText}>{doc.langue.slice(0, 2).toUpperCase()}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={st.docLangName}>{doc.titre || `Test Élève en ${doc.langue}`}</Text>
-                    <View style={st.docTagsRow}>
-                      <View style={st.docTag}><Text style={st.docTagText}>Lecture</Text></View>
-                      <View style={st.docTag}><Text style={st.docTagText}>Mathématiques</Text></View>
-                    </View>
-                  </View>
-                </View>
-                <Feather name="chevron-right" size={rs(18)} color={C.textMuted} />
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      )}
-
-      {/* ═══════════════════════════════════════════════════════════════════ */}
       {/* VUE 4 — Évaluation : Réussi / Intermédiaire / Pas réussi           */}
       {/* ═══════════════════════════════════════════════════════════════════ */}
       {view === "evaluer" && activeSujet && activeDoc && (
         <View style={{ flex: 1 }}>
           <View style={st.subHeader}>
-            <TouchableOpacity onPress={() => setView("doc")} style={st.backBtn} disabled={submitting}>
+            <TouchableOpacity
+              onPress={() => setView("presence")}
+              style={st.backBtn}
+              disabled={submitting}
+            >
               <Feather name="arrow-left" size={rs(20)} color={submitting ? C.textMuted : C.text} />
             </TouchableOpacity>
             <View style={{ flex: 1 }}>
@@ -487,7 +473,7 @@ export default function SupEvaluationScreen() {
                 {current ? eleveName(current) : activeSujet.titre}
               </Text>
               <Text style={st.subHeaderSub}>
-                Étape 3/3 — Élève {Math.min(evalIndex + 1, evalList.length)}/{evalList.length} · {activeDoc.langue}
+                Étape 2/2 — Élève {Math.min(evalIndex + 1, evalList.length)}/{evalList.length} · {activeDoc.langue}
               </Text>
             </View>
           </View>
@@ -697,23 +683,6 @@ const st = StyleSheet.create({
   eleveAvatarText: { fontSize: rf(12), fontWeight: "700", color: C.textMuted },
   eleveName:       { fontSize: rf(15), fontWeight: "600", color: C.text },
   eleveGenre:      { fontSize: rf(12), color: C.textMuted },
-
-  // Dossiers d'évaluation
-  docCard: {
-    flexDirection: "row", alignItems: "center",
-    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-    borderRadius: rs(16), padding: rs(16), gap: rs(12),
-  },
-  docCardLeft:  { flex: 1, flexDirection: "row", alignItems: "center", gap: rs(12) },
-  docLangBadge: {
-    width: rs(48), height: rs(48), borderRadius: rs(14),
-    backgroundColor: C.primarySoft, alignItems: "center", justifyContent: "center",
-  },
-  docLangText:  { fontSize: rf(15), fontWeight: "900", color: C.primary },
-  docLangName:  { fontSize: rf(15), fontWeight: "700", color: C.text, marginBottom: rs(4) },
-  docTagsRow:   { flexDirection: "row", gap: rs(6) },
-  docTag:       { backgroundColor: C.surfaceAlt, paddingHorizontal: rs(8), paddingVertical: rs(2), borderRadius: rs(6) },
-  docTagText:   { fontSize: rf(11), color: C.textMuted, fontWeight: "600" },
 
   // Bouton bas
   evalBtnBar: {

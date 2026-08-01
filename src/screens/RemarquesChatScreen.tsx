@@ -22,6 +22,8 @@ import { enqueueAction } from "../services/db";
 import { trackUsage } from "../services/usage";
 import { rs, rf } from "../utils/responsive";
 import { C } from "../utils/theme";
+import AppHeader from "../components/AppHeader";
+import ProfileSheet from "../components/ProfileSheet";
 
 const CATEGORIES: { key: string; label: string; icon: keyof typeof Feather.glyphMap }[] = [
   { key: "materiel", label: "Manque de matériel", icon: "box" },
@@ -41,7 +43,7 @@ interface ChatMsg {
 export default function RemarquesChatScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, syncData, isOnline } = useStore();
+  const { user, syncData, isOnline, syncOffline } = useStore();
 
   const [messages, setMessages] = useState<ChatMsg[]>([
     {
@@ -127,6 +129,15 @@ export default function RemarquesChatScreen() {
     }, 250);
   };
 
+  // ── En-tête commun de l'app ────────────────────────────────────────────
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const handleManualSync = async () => {
+    if (syncing || !isOnline) return;
+    setSyncing(true);
+    try { await syncOffline(true); } catch {} finally { setSyncing(false); }
+  };
+
   const restart = () => {
     setCategorie(null);
     setPendingMessage("");
@@ -136,8 +147,17 @@ export default function RemarquesChatScreen() {
 
   return (
     <View style={s.screen}>
-      {/* En-tête */}
-      <View style={[s.header, { paddingTop: (insets.top > 0 ? insets.top : rs(14)) + rs(6) }]}>
+      <AppHeader
+        userName={user?.name ?? ""}
+        onAvatarPress={() => setProfileOpen(true)}
+        onSyncPress={handleManualSync}
+        syncing={syncing}
+        isOnline={isOnline}
+        sectionLabel="Espace Tuteur"
+      />
+
+      {/* En-tête contextuel de l'assistant */}
+      <View style={s.header}>
         <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
           <Feather name="arrow-left" size={rf(20)} color={C.text} />
         </TouchableOpacity>
@@ -249,6 +269,8 @@ export default function RemarquesChatScreen() {
           </View>
         )}
       </KeyboardAvoidingView>
+
+      <ProfileSheet visible={profileOpen} onClose={() => setProfileOpen(false)} />
     </View>
   );
 }

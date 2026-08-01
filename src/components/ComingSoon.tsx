@@ -10,6 +10,7 @@ import { C } from "../utils/theme";
 import AppHeader from "./AppHeader";
 import ProfileSheet from "./ProfileSheet";
 import { useStore } from "../store/useStore";
+import { syncApi } from "../services/api";
 
 interface Props {
   section: string;
@@ -17,13 +18,30 @@ interface Props {
 }
 
 export default function ComingSoon({ section, icon }: Props) {
-  const { user } = useStore();
+  const { user, isOnline, syncOffline } = useStore();
   const [showProfile, setShowProfile] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const insets = useSafeAreaInsets();
+
+  const handleManualSync = async () => {
+    if (syncing || !isOnline) return;
+    setSyncing(true);
+    try {
+      await syncApi.invalidate().catch(() => {});
+      await syncOffline(true);
+    } catch {}
+    finally { setSyncing(false); }
+  };
 
   return (
     <View style={s.screen}>
-      <AppHeader userName={user?.name ?? ""} onAvatarPress={() => setShowProfile(true)} />
+      <AppHeader
+        userName={user?.name ?? ""}
+        onAvatarPress={() => setShowProfile(true)}
+        onSyncPress={handleManualSync}
+        syncing={syncing}
+        isOnline={isOnline}
+      />
 
       <View style={[s.body, { paddingBottom: insets.bottom + rs(16) }]}>
         <View style={s.iconWrap}>

@@ -266,6 +266,7 @@ export default function RapportsScreen() {
         onSyncPress={handleManualSync}
         syncing={syncing}
         isOnline={isOnline}
+        sectionLabel="Espace Tuteur"
       />
       <ProfileSheet visible={profileOpen} onClose={() => setProfileOpen(false)} />
       <ScrollView

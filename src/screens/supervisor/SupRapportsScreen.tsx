@@ -56,6 +56,28 @@ export default function SupRapportsScreen() {
 
   useFocusEffect(useCallback(() => { loadAndSync(); }, [loadAndSync]));
 
+  // Sync manuelle depuis le bouton du header : sync superviseur globale
+  // (profil, école, questions, libellés) + rapports locaux
+  const [syncing, setSyncing] = useState(false);
+  const handleManualSync = async () => {
+    if (syncing || !isOnline) return;
+    setSyncing(true);
+    try {
+      await syncOffline(true).catch(() => {});
+      // Répercuter les questions/libellés fraîchement synchronisés sur le formulaire
+      const sd: any = useStore.getState().syncData;
+      if (sd?.rapport_questions) {
+        setSupQuestions(sd.rapport_questions);
+        setCachedSupRapportQuestions(sd.rapport_questions).catch(() => {});
+      }
+      if (sd?.rapport_libelles) {
+        setLibelles(sd.rapport_libelles);
+        setCachedSupRapportLibelles(sd.rapport_libelles).catch(() => {});
+      }
+      await loadAndSync();
+    } finally { setSyncing(false); }
+  };
+
   // Questions complémentaires configurées par l'admin (dynamiques, cible = superviseur)
   const [supQuestions, setSupQuestions] = useState<SupRapportQuestionItem[]>([]);
   const [reponses,     setReponses]     = useState<Record<string, string>>({});
@@ -233,6 +255,9 @@ export default function SupRapportsScreen() {
         <AppHeader
           userName={user?.name ?? ""}
           onAvatarPress={() => setProfileOpen(true)}
+          onSyncPress={handleManualSync}
+          syncing={syncing}
+          isOnline={isOnline}
         />
 
         <ScrollView contentContainerStyle={styles.menuPage} showsVerticalScrollIndicator={false}>
@@ -495,6 +520,9 @@ export default function SupRapportsScreen() {
       <AppHeader
         userName={user?.name ?? ""}
         onAvatarPress={() => setProfileOpen(true)}
+        onSyncPress={handleManualSync}
+        syncing={syncing}
+        isOnline={isOnline}
       />
 
       <ScrollView contentContainerStyle={styles.scrollPage} showsVerticalScrollIndicator={false}>

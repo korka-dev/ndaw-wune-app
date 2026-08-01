@@ -4,16 +4,16 @@
     "slug": "ared-ndawune",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/ared-icon.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/logo.png",
+      "image": "./assets/splash-logo.png",
       "resizeMode": "contain",
       "backgroundColor": "#FFFFFF"
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/ared-adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
       },
       "package": "sn.aroka.ared.ndawune",
@@ -59,7 +59,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/icon.png",
+          "icon": "./assets/ared-icon.png",
           "color": "#1a56db",
           "sounds": [
             "./assets/sounds/finactivite.mp3",

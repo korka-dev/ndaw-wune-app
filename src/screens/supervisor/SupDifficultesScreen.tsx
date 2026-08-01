@@ -56,6 +56,17 @@ export default function SupDifficultesScreen() {
     setRefreshing(false);
   };
 
+  // Sync manuelle depuis le bouton du header : sync superviseur globale + difficultés
+  const syncOffline = useStore(st => st.syncOffline);
+  const [syncing, setSyncing] = useState(false);
+  const handleManualSync = async () => {
+    if (syncing || !isOnline) return;
+    setSyncing(true);
+    try {
+      await Promise.all([syncOffline(true).catch(() => {}), fetchDifficultes()]);
+    } finally { setSyncing(false); }
+  };
+
   const formatDate = (iso: string) => {
     const d = new Date(iso);
     return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
@@ -108,6 +119,8 @@ export default function SupDifficultesScreen() {
       <AppHeader
         userName={user?.name ?? ""}
         onAvatarPress={() => setProfileOpen(true)}
+        onSyncPress={handleManualSync}
+        syncing={syncing}
         isOnline={isOnline}
       />
 

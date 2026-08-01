@@ -11,7 +11,7 @@ export default function AredLogo({ size = 100 }: Props) {
     <View style={[s.wrap, { width: rs(size), height: rs(size) }]}>
       <Image
         source={require("../../assets/logo.png")}
-        style={{ width: rs(size), height: rs(size) }}
+        style={{ width: rs(size), height: rs(size), borderRadius: rs(size * 0.2) }}
         resizeMode="contain"
       />
     </View>

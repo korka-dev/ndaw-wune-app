@@ -13,6 +13,10 @@
  * (voir AppLockGate) mais que le fichier est lu directement hors de l'app —
  * ce n'est pas un remplacement du verrou applicatif, les deux se complètent.
  */
+// ⚠ DOIT rester le tout premier import : installe crypto.getRandomValues avant
+// que crypto-js ne capture l'objet crypto au chargement de son module.
+import "./cryptoPolyfill";
+
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import * as Crypto from "expo-crypto";

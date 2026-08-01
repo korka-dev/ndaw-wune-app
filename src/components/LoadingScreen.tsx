@@ -30,7 +30,7 @@ export default function LoadingScreen() {
     <Animated.View style={[styles.container, { opacity }]}>
       <View style={styles.content}>
         <Image
-          source={require("../../assets/logo.png")}
+          source={require("../../assets/splash-logo.png")}
           style={styles.logo}
           resizeMode="contain"
         />
@@ -60,8 +60,9 @@ const styles = StyleSheet.create({
     gap:        rs(20),
   },
   logo: {
-    width:  rs(160),
-    height: rs(160),
+    width:        rs(190),
+    height:       rs(190),
+    borderRadius: rs(38),
   },
   spinner: {
     marginTop: rs(4),

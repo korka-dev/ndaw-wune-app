@@ -109,15 +109,17 @@ export default function HomeScreen() {
   const [seanceStarted, setSeanceStarted] = useState(false);
   /* Liste des segments complétés aujourd'hui */
   const [completedSegIds, setCompletedSegIds] = useState<string[]>([]);
-  /* Liste des segments manqués aujourd'hui (non démarrés après heure de fin) */
+  /* Liste des segments manqués aujourd'hui (non démarrés après heure de fin).
+     Utilisée uniquement pour le suivi backend (recherche) — jamais affichée. */
   const [missedSegIds, setMissedSegIds] = useState<string[]>([]);
-  /* Segment manqué à afficher dans la carte d'alerte (null = pas d'alerte) */
-  const [missedAlertSeg, setMissedAlertSeg] = useState<any>(null);
 
   /* Clés AsyncStorage du jour */
   const todayKey = new Date().toISOString().split("T")[0];
 
-  /* Charger / persister la période choisie (une par journée) */
+  /* Charger / persister la période choisie (une par journée calendaire).
+     Quand le jour calendaire change (minuit passé, app rouverte le lendemain…),
+     aucune période n'est stockée pour la nouvelle date → on RÉINITIALISE et
+     l'écran de choix Semaine + Jour est reproposé au tuteur. */
   useEffect(() => {
     AsyncStorage.getItem(`timer-periode-${todayKey}`)
       .then(raw => {
@@ -126,6 +128,9 @@ export default function HomeScreen() {
           setPeriode(p);
           setDraftSemaine(p.semaine);
           setDraftJour(p.jour);
+        } else {
+          setPeriode(null);
+          setDraftSemaine(null);
         }
       })
       .catch(() => {})
@@ -138,6 +143,15 @@ export default function HomeScreen() {
     const p = { semaine: draftSemaine, jour: draftJour };
     setPeriode(p);
     AsyncStorage.setItem(`timer-periode-${todayKey}`, JSON.stringify(p)).catch(() => {});
+  };
+
+  /* Journée terminée → permet de rechoisir une période (semaine + jour) et
+     d'afficher le planning correspondant, autant de fois que nécessaire. */
+  const resetPeriode = () => {
+    setPeriode(null);
+    setDraftSemaine(null);
+    setDraftJour(joursDisponibles[0] ?? 0);
+    AsyncStorage.removeItem(`timer-periode-${todayKey}`).catch(() => {});
   };
 
   /* Traçage d'utilisation : ouverture de l'accueil / timer */
@@ -162,18 +176,16 @@ export default function HomeScreen() {
   // Nettoie les états du jour précédent quand le jour change (ex: app laissée ouverte la nuit)
   useEffect(() => {
     const todayIds = new Set(todayPlan.map((s: any) => s.id));
-    setMissedAlertSeg((prev: any) => (prev && !todayIds.has(prev.id) ? null : prev));
     setMissedSegIds((prev: string[]) => prev.filter(id => todayIds.has(id)));
     setCompletedSegIds((prev: string[]) => prev.filter(id => todayIds.has(id)));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [todayIdx]);
 
+  // Journée terminée UNIQUEMENT quand toutes les activités ont été réellement
+  // complétées — une activité dont l'heure est passée reste affichée et
+  // démarrable (le retard n'enlève jamais le planning ni le timer).
   const dayCompleted = todayPlan.length > 0 &&
-    todayPlan.every(seg => completedSegIds.includes(seg.id) || missedSegIds.includes(seg.id));
-
-  // Vrai si la journée est "terminée" mais qu'aucune tâche n'a été complétée
-  const dayAllMissed = dayCompleted &&
-    !todayPlan.some(seg => completedSegIds.includes(seg.id));
+    todayPlan.every(seg => completedSegIds.includes(seg.id));
 
   /* ── Modal configuration notifications (première fois) ── */
   const [showNotifSetup, setShowNotifSetup] = useState(false);
@@ -293,11 +305,13 @@ export default function HomeScreen() {
   const curMin = now.getHours() * 60 + now.getMinutes();
   const curSec = curMin * 60 + now.getSeconds();
 
-  // Segments non encore complétés ni manqués — dans l'ordre du planning
+  // Segments non encore complétés — dans l'ordre du planning. Une activité en
+  // retard (heure passée) reste dans la liste et démarrable : le statut
+  // "manquée" ne sert qu'au suivi backend, jamais à masquer une activité.
   const pendingSegs = todayPlan.filter(
-    seg => !completedSegIds.includes(seg.id) && !missedSegIds.includes(seg.id)
+    seg => !completedSegIds.includes(seg.id)
   );
-  // Segment actif : le premier non complété ni manqué; nextSeg : le suivant (pour la notif de fin)
+  // Segment actif : le premier non complété; nextSeg : le suivant (pour la notif de fin)
   const activeSeg = pendingSegs[0] ?? null;
   const nextSeg   = pendingSegs[1] ?? null;
 
@@ -328,10 +342,6 @@ export default function HomeScreen() {
     const updated = [...missedSegIds, ...newlyMissed];
     setMissedSegIds(updated);
     AsyncStorage.setItem(`missed-segs-${todayKey}`, JSON.stringify(updated)).catch(() => {});
-
-    // Afficher la carte d'alerte pour le premier segment nouvellement manqué
-    const firstMissed = todayPlan.find(s => s.id === newlyMissed[0]);
-    if (firstMissed) setMissedAlertSeg(firstMissed);
 
     // Signaler chaque tâche manquée au backend (fire-and-forget ou queue offline)
     const sessionId = syncData?.active_session?.id ?? "";
@@ -744,52 +754,25 @@ export default function HomeScreen() {
       );
     }
 
-    // 2. Journée terminée — soit tout complété, soit tout manqué
+    // 2. Journée terminée — proposer de choisir une nouvelle période
+    //    (semaine + jour) pour afficher un autre planning, en boucle.
     if (dayCompleted) {
       return (
-        <View style={{ gap: rs(14) }}>
-          {/* Carte 1 : résumé de la journée */}
-          {dayAllMissed ? (
-            /* Toutes les tâches ont été manquées */
-            <View style={[s.segCard, { backgroundColor: "#FFF3F3", borderWidth: 1.5, borderColor: C.danger, marginBottom: 0 }]}>
-              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: rs(10) }}>
-                <Feather name="alert-circle" size={rf(20)} color={C.danger} style={{ marginRight: rs(8) }} />
-                <Text style={[s.segTitle, { color: C.danger, marginBottom: 0 }]}>
-                  {todayPlan.length} tâche{todayPlan.length > 1 ? "s" : ""} manquée{todayPlan.length > 1 ? "s" : ""}
-                </Text>
-              </View>
-              <Text style={{ color: "#666", fontSize: rf(14), marginBottom: rs(16), lineHeight: rs(20) }}>
-                Aucune activité du planning d'aujourd'hui n'a été démarrée dans les créneaux prévus.
-              </Text>
-              <TouchableOpacity
-                style={[s.btnAction, { backgroundColor: C.danger, alignSelf: "flex-start" }]}
-                onPress={() => router.push("/today-summary")} activeOpacity={0.8}
-              >
-                <Feather name="eye" size={rf(13)} color="#fff" style={{ marginRight: rs(6) }} />
-                <Text style={s.btnActionTxt}>Voir les détails</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            /* Au moins une tâche complétée (peut-être quelques manquées aussi) */
-            <View style={[s.segCard, { backgroundColor: C.success, marginBottom: 0 }]}>
-              <View style={{ flexDirection: "row", alignItems: "center", marginBottom: rs(10) }}>
-                <Feather name="check-circle" size={rf(20)} color="#fff" style={{ marginRight: rs(8) }} />
-                <Text style={[s.segTitle, { color: "#fff", marginBottom: 0 }]}>Planning du jour effectué ✓</Text>
-              </View>
-              <Text style={{ color: "rgba(255, 255, 255, 0.9)", fontSize: rf(16), marginBottom: rs(16), lineHeight: rs(22) }}>
-                {missedSegIds.filter(id => todayPlan.some(s => s.id === id)).length > 0
-                  ? `${completedSegIds.filter(id => todayPlan.some(s => s.id === id)).length} activité(s) complétée(s), ${missedSegIds.filter(id => todayPlan.some(s => s.id === id)).length} manquée(s).`
-                  : "Toutes les activités de votre planning sont complétées pour aujourd'hui. Bravo !"}
-              </Text>
-              <TouchableOpacity
-                style={[s.btnAction, { backgroundColor: "rgba(255,255,255,0.25)", alignSelf: "flex-start" }]}
-                onPress={() => router.push("/today-summary")} activeOpacity={0.8}
-              >
-                <Feather name="eye" size={rf(13)} color="#fff" style={{ marginRight: rs(6) }} />
-                <Text style={s.btnActionTxt}>Voir les détails</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+        <View style={[s.segCard, { backgroundColor: C.success }]}>
+          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: rs(10) }}>
+            <Feather name="check-circle" size={rf(20)} color="#fff" style={{ marginRight: rs(8) }} />
+            <Text style={[s.segTitle, { color: "#fff", marginBottom: 0 }]}>Journée terminée ✓</Text>
+          </View>
+          <Text style={{ color: "rgba(255, 255, 255, 0.9)", fontSize: rf(16), marginBottom: rs(16), lineHeight: rs(22) }}>
+            Le planning de la période choisie est terminé. Vous pouvez sélectionner une autre semaine et un autre jour.
+          </Text>
+          <TouchableOpacity
+            style={[s.btnAction, { backgroundColor: "rgba(255,255,255,0.25)", alignSelf: "flex-start" }]}
+            onPress={resetPeriode} activeOpacity={0.8}
+          >
+            <Feather name="calendar" size={rf(13)} color="#fff" style={{ marginRight: rs(6) }} />
+            <Text style={s.btnActionTxt}>Choisir une nouvelle période</Text>
+          </TouchableOpacity>
         </View>
       );
     }
@@ -897,7 +880,7 @@ export default function HomeScreen() {
         {pendingSegs.length > 1 && (
           <View style={s.pendingRow}>
             <Text style={s.pendingRowTxt}>
-              {pendingSegs.length} tâches non faites aujourd'hui
+              {pendingSegs.length} activité{pendingSegs.length > 1 ? "s" : ""} restante{pendingSegs.length > 1 ? "s" : ""} aujourd'hui
             </Text>
           </View>
         )}
@@ -924,7 +907,6 @@ export default function HomeScreen() {
   /** Carte d'un créneau du jour courant */
   const renderPlanRow = (seg: any, i: number) => {
     const isDone    = completedSegIds.includes(seg.id);
-    const isMissed  = missedSegIds.includes(seg.id);
     const dur       = segDurMin(seg.heure_debut, seg.heure_fin);
     const timeRange = `${seg.heure_debut.slice(0, 5)} – ${seg.heure_fin.slice(0, 5)}`;
 
@@ -932,14 +914,13 @@ export default function HomeScreen() {
       <View key={seg.id} style={s.planItemCard}>
         <View style={s.planItemBody}>
           <Text
-            style={[s.planItemTitle, isDone && s.planItemTitleDone, isMissed && { color: C.danger, opacity: 0.7 }]}
+            style={[s.planItemTitle, isDone && s.planItemTitleDone]}
             numberOfLines={1}
           >
             {segTitle(seg)}
-            {isMissed ? "  ⚠" : ""}
           </Text>
-          <Text style={[s.planItemMeta, (isDone || isMissed) && { opacity: 0.55 }]}>
-            {timeRange} · {dur} min{isMissed ? " · Manquée" : ""}
+          <Text style={[s.planItemMeta, isDone && { opacity: 0.55 }]}>
+            {timeRange} · {dur} min
           </Text>
         </View>
       </View>
