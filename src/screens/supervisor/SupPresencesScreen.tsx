@@ -51,6 +51,29 @@ function daysSince(dateStr: string | null): number | null {
   return Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
 }
 
+// ── Carte statistique — même présentation que l'écran Rapports ─────────────
+
+function StatCard({
+  icon, value, label, color, sub,
+}: {
+  icon:  React.ComponentProps<typeof Feather>["name"];
+  value: string | number;
+  label: string;
+  color: string;
+  sub?:  string;
+}) {
+  return (
+    <View style={styles.statCard}>
+      <View style={[styles.statIconWrap, { backgroundColor: color + "18" }]}>
+        <Feather name={icon} size={rf(18)} color={color} />
+      </View>
+      <Text style={[styles.statValue, { color }]}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+      {sub ? <Text style={styles.statSub}>{sub}</Text> : null}
+    </View>
+  );
+}
+
 export default function SupPresencesScreen() {
   useEffect(() => { trackUsage("presences").catch(() => {}); }, []);
   const insets = useSafeAreaInsets();
@@ -418,7 +441,6 @@ export default function SupPresencesScreen() {
     );
   }
 
-  const progressPct = profs.length > 0 ? Math.round((defined / profs.length) * 100) : 0;
 
   return (
     <View style={styles.root}>
@@ -436,19 +458,24 @@ export default function SupPresencesScreen() {
       {/* ── Contenu principal ── */}
       <View style={styles.content}>
 
-        {/* ── En-tête du jour — une seule lecture : qui, quand, où en est-on ── */}
-        <View style={styles.heroCard}>
-          <Text style={styles.heroGreet}>Bonjour, {user?.name ?? "Superviseur"}</Text>
-          <Text style={styles.heroDate}>{todayCapital}</Text>
-
-          <View style={styles.heroProgressBg}>
-            <View style={[styles.heroProgressFill, { width: `${progressPct}%` as any }]} />
-          </View>
-          <Text style={styles.heroProgressTxt}>
-            {defined}/{profs.length} pointé{defined > 1 ? "s" : ""}
-            {presentsCount > 0 && ` · ${presentsCount} présent${presentsCount > 1 ? "s" : ""}`}
-            {absentsCount  > 0 && ` · ${absentsCount} absent${absentsCount > 1 ? "s" : ""}`}
-          </Text>
+        {/* ── Deux cartes de synthèse, même présentation que l'écran Rapports ── */}
+        <View style={styles.statsRow}>
+          <StatCard
+            icon="check-circle"
+            value={presentsCount}
+            label="Présents"
+            color={presentsCount > 0 ? C.success : C.textMuted}
+            sub={`sur ${profs.length} enseignant${profs.length > 1 ? "s" : ""}`}
+          />
+          <StatCard
+            icon="user-x"
+            value={absentsCount}
+            label="Absents"
+            color={absentsCount > 0 ? C.danger : C.textMuted}
+            sub={defined < profs.length
+              ? `${profs.length - defined} à pointer`
+              : "tous pointés"}
+          />
         </View>
 
         {/* Erreur / info hors-ligne */}
@@ -928,13 +955,24 @@ const styles = StyleSheet.create({
   center:       { flex: 1, backgroundColor: C.bg, alignItems: "center", justifyContent: "center", gap: rs(12) },
   loadingText:  { fontSize: rf(16), color: C.textMuted, marginTop: rs(8) },
 
-  /* En-tête du jour */
-  heroCard:        { backgroundColor: C.brand, borderRadius: rs(16), paddingHorizontal: rs(14), paddingVertical: rs(12), marginBottom: rs(10) },
-  heroGreet:       { fontSize: rf(16), fontWeight: "800", color: "#fff" },
-  heroDate:        { fontSize: rf(11), color: "rgba(255,255,255,0.7)", fontWeight: "600", textTransform: "capitalize", marginTop: rs(1), marginBottom: rs(10) },
-  heroProgressBg:  { height: rs(5), backgroundColor: "rgba(255,255,255,0.2)", borderRadius: rs(3), overflow: "hidden" },
-  heroProgressFill:{ height: "100%", backgroundColor: "#fff", borderRadius: rs(3) },
-  heroProgressTxt: { fontSize: rf(12), color: "rgba(255,255,255,0.85)", fontWeight: "700", marginTop: rs(6) },
+  /* Cartes de synthèse — identiques à celles de l'écran Rapports */
+  statsRow:     { flexDirection: "row", gap: rs(10), marginBottom: rs(10) },
+  statCard: {
+    flex: 1,
+    backgroundColor: C.surface,
+    borderRadius: rs(14),
+    borderWidth: 1, borderColor: C.border,
+    paddingVertical: rs(14), paddingHorizontal: rs(10),
+    alignItems: "center",
+  },
+  statIconWrap: {
+    width: rs(40), height: rs(40), borderRadius: rs(12),
+    alignItems: "center", justifyContent: "center",
+    marginBottom: rs(8),
+  },
+  statValue: { fontSize: rf(24), fontWeight: "800", marginBottom: rs(2) },
+  statLabel: { fontSize: rf(12), color: C.textMuted, fontWeight: "600", textAlign: "center" },
+  statSub:   { fontSize: rf(11), color: C.textMuted, marginTop: rs(2), textAlign: "center" },
 
   /* Error */
   errorBanner:  { flexDirection: "row", alignItems: "center", gap: rs(8), backgroundColor: C.dangerSoft, borderRadius: rs(12), padding: rs(12), marginBottom: rs(10) },

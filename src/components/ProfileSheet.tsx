@@ -93,8 +93,16 @@ export default function ProfileSheet({ visible, onClose }: Props) {
           { text: "Redémarrer", onPress: () => Updates.reloadAsync() },
         ]
       );
-    } catch {
-      Alert.alert("Erreur", "Impossible de vérifier les mises à jour. Vérifiez votre connexion.");
+    } catch (e) {
+      // Ne JAMAIS attribuer l'échec à la connexion sans le savoir : la plupart
+      // des erreurs ici sont des problèmes de configuration côté serveur de
+      // mises à jour (canal non relié à une branche, runtime incompatible…),
+      // et le message trompeur envoie chercher un problème réseau inexistant.
+      const detail = e instanceof Error ? e.message : String(e);
+      Alert.alert(
+        "Mise à jour indisponible",
+        `La vérification a échoué.\n\nDétail : ${detail}\n\nSi votre connexion fonctionne, transmettez ce message à l'administrateur.`,
+      );
     } finally {
       setCheckingUpdate(false);
     }

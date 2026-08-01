@@ -5,9 +5,16 @@ import { Platform, View } from "react-native";
 import { C } from "../../src/utils/theme";
 import { rf, rs } from "../../src/utils/responsive";
 import AppGuide from "../../src/components/AppGuide";
+import { useAndroidBack } from "../../src/hooks/useAndroidBack";
 
 export default function SupervisorTabsLayout() {
   const insets = useSafeAreaInsets();
+
+  // Le bouton retour matériel ne doit jamais dépiler hors des onglets : l\'écran
+  // « Tuteur / Superviseur » reste sous eux dans la pile, et y revenir donne
+  // l\'impression d\'une déconnexion. Les écrans à étapes internes enregistrent
+  // leur propre handler, appelé en priorité (dernier enregistré = premier servi).
+  useAndroidBack(() => true);
   const TAB_BAR_HEIGHT = rs(58) + insets.bottom;
 
   return (

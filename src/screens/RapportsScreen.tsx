@@ -29,6 +29,7 @@ import { C } from "../utils/theme";
 import { useStore } from "../store/useStore";
 import { getRapportsJournalier, deleteRapportJournalier, RapportJournalierLocal } from "../services/db";
 import { rapportJournalierApi } from "../services/api";
+import { hydrateRapportsFromServer } from "../services/rapportsHistory";
 import AppHeader from "../components/AppHeader";
 import ProfileSheet from "../components/ProfileSheet";
 import TourTarget from "../components/TourTarget";
@@ -162,8 +163,15 @@ export default function RapportsScreen() {
       const hasPending = all.some(r => r.synced === 0);
       if (isOnline && hasPending) {
         await syncOffline(true);
-        const updated = getRapportsJournalier();
-        setHistory(updated);
+        setHistory(getRapportsJournalier());
+      }
+
+      // Réhydratation depuis le serveur : la base locale est vidée à la
+      // déconnexion, alors que le serveur conserve tout l'historique du
+      // tuteur. Sans ça, une reconnexion affichait une liste vide.
+      if (isOnline) {
+        const n = await hydrateRapportsFromServer();
+        if (n > 0) setHistory(getRapportsJournalier());
       }
     } catch (e) {
       console.warn("[Rapports] Erreur lecture SQLite :", e);

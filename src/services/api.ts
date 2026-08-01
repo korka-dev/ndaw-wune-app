@@ -37,14 +37,32 @@ api.interceptors.request.use(async (config) => {
 // valide). Toutes les requêtes en attente partagent donc la même promesse.
 let refreshPromise: Promise<{ access_token: string; refresh_token: string }> | null = null;
 
+/** Marque une erreur de refresh comme « session réellement invalide », par
+ *  opposition à un simple incident réseau ou serveur. */
+export class SessionInvalide extends Error {}
+
+/**
+ * Faut-il déconnecter l'utilisateur après un échec du refresh ?
+ *
+ * OUI uniquement si le serveur a explicitement rejeté la session (401/403) ou
+ * s'il n'y a plus de refresh token en mémoire.
+ * NON en cas d'incident réseau (aucune réponse), de timeout ou d'erreur 5xx :
+ * la session reste valide, seul le réseau a fait défaut.
+ */
+export function doitDeconnecter(e: unknown): boolean {
+  if (e instanceof SessionInvalide) return true;
+  const status = (e as { response?: { status?: number } })?.response?.status;
+  return status === 401 || status === 403;
+}
+
 async function performSharedRefresh(): Promise<{ access_token: string; refresh_token: string }> {
   if (!refreshPromise) {
     refreshPromise = (async () => {
       const refresh = await getSecure("refresh_token");
-      if (!refresh) throw new Error("Aucun refresh token disponible.");
+      if (!refresh) throw new SessionInvalide("Aucun refresh token disponible.");
       const { data } = await axios.post(`${API_URL}/auth/refresh`, {
         refresh_token: refresh,
-      });
+      }, { timeout: 15000 });
       await setSecure("access_token",  data.access_token);
       await setSecure("refresh_token", data.refresh_token);
       return data;
@@ -66,10 +84,22 @@ api.interceptors.response.use(
         const data = await performSharedRefresh();
         original.headers.Authorization = `Bearer ${data.access_token}`;
         return api(original);
-      } catch {
-        // Refresh expiré → effacer les tokens et forcer le retour au login
-        await clearAuthTokens();
-        dispatchAuthFailure();
+      } catch (e) {
+        // Ne déconnecter QUE si le serveur a explicitement rejeté la session.
+        //
+        // Auparavant, tout échec du refresh effaçait les tokens : une coupure
+        // réseau au mauvais moment, un timeout, ou un 502 pendant un
+        // redéploiement du backend renvoyaient l'utilisateur au login alors que
+        // sa session était parfaitement valide — et il perdait sa saisie en
+        // cours. Sur le terrain, avec une connexion instable, cela se produit
+        // dès que le token d'accès expire pendant une zone blanche.
+        if (doitDeconnecter(e)) {
+          await clearAuthTokens();
+          dispatchAuthFailure();
+        }
+        // Sinon (pas de réponse = réseau, ou 5xx = serveur indisponible) : on
+        // garde la session. La requête échoue, l'app bascule sur son cache
+        // hors-ligne et réessaiera au prochain appel.
       }
     }
     return Promise.reject(error);

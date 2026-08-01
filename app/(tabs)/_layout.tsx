@@ -5,10 +5,17 @@ import { Platform, View } from "react-native";
 import { C } from "../../src/utils/theme";
 import { rf, rs } from "../../src/utils/responsive";
 import AppGuide from "../../src/components/AppGuide";
+import { useAndroidBack } from "../../src/hooks/useAndroidBack";
 import { useStore } from "../../src/store/useStore";
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
+
+  // Le bouton retour matériel ne doit jamais dépiler hors des onglets : l\'écran
+  // « Tuteur / Superviseur » reste sous eux dans la pile, et y revenir donne
+  // l\'impression d\'une déconnexion. Les écrans à étapes internes enregistrent
+  // leur propre handler, appelé en priorité (dernier enregistré = premier servi).
+  useAndroidBack(() => true);
   const user = useStore(state => state.user);
   // Accès restreint : le tuteur "timer_only" ne voit que l'accueil (planning + timer)
   const timerOnly = (user as any)?.app_access === "timer_only";

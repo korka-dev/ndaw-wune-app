@@ -474,6 +474,109 @@ export function deleteRapportJournalier(id: string): void {
 }
 
 /**
+ * Enregistre en local un rapport déjà présent sur le serveur.
+ *
+ * Sert à repeupler l'historique après une déconnexion/reconnexion : la base
+ * locale est vidée au logout, alors que le serveur, lui, conserve tous les
+ * rapports de l'enseignant. On les réinsère marqués `synced = 1` avec leur
+ * `server_id`, ce qui permet aussi de les supprimer depuis l'app.
+ *
+ * Idempotent : un rapport déjà connu (même `server_id`) est mis à jour et non
+ * dupliqué — indispensable puisque cette fonction est appelée à chaque
+ * ouverture de l'écran Rapports.
+ */
+export function upsertRapportJournalierFromServer(r: {
+  server_id:               string;
+  date_rapport:            string;
+  ief:                     string;
+  commune:                 string;
+  ecole:                   string;
+  superviseur:             string;
+  nom_tuteur:              string;
+  nb_absences:             number;
+  absents:                 string | null;
+  semaine:                 number;
+  jour_cours:              number;
+  difficultes:             string;
+  autres_difficultes:      string | null;
+  description_difficultes: string | null;
+  directeur_venu:          number;
+  besoin_appui:            number;
+  domaines_appui:          string | null;
+  has_observations:        number;
+  commentaires:            string | null;
+  soumis_en_offline:       number;
+  photo_classe:            string | null;
+  photos_classe:           string | null;
+  reponses_questions:      string | null;
+  created_at:              string;
+}): void {
+  const db = getDB();
+  let existant = db.getFirstSync<{ id: string }>(
+    `SELECT id FROM rapports_journalier WHERE server_id = ?`,
+    [r.server_id],
+  );
+
+  // Rattrapage : les rapports envoyés avant l'enregistrement du server_id sont
+  // marqués synced=1 mais sans identifiant serveur. On les reconnaît à leur
+  // date + semaine + jour, et on leur rattache l'id du serveur — sans quoi ils
+  // apparaîtraient en double après la première réhydratation.
+  if (!existant) {
+    const orphelin = db.getFirstSync<{ id: string }>(
+      `SELECT id FROM rapports_journalier
+        WHERE server_id IS NULL AND synced = 1
+          AND date_rapport = ? AND semaine = ? AND jour_cours = ?
+        LIMIT 1`,
+      [r.date_rapport, r.semaine, r.jour_cours],
+    );
+    if (orphelin) {
+      db.runSync(`UPDATE rapports_journalier SET server_id = ? WHERE id = ?`,
+        [r.server_id, orphelin.id]);
+      existant = orphelin;
+    }
+  }
+
+  if (existant) {
+    db.runSync(
+      `UPDATE rapports_journalier SET
+         date_rapport = ?, nb_absences = ?, absents = ?, semaine = ?, jour_cours = ?,
+         difficultes = ?, autres_difficultes = ?, description_difficultes = ?,
+         directeur_venu = ?, besoin_appui = ?, domaines_appui = ?,
+         has_observations = ?, commentaires = ?, photo_classe = ?, photos_classe = ?,
+         reponses_questions = ?, synced = ?
+       WHERE server_id = ?`,
+      [
+        r.date_rapport, r.nb_absences, r.absents, r.semaine, r.jour_cours,
+        r.difficultes, r.autres_difficultes, r.description_difficultes,
+        r.directeur_venu, r.besoin_appui, r.domaines_appui,
+        r.has_observations, r.commentaires, r.photo_classe, r.photos_classe,
+        r.reponses_questions, 1, r.server_id,
+      ],
+    );
+    return;
+  }
+
+  db.runSync(
+    `INSERT INTO rapports_journalier (
+      id, date_rapport, ief, commune, ecole, superviseur, nom_tuteur,
+      nb_absences, absents, semaine, jour_cours, difficultes,
+      autres_difficultes, description_difficultes,
+      directeur_venu, besoin_appui, domaines_appui,
+      has_observations, commentaires, soumis_en_offline, photo_classe, photos_classe,
+      reponses_questions, server_id, synced, created_at
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      `srv_${r.server_id}`, r.date_rapport, r.ief, r.commune, r.ecole, r.superviseur, r.nom_tuteur,
+      r.nb_absences, r.absents, r.semaine, r.jour_cours, r.difficultes,
+      r.autres_difficultes, r.description_difficultes,
+      r.directeur_venu, r.besoin_appui, r.domaines_appui,
+      r.has_observations, r.commentaires, r.soumis_en_offline,
+      r.photo_classe, r.photos_classe, r.reponses_questions, r.server_id, 1, r.created_at,
+    ],
+  );
+}
+
+/**
  * Retourne tous les rapports journaliers, du plus récent au plus ancien.
  */
 export function getRapportsJournalier(): RapportJournalierLocal[] {

@@ -390,7 +390,13 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
       };
 
       if (isOnline) {
-        try { await rapportJournalierApi.submit(apiBody); markRapportJournalierSynced(localId); }
+        try {
+          // On conserve l'id renvoyé par le serveur : il permet de supprimer le
+          // rapport depuis l'app et évite de le dupliquer quand l'historique est
+          // retéléchargé après une reconnexion.
+          const res = await rapportJournalierApi.submit(apiBody);
+          markRapportJournalierSynced(localId, res?.data?.id);
+        }
         catch { enqueueAction("SUBMIT_RAPPORT_JOURNALIER", apiBody); }
       } else {
         enqueueAction("SUBMIT_RAPPORT_JOURNALIER", apiBody);

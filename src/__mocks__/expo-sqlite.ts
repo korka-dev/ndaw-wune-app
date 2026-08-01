@@ -45,18 +45,19 @@ class MockDatabase {
     return { lastInsertRowId: 0, changes: 0 };
   }
 
-  getAllSync<T = Row>(sql: string, _params: unknown[] = []): T[] {
+  getAllSync<T = Row>(sql: string, params: unknown[] = []): T[] {
     const table = this._table(sql);
-    return table ? [...(this.tables.get(table) ?? [])] as T[] : [];
+    if (!table) return [];
+    return this._filter(this.tables.get(table) ?? [], sql, params) as T[];
   }
 
-  getFirstSync<T = Row>(sql: string, _params: unknown[] = []): T | null {
+  getFirstSync<T = Row>(sql: string, params: unknown[] = []): T | null {
     if (/^PRAGMA\s+user_version/i.test(sql.trim())) {
       return { user_version: this.userVersion } as unknown as T;
     }
     const table = this._table(sql);
     if (!table) return null;
-    const rows = this.tables.get(table) ?? [];
+    const rows = this._filter(this.tables.get(table) ?? [], sql, params);
     return (rows[0] as unknown as T) ?? null;
   }
 
@@ -144,6 +145,25 @@ class MockDatabase {
       return { lastInsertRowId: 0, changes };
     }
 
+    // Cas générique : SET col = ?[, col = ?]* WHERE ...
+    const setClause = sql.match(/SET\s+([\s\S]*?)\s+WHERE/i)?.[1];
+    if (setClause) {
+      const cols = (setClause.match(/(\w+)\s*=\s*\?/gi) ?? [])
+        .map(pair => pair.match(/(\w+)\s*=/i)?.[1])
+        .filter(Boolean) as string[];
+      const setValues = params.slice(0, cols.length);
+      const whereParams = params.slice(cols.length);
+      const updated = rows.map(r => {
+        if (!this._rowMatches(r, sql, whereParams)) return r;
+        changes++;
+        const patch: Row = {};
+        cols.forEach((c, i) => { patch[c] = setValues[i]; });
+        return { ...r, ...patch };
+      });
+      this.tables.set(table, updated);
+      return { lastInsertRowId: 0, changes };
+    }
+
     return { lastInsertRowId: 0, changes: 0 };
   }
 
@@ -165,6 +185,31 @@ class MockDatabase {
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
+
+  /** Conditions `col = ?` / `col IS NULL` d'une clause WHERE (conjonctions seulement). */
+  private _conditions(sql: string, params: unknown[]): { col: string; value: unknown; isNull: boolean }[] {
+    const where = sql.match(/WHERE\s+([\s\S]*?)(?:\s+ORDER\s+BY|\s+LIMIT|\s*;|$)/i)?.[1];
+    if (!where) return [];
+    const conds: { col: string; value: unknown; isNull: boolean }[] = [];
+    let i = 0;
+    for (const part of where.split(/\s+AND\s+/i)) {
+      const eq = part.match(/(\w+)\s*=\s*\?/);
+      if (eq) { conds.push({ col: eq[1], value: params[i++], isNull: false }); continue; }
+      const isNull = part.match(/(\w+)\s+IS\s+NULL/i);
+      if (isNull) conds.push({ col: isNull[1], value: null, isNull: true });
+    }
+    return conds;
+  }
+
+  private _rowMatches(row: Row, sql: string, params: unknown[]): boolean {
+    const conds = this._conditions(sql, params);
+    if (conds.length === 0) return true;   // pas de WHERE exploitable → tout matche
+    return conds.every(c => (c.isNull ? row[c.col] == null : String(row[c.col]) === String(c.value)));
+  }
+
+  private _filter(rows: Row[], sql: string, params: unknown[]): Row[] {
+    return rows.filter(r => this._rowMatches(r, sql, params));
+  }
 
   private _table(sql: string): string | null {
     for (const pat of [/INTO\s+(\w+)/i, /FROM\s+(\w+)/i, /UPDATE\s+(\w+)/i, /TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)/i]) {

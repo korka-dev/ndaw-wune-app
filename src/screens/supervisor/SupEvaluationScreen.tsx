@@ -1,19 +1,20 @@
 /**
- * SupEvaluationScreen — Évaluation des élèves tirés au sort.
+ * SupEvaluationScreen — Évaluation des élèves par le superviseur.
  *
- * Le superviseur ne choisit plus les élèves : le programme les tire au sort
- * lors de la création du sujet d'évaluation par l'admin.
+ * Parcours :
+ *   1. "enseignants" → ses enseignants (il en suit souvent plusieurs)
+ *   2. "eleves"      → tous les élèves de cet enseignant + bouton « Tirer au sort »
+ *   3. "tires"       → les élèves tirés au hasard dans cette liste
+ *   4. "dossier"     → contenu du dossier d'évaluation (lettres, syllabes, mots,
+ *                      opérations) dans la langue d'enseignement de l'école
+ *   5. "evaluer"     → un élève après l'autre : Réussi / Intermédiaire / Pas réussi
  *
- * Le superviseur ne choisit pas non plus la langue du dossier d'évaluation :
- * le serveur ne lui envoie que celui de la langue d'enseignement de son école
- * (wolof, seereer ou pulaar), qui est appliqué automatiquement.
+ * Le tirage est fait dans l'app, sur la liste réelle de la classe, au moment où
+ * le superviseur est devant les élèves — et non plus à l'avance par l'admin.
  *
- * Flux :
- *   1. "sujets"    → sujets d'évaluation avec les élèves tirés au sort
- *   2. "presence"  → marquer les élèves tirés présents / absents, puis valider
- *   3. "evaluer"   → pour chaque élève présent : Réussi / Intermédiaire / Pas réussi
- *      (le dossier de la langue de l'école est appliqué automatiquement)
- *   4. envoi des résultats
+ * Les résultats sont enregistrés dans `evaluations_eleves`, la table que lit
+ * l'onglet « Évaluations » de l'app enseignant : chaque enseignant voit donc
+ * les évaluations faites par son superviseur.
  */
 import React, { useState, useEffect, useCallback } from "react";
 import {
@@ -29,6 +30,7 @@ import { rf, rs } from "../../utils/responsive";
 import AppHeader from "../../components/AppHeader";
 import ProfileSheet from "../../components/ProfileSheet";
 import TourTarget from "../../components/TourTarget";
+import { useAndroidBack } from "../../hooks/useAndroidBack";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -42,28 +44,28 @@ interface EvalDoc {
   operations: string[];
 }
 
-interface TirageApp {
-  tirage_id:    string;
-  eleve_id:     string;
-  eleve_nom:    string;
-  eleve_prenom: string | null;
-  eleve_genre:  string | null;
-  eleve_classe: string;
-  present:      boolean | null;
-  resultat:     string | null;
+interface ClasseMeta { classe: string; nb_eleves: number }
+
+interface Enseignant {
+  teacher_id:   string;
+  teacher_name: string;
+  classes:      ClasseMeta[];
 }
 
-interface SujetApp {
-  id:          string;
-  titre:       string;
-  description: string | null;
-  created_at:  string;
-  eleves:      TirageApp[];
+interface Eleve {
+  id:     string;
+  nom:    string;
+  prenom: string | null;
+  genre:  string | null;
+  classe: string;
 }
 
-type ViewType = "sujets" | "presence" | "evaluer";
+type ViewType = "enseignants" | "eleves" | "tires" | "dossier" | "evaluer";
 
 type Resultat = "reussi" | "intermediaire" | "pas_reussi";
+
+/** Nombre d'élèves tirés au sort par enseignant. */
+const NB_TIRAGE = 2;
 
 const RESULTATS: { key: Resultat; label: string; icon: keyof typeof Feather.glyphMap; color: string; soft: string }[] = [
   { key: "reussi",        label: "Réussi",        icon: "check-circle", color: C.success,  soft: C.successSoft },
@@ -71,24 +73,32 @@ const RESULTATS: { key: Resultat; label: string; icon: keyof typeof Feather.glyp
   { key: "pas_reussi",    label: "Pas réussi",    icon: "x-circle",     color: C.danger,   soft: C.dangerSoft },
 ];
 
-function eleveName(t: TirageApp): string {
-  return `${t.eleve_prenom ? `${t.eleve_prenom} ` : ""}${t.eleve_nom}`;
+const eleveName = (e: Eleve): string => `${e.prenom ? `${e.prenom} ` : ""}${e.nom}`;
+const initiales = (e: Eleve): string =>
+  `${e.nom.charAt(0)}${(e.prenom ?? "").charAt(0)}`.toUpperCase();
+
+/** Tirage aléatoire sans remise (Fisher-Yates partiel). */
+function tirerAuSort<T>(liste: T[], n: number): T[] {
+  const copie = [...liste];
+  for (let i = copie.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copie[i], copie[j]] = [copie[j], copie[i]];
+  }
+  return copie.slice(0, Math.min(n, copie.length));
 }
+
+const aujourdhui = (): string => new Date().toISOString().slice(0, 10);
 
 // ── Écran principal ───────────────────────────────────────────────────────────
 
 export default function SupEvaluationScreen() {
   useEffect(() => { trackUsage("evaluations").catch(() => {}); }, []);
   const { user, isOnline, syncData } = useStore();
-  // Langue d'enseignement de l'école du superviseur — les dossiers d'évaluation
-  // sont filtrés dessus côté serveur ; on l'affiche pour lever toute ambiguïté.
-  const langueRaw = syncData?.school?.langue ?? null;
-  const langueEcole = langueRaw
-    ? langueRaw.charAt(0).toUpperCase() + langueRaw.slice(1)
-    : null;
+  const langueRaw   = syncData?.school?.langue ?? null;
+  const langueEcole = langueRaw ? langueRaw.charAt(0).toUpperCase() + langueRaw.slice(1) : null;
 
   // Données
-  const [sujets,      setSujets]      = useState<SujetApp[]>([]);
+  const [enseignants, setEnseignants] = useState<Enseignant[]>([]);
   const [evalDocs,    setEvalDocs]    = useState<EvalDoc[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [refreshing,  setRefreshing]  = useState(false);
@@ -96,34 +106,32 @@ export default function SupEvaluationScreen() {
   const [profileOpen, setProfileOpen] = useState(false);
 
   // Navigation
-  const [view,        setView]        = useState<ViewType>("sujets");
-  const [activeSujet, setActiveSujet] = useState<SujetApp | null>(null);
-  const [activeDoc,   setActiveDoc]   = useState<EvalDoc | null>(null);
+  const [view,          setView]          = useState<ViewType>("enseignants");
+  const [activeEns,     setActiveEns]     = useState<Enseignant | null>(null);
+  const [eleves,        setEleves]        = useState<Eleve[]>([]);
+  const [loadingEleves, setLoadingEleves] = useState(false);
+  const [tires,         setTires]         = useState<Eleve[]>([]);
+  const [activeDoc,     setActiveDoc]     = useState<EvalDoc | null>(null);
 
-  // Étape présence : tirage_id → présent ?
-  const [presenceMap, setPresenceMap] = useState<Map<string, boolean>>(new Map());
-  const [savingPresence, setSavingPresence] = useState(false);
-
-  // Étape évaluation : élèves présents + résultat choisi
-  const [evalList,    setEvalList]    = useState<TirageApp[]>([]);
-  const [results,     setResults]     = useState<Map<string, Resultat>>(new Map());
-  const [evalIndex,   setEvalIndex]   = useState(0);
-  const [submitting,  setSubmitting]  = useState(false);
-  const [submitDone,  setSubmitDone]  = useState(false);
+  // Évaluation
+  const [results,    setResults]    = useState<Map<string, Resultat>>(new Map());
+  const [evalIndex,  setEvalIndex]  = useState(0);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitDone, setSubmitDone] = useState(false);
 
   // ── Chargement ─────────────────────────────────────────────────────────────
 
   const fetchData = useCallback(async () => {
     setError(null);
     try {
-      const [sujetsRes, docsRes] = await Promise.all([
-        superviseurApi.evaluationSujets(),
+      const [ensRes, docsRes] = await Promise.all([
+        superviseurApi.eleves(),
         superviseurApi.evaluationDocs(),
       ]);
-      setSujets(sujetsRes.data ?? []);
+      setEnseignants(ensRes.data?.teachers ?? []);
       setEvalDocs(docsRes.data ?? []);
     } catch {
-      setError("Impossible de charger les évaluations. Vérifiez votre connexion.");
+      setError("Impossible de charger les données. Vérifiez votre connexion.");
     }
   }, []);
 
@@ -135,128 +143,116 @@ export default function SupEvaluationScreen() {
     setRefreshing(false);
   };
 
-  // Sync manuelle depuis le bouton du header : sync superviseur globale
-  // (profil, école, questions, enseignants) + données de cet écran
   const syncOffline = useStore(st => st.syncOffline);
   const [syncing, setSyncing] = useState(false);
   const handleManualSync = async () => {
     if (syncing || !isOnline) return;
     setSyncing(true);
-    try {
-      await Promise.all([syncOffline(true).catch(() => {}), fetchData()]);
-    } finally { setSyncing(false); }
+    try { await Promise.all([syncOffline(true).catch(() => {}), fetchData()]); }
+    finally { setSyncing(false); }
   };
 
-  // ── Étape 1 → 2 : ouvrir un sujet ──────────────────────────────────────────
+  // ── Navigation ─────────────────────────────────────────────────────────────
 
-  const openSujet = (sujet: SujetApp) => {
-    setActiveSujet(sujet);
-    const m = new Map<string, boolean>();
-    for (const t of sujet.eleves) {
-      if (t.present !== null) m.set(t.tirage_id, t.present);
+  const retour = useCallback(() => {
+    if (view === "evaluer")  { setView("dossier");     return; }
+    if (view === "dossier")  { setView("tires");       return; }
+    if (view === "tires")    { setView("eleves");      return; }
+    if (view === "eleves")   {
+      setView("enseignants");
+      setActiveEns(null); setEleves([]); setTires([]);
+      setResults(new Map()); setEvalIndex(0); setSubmitDone(false);
     }
-    setPresenceMap(m);
-    setActiveDoc(null);
+  }, [view]);
+
+  useAndroidBack(useCallback(() => { retour(); return true; }, [retour]));
+
+  // ── Étape 1 → 2 : charger les élèves de l'enseignant ───────────────────────
+
+  const ouvrirEnseignant = async (ens: Enseignant) => {
+    setActiveEns(ens);
+    setTires([]); setResults(new Map()); setEvalIndex(0); setSubmitDone(false);
+    setView("eleves");
+    setLoadingEleves(true);
+    try {
+      // Un enseignant peut avoir plusieurs classes : on réunit tous ses élèves.
+      const listes = await Promise.all(
+        ens.classes.map(c => superviseurApi.classeEleves(ens.teacher_id, c.classe)),
+      );
+      const tous = listes.flatMap(r => (r.data ?? []) as Eleve[]);
+      tous.sort((a, b) => eleveName(a).localeCompare(eleveName(b)));
+      setEleves(tous);
+    } catch {
+      setEleves([]);
+      Alert.alert("Erreur", "Impossible de charger les élèves de cet enseignant.");
+    } finally {
+      setLoadingEleves(false);
+    }
+  };
+
+  // ── Étape 2 → 3 : tirage au sort ───────────────────────────────────────────
+
+  const lancerTirage = () => {
+    if (eleves.length === 0) return;
+    setTires(tirerAuSort(eleves, NB_TIRAGE));
     setResults(new Map());
-    setSubmitDone(false);
-    setView("presence");
+    setEvalIndex(0);
+    setView("tires");
   };
 
-  const setPresence = (tirageId: string, present: boolean) => {
-    setPresenceMap(prev => new Map(prev).set(tirageId, present));
-  };
+  // ── Étape 3 → 4 : ouvrir le dossier d'évaluation ───────────────────────────
 
-  // ── Étape 2 → 3 : valider les présences, puis évaluer ──────────────────────
-
-  const validatePresences = async () => {
-    if (!activeSujet || savingPresence) return;
-    const entries = activeSujet.eleves
-      .filter(t => presenceMap.has(t.tirage_id))
-      .map(t => ({ tirage_id: t.tirage_id, present: presenceMap.get(t.tirage_id)! }));
-
-    if (entries.length < activeSujet.eleves.length) {
-      Alert.alert("Pointage incomplet", "Indiquez présent ou absent pour chaque élève tiré au sort.");
+  const ouvrirDossier = () => {
+    if (evalDocs.length === 0) {
+      Alert.alert(
+        "Dossier d'évaluation manquant",
+        `Aucun dossier d'évaluation${langueEcole ? ` en ${langueEcole}` : ""} n'est disponible. Contactez l'administrateur.`,
+      );
       return;
     }
-
-    const presents = activeSujet.eleves.filter(
-      t => presenceMap.get(t.tirage_id) === true && !t.resultat
-    );
-
-    setSavingPresence(true);
-    try {
-      await superviseurApi.setTiragesPresences(entries);
-      setEvalList(presents);
-      setEvalIndex(0);
-      if (presents.length === 0) {
-        Alert.alert("Pointage enregistré", "Aucun élève présent restant à évaluer pour ce sujet.");
-        await fetchData();
-        goTo("sujets");
-      } else if (evalDocs.length === 0) {
-        Alert.alert(
-          "Dossier d'évaluation manquant",
-          `Aucun dossier d'évaluation${langueEcole ? ` en ${langueEcole}` : ""} n'est disponible. Contactez l'administrateur.`
-        );
-      } else {
-        // Le dossier est imposé par la langue d'enseignement de l'école : le
-        // serveur n'en envoie que celui-là, on l'applique sans rien demander.
-        setActiveDoc(evalDocs[0]);
-        setView("evaluer");
-      }
-    } catch {
-      Alert.alert("Erreur", "Impossible d'enregistrer les présences. Vérifiez votre connexion.");
-    } finally {
-      setSavingPresence(false);
-    }
+    setActiveDoc(evalDocs[0]);   // imposé par la langue de l'école
+    setView("dossier");
   };
 
-  // ── Étape 3 : évaluation à 3 options ───────────────────────────────────────
+  // ── Étape 5 : évaluation et envoi ──────────────────────────────────────────
 
-  const current = evalList[evalIndex] ?? null;
-  const nbEvalues = evalList.filter(t => results.has(t.tirage_id)).length;
+  const current = tires[evalIndex] ?? null;
 
-  const chooseResult = (r: Resultat) => {
+  const choisirResultat = (r: Resultat) => {
     if (!current) return;
-    setResults(prev => new Map(prev).set(current.tirage_id, r));
+    setResults(prev => new Map(prev).set(current.id, r));
   };
 
-  const submitAll = async () => {
-    if (submitting) return;
-    if (nbEvalues < evalList.length) {
-      Alert.alert("Évaluation incomplète", "Choisissez un résultat pour chaque élève avant d'envoyer.");
+  const envoyer = async () => {
+    if (!activeDoc || submitting) return;
+    const manquants = tires.filter(e => !results.has(e.id));
+    if (manquants.length > 0) {
+      Alert.alert("Évaluation incomplète", "Choisissez un résultat pour chaque élève tiré au sort.");
       return;
     }
     setSubmitting(true);
     try {
-      for (const t of evalList) {
-        const r = results.get(t.tirage_id);
-        if (!r) continue;
-        const fd = new FormData();
-        fd.append("resultat", r);
-        await superviseurApi.submitTirage(t.tirage_id, fd);
-      }
+      await superviseurApi.submitEvaluations(
+        tires.map(e => ({
+          eleve_id:   e.id,
+          competence: activeDoc.titre,   // le dossier tient lieu de sujet évalué
+          resultat:   results.get(e.id)!,
+          date_eval:  aujourdhui(),
+        })),
+      );
       setSubmitDone(true);
-      fetchData().catch(() => {});
     } catch {
-      Alert.alert("Erreur", "Impossible d'envoyer les évaluations. Vérifiez votre connexion et réessayez.");
+      Alert.alert("Erreur", "Impossible d'enregistrer les évaluations. Vérifiez votre connexion.");
     } finally {
       setSubmitting(false);
     }
   };
 
-  // ── Navigation retour ─────────────────────────────────────────────────────
-
-  const goTo = (target: ViewType) => {
-    if (target === "sujets") {
-      setActiveSujet(null);
-      setActiveDoc(null);
-      setPresenceMap(new Map());
-      setEvalList([]);
-      setResults(new Map());
-      setEvalIndex(0);
-      setSubmitDone(false);
-    }
-    setView(target);
+  const terminer = () => {
+    setView("enseignants");
+    setActiveEns(null); setEleves([]); setTires([]);
+    setResults(new Map()); setEvalIndex(0); setSubmitDone(false);
+    fetchData().catch(() => {});
   };
 
   // ── Rendu ─────────────────────────────────────────────────────────────────
@@ -268,12 +264,17 @@ export default function SupEvaluationScreen() {
     </View>
   );
 
-  const nbPointes = activeSujet
-    ? activeSujet.eleves.filter(t => presenceMap.has(t.tirage_id)).length
-    : 0;
-  const nbPresents = activeSujet
-    ? activeSujet.eleves.filter(t => presenceMap.get(t.tirage_id) === true).length
-    : 0;
+  const enTete = (titre: string, sous: string) => (
+    <View style={st.subHeader}>
+      <TouchableOpacity onPress={retour} style={st.backBtn} disabled={submitting}>
+        <Feather name="arrow-left" size={rs(20)} color={submitting ? C.textMuted : C.text} />
+      </TouchableOpacity>
+      <View style={{ flex: 1 }}>
+        <Text style={st.subHeaderTitle} numberOfLines={1}>{titre}</Text>
+        <Text style={st.subHeaderSub}>{sous}</Text>
+      </View>
+    </View>
+  );
 
   return (
     <View style={st.root}>
@@ -286,16 +287,14 @@ export default function SupEvaluationScreen() {
         sectionLabel="Espace Superviseur"
       />
 
-      {/* ═══════════════════════════════════════════════════════════════════ */}
-      {/* VUE 1 — Sujets d'évaluation (élèves déjà tirés au sort)            */}
-      {/* ═══════════════════════════════════════════════════════════════════ */}
-      {view === "sujets" && (
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* VUE 1 — Mes enseignants                                        */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {view === "enseignants" && (
         <View style={{ flex: 1 }}>
           <View style={st.viewHeader}>
-            <Text style={st.viewTitle}>Évaluations</Text>
-            <Text style={st.viewSub}>
-              Les élèves sont tirés au sort automatiquement par le programme
-            </Text>
+            <Text style={st.viewTitle}>Mes enseignants</Text>
+            <Text style={st.viewSub}>Choisissez un enseignant pour évaluer ses élèves</Text>
           </View>
 
           {error && (
@@ -309,57 +308,42 @@ export default function SupEvaluationScreen() {
           )}
 
           <TourTarget id="sup.evaluation.contenu" style={{ flex: 1 }}>
-          {sujets.length === 0 && !error ? (
+          {enseignants.length === 0 && !error ? (
             <ScrollView
               contentContainerStyle={st.emptyState}
               refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}
             >
-              <Feather name="award" size={rs(40)} color={C.textMuted} />
+              <Feather name="users" size={rs(40)} color={C.textMuted} />
               <Text style={st.emptyText}>
-                Aucun sujet d'évaluation pour vos classes.{"\n"}L'administrateur crée les sujets et le programme tire les élèves au sort.
+                Aucun enseignant ne vous est rattaché.{"\n"}Contactez l&apos;administrateur.
               </Text>
             </ScrollView>
           ) : (
             <FlatList
-              data={sujets}
-              keyExtractor={s => s.id}
+              data={enseignants}
+              keyExtractor={e => e.teacher_id}
               contentContainerStyle={st.listContent}
               showsVerticalScrollIndicator={false}
               refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}
-              renderItem={({ item: sujet }) => {
-                const nbTotal   = sujet.eleves.length;
-                const nbFaits   = sujet.eleves.filter(t => t.resultat).length;
-                const nbAbsents = sujet.eleves.filter(t => t.present === false).length;
-                const done      = nbTotal > 0 && nbFaits + nbAbsents >= nbTotal;
+              renderItem={({ item: ens }) => {
+                const nbEleves = ens.classes.reduce((n, c) => n + c.nb_eleves, 0);
                 return (
-                  <TouchableOpacity
-                    style={st.sujetCard}
-                    onPress={() => openSujet(sujet)}
-                    activeOpacity={0.8}
-                  >
+                  <TouchableOpacity style={st.sujetCard} onPress={() => ouvrirEnseignant(ens)} activeOpacity={0.8}>
                     <View style={st.sujetIconWrap}>
-                      <Feather name="shuffle" size={rs(18)} color={C.primary} />
+                      <Feather name="user" size={rs(18)} color={C.primary} />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={st.sujetTitre} numberOfLines={1}>{sujet.titre}</Text>
-                      {sujet.description ? (
-                        <Text style={st.sujetDesc} numberOfLines={1}>{sujet.description}</Text>
-                      ) : null}
+                      <Text style={st.sujetTitre} numberOfLines={1}>{ens.teacher_name}</Text>
+                      {ens.classes.length > 0 && (
+                        <Text style={st.sujetDesc} numberOfLines={1}>
+                          {ens.classes.map(c => c.classe).join(" · ")}
+                        </Text>
+                      )}
                       <View style={st.sujetMetaRow}>
                         <View style={st.sujetBadge}>
                           <Feather name="users" size={rf(11)} color={C.primary} />
-                          <Text style={st.sujetBadgeTxt}>{nbTotal} élève{nbTotal !== 1 ? "s" : ""} tiré{nbTotal !== 1 ? "s" : ""}</Text>
+                          <Text style={st.sujetBadgeTxt}>{nbEleves} élève{nbEleves !== 1 ? "s" : ""}</Text>
                         </View>
-                        {done ? (
-                          <View style={[st.sujetBadge, { backgroundColor: C.successSoft }]}>
-                            <Feather name="check" size={rf(11)} color={C.success} />
-                            <Text style={[st.sujetBadgeTxt, { color: C.success }]}>Terminé</Text>
-                          </View>
-                        ) : nbFaits > 0 ? (
-                          <View style={[st.sujetBadge, { backgroundColor: C.warnSoft }]}>
-                            <Text style={[st.sujetBadgeTxt, { color: C.warn }]}>{nbFaits}/{nbTotal} évalué{nbFaits !== 1 ? "s" : ""}</Text>
-                          </View>
-                        ) : null}
                       </View>
                     </View>
                     <Feather name="chevron-right" size={rs(18)} color={C.textMuted} />
@@ -372,201 +356,228 @@ export default function SupEvaluationScreen() {
         </View>
       )}
 
-      {/* ═══════════════════════════════════════════════════════════════════ */}
-      {/* VUE 2 — Présence des élèves tirés au sort                          */}
-      {/* ═══════════════════════════════════════════════════════════════════ */}
-      {view === "presence" && activeSujet && (
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* VUE 2 — Élèves de l'enseignant + tirage au sort                 */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {view === "eleves" && activeEns && (
         <View style={{ flex: 1 }}>
-          <View style={st.subHeader}>
-            <TouchableOpacity onPress={() => goTo("sujets")} style={st.backBtn}>
-              <Feather name="arrow-left" size={rs(20)} color={C.text} />
-            </TouchableOpacity>
-            <View style={{ flex: 1 }}>
-              <Text style={st.subHeaderTitle} numberOfLines={1}>{activeSujet.titre}</Text>
-              <Text style={st.subHeaderSub}>
-                Étape 1/2 — Pointez les élèves tirés au sort · {nbPointes}/{activeSujet.eleves.length}
+          {enTete(activeEns.teacher_name, `Étape 1/4 — ${eleves.length} élève${eleves.length !== 1 ? "s" : ""} dans ses classes`)}
+
+          {loadingEleves ? (
+            <View style={[st.center, { flex: 1 }]}>
+              <ActivityIndicator size="large" color={C.brand} />
+              <Text style={st.loadingText}>Chargement des élèves…</Text>
+            </View>
+          ) : eleves.length === 0 ? (
+            <View style={st.emptyState}>
+              <Feather name="users" size={rs(40)} color={C.textMuted} />
+              <Text style={st.emptyText}>Aucun élève actif dans les classes de cet enseignant.</Text>
+            </View>
+          ) : (
+            <>
+              <FlatList
+                data={eleves}
+                keyExtractor={e => e.id}
+                contentContainerStyle={st.listContent}
+                showsVerticalScrollIndicator={false}
+                renderItem={({ item: e, index }) => (
+                  <View style={st.presCard}>
+                    <View style={st.eleveAvatar}>
+                      <Text style={st.eleveAvatarText}>{initiales(e)}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={st.eleveName} numberOfLines={1}>{eleveName(e)}</Text>
+                      <Text style={st.eleveGenre}>{e.classe}</Text>
+                    </View>
+                    <Text style={st.eleveRang}>{index + 1}</Text>
+                  </View>
+                )}
+              />
+
+              <View style={st.evalBtnBar}>
+                <TouchableOpacity style={st.evalBtn} onPress={lancerTirage} activeOpacity={0.85}>
+                  <Feather name="shuffle" size={rs(16)} color="#fff" />
+                  <Text style={st.evalBtnText}>Tirer au sort {NB_TIRAGE} élèves</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+        </View>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* VUE 3 — Élèves tirés au sort                                    */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {view === "tires" && activeEns && (
+        <View style={{ flex: 1 }}>
+          {enTete(activeEns.teacher_name, `Étape 2/4 — ${tires.length} élève${tires.length !== 1 ? "s" : ""} tiré${tires.length !== 1 ? "s" : ""} au sort`)}
+
+          <ScrollView contentContainerStyle={st.listContent} showsVerticalScrollIndicator={false}>
+            <View style={st.tirageBanner}>
+              <Feather name="shuffle" size={rf(15)} color={C.brand} />
+              <Text style={st.tirageBannerTxt}>
+                Tirage effectué parmi les {eleves.length} élèves de la classe
               </Text>
             </View>
-          </View>
 
-          <FlatList
-            data={activeSujet.eleves}
-            keyExtractor={t => t.tirage_id}
-            contentContainerStyle={st.listContent}
-            showsVerticalScrollIndicator={false}
-            renderItem={({ item: t }) => {
-              const p = presenceMap.get(t.tirage_id);
-              const dejaEvalue = !!t.resultat;
-              return (
-                <View style={[st.presCard, dejaEvalue && { opacity: 0.55 }]}>
-                  <View style={st.eleveAvatar}>
-                    <Text style={st.eleveAvatarText}>
-                      {t.eleve_nom.charAt(0)}{(t.eleve_prenom ?? "").charAt(0)}
-                    </Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={st.eleveName} numberOfLines={1}>{eleveName(t)}</Text>
-                    <Text style={st.eleveGenre}>
-                      {t.eleve_classe}{dejaEvalue ? " · Déjà évalué" : ""}
-                    </Text>
-                  </View>
-                  <View style={st.presBtns}>
-                    <TouchableOpacity
-                      style={[st.presBtn, p === true && st.presBtnOnP]}
-                      onPress={() => setPresence(t.tirage_id, true)}
-                      disabled={dejaEvalue}
-                      activeOpacity={0.75}
-                    >
-                      <Feather name="check" size={rf(14)} color={p === true ? "#fff" : C.success} />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[st.presBtn, st.presBtnA, p === false && st.presBtnOnA]}
-                      onPress={() => setPresence(t.tirage_id, false)}
-                      disabled={dejaEvalue}
-                      activeOpacity={0.75}
-                    >
-                      <Feather name="x" size={rf(14)} color={p === false ? "#fff" : C.danger} />
-                    </TouchableOpacity>
-                  </View>
+            {tires.map(e => (
+              <View key={e.id} style={st.tireCard}>
+                <View style={[st.eleveAvatar, { backgroundColor: C.brandSoft }]}>
+                  <Text style={[st.eleveAvatarText, { color: C.brand }]}>{initiales(e)}</Text>
                 </View>
-              );
-            }}
-          />
+                <View style={{ flex: 1 }}>
+                  <Text style={st.tireNom} numberOfLines={1}>{eleveName(e)}</Text>
+                  <Text style={st.eleveGenre}>{e.classe}</Text>
+                </View>
+              </View>
+            ))}
+          </ScrollView>
 
-          <View style={st.evalBtnBar}>
-            <TouchableOpacity
-              style={[st.evalBtn, (nbPointes < activeSujet.eleves.length || savingPresence) && st.evalBtnDisabled]}
-              onPress={validatePresences}
-              disabled={nbPointes < activeSujet.eleves.length || savingPresence}
-              activeOpacity={0.85}
-            >
-              {savingPresence ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <Feather name="check" size={rs(16)} color={nbPointes < activeSujet.eleves.length ? C.textMuted : "#fff"} />
-                  <Text style={[st.evalBtnText, nbPointes < activeSujet.eleves.length && st.evalBtnTextDisabled]}>
-                    Valider ({nbPresents} présent{nbPresents !== 1 ? "s" : ""})
-                  </Text>
-                </>
-              )}
+          <View style={st.navRow}>
+            <TouchableOpacity style={st.navBtn} onPress={lancerTirage} activeOpacity={0.8}>
+              <Feather name="refresh-cw" size={rs(15)} color={C.brand} />
+              <Text style={st.navBtnText}>Retirer</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={st.mainNavBtn} onPress={ouvrirDossier} activeOpacity={0.85}>
+              <Text style={st.mainNavBtnText}>Continuer</Text>
+              <Feather name="arrow-right" size={rs(16)} color="#fff" />
             </TouchableOpacity>
           </View>
         </View>
       )}
 
-      {/* ═══════════════════════════════════════════════════════════════════ */}
-      {/* VUE 4 — Évaluation : Réussi / Intermédiaire / Pas réussi           */}
-      {/* ═══════════════════════════════════════════════════════════════════ */}
-      {view === "evaluer" && activeSujet && activeDoc && (
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* VUE 4 — Contenu du dossier d'évaluation                         */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {view === "dossier" && activeDoc && (
         <View style={{ flex: 1 }}>
-          <View style={st.subHeader}>
-            <TouchableOpacity
-              onPress={() => setView("presence")}
-              style={st.backBtn}
-              disabled={submitting}
-            >
-              <Feather name="arrow-left" size={rs(20)} color={submitting ? C.textMuted : C.text} />
-            </TouchableOpacity>
-            <View style={{ flex: 1 }}>
-              <Text style={st.subHeaderTitle} numberOfLines={1}>
-                {current ? eleveName(current) : activeSujet.titre}
-              </Text>
-              <Text style={st.subHeaderSub}>
-                Étape 2/2 — Élève {Math.min(evalIndex + 1, evalList.length)}/{evalList.length} · {activeDoc.langue}
-              </Text>
-            </View>
-          </View>
+          {enTete(activeDoc.titre, `Étape 3/4 — Dossier ${activeDoc.langue}`)}
 
-          {submitDone ? (
-            <View style={[st.center, { gap: rs(16) }]}>
-              <Feather name="check-circle" size={rs(52)} color={C.success} />
-              <Text style={st.doneTitle}>Évaluations envoyées !</Text>
-              <Text style={st.doneSub}>{nbEvalues} élève{nbEvalues !== 1 ? "s" : ""} évalué{nbEvalues !== 1 ? "s" : ""}</Text>
-              <TouchableOpacity style={st.doneBtn} onPress={() => goTo("sujets")} activeOpacity={0.85}>
-                <Text style={st.doneBtnText}>Retour aux sujets</Text>
-              </TouchableOpacity>
-            </View>
-          ) : current ? (
-            <>
-              <View style={st.progBarOuter}>
-                <View style={[st.progBarFill, { width: `${Math.round((nbEvalues / Math.max(1, evalList.length)) * 100)}%` as any }]} />
+          <ScrollView style={st.evalScroll} contentContainerStyle={{ paddingBottom: rs(16) }} showsVerticalScrollIndicator={false}>
+            <View style={st.contentCard}>
+              <Text style={st.contentLabel}>Lettres</Text>
+              <View style={st.tokensRow}>
+                {activeDoc.lettres.map((l, i) => (
+                  <View key={`l${i}`} style={st.token}><Text style={st.tokenText}>{l}</Text></View>
+                ))}
               </View>
 
-              <ScrollView style={{ flex: 1 }} contentContainerStyle={st.evalScroll} showsVerticalScrollIndicator={false}>
-                {/* ── Support d'évaluation (fixe pour la période) ── */}
-                <View style={st.contentCard}>
-                  <Text style={st.contentLabel}>Lettres</Text>
-                  <View style={st.tokensRow}>
-                    {activeDoc.lettres.map((l, i) => (
-                      <View key={i} style={st.token}><Text style={st.tokenText}>{l}</Text></View>
-                    ))}
-                  </View>
-                </View>
-                <View style={st.contentCard}>
-                  <Text style={st.contentLabel}>Syllabes</Text>
-                  <View style={st.tokensRow}>
-                    {activeDoc.syllabes.map((x, i) => (
-                      <View key={i} style={st.token}><Text style={st.tokenText}>{x}</Text></View>
-                    ))}
-                  </View>
-                </View>
-                <View style={st.contentCard}>
-                  <Text style={st.contentLabel}>Mots</Text>
-                  <View style={st.tokensRow}>
-                    {activeDoc.mots.map((x, i) => (
-                      <View key={i} style={[st.token, st.tokenMot]}><Text style={st.tokenText}>{x}</Text></View>
-                    ))}
-                  </View>
-                </View>
-                <View style={st.contentCard}>
-                  <Text style={st.contentLabel}>Opérations</Text>
-                  <View style={st.opsGrid}>
-                    {activeDoc.operations.map((op, i) => (
-                      <View key={i} style={st.opItem}><Text style={st.opText}>{op}</Text></View>
-                    ))}
-                  </View>
-                </View>
+              <Text style={[st.contentLabel, { marginTop: rs(16) }]}>Syllabes</Text>
+              <View style={st.tokensRow}>
+                {activeDoc.syllabes.map((s, i) => (
+                  <View key={`s${i}`} style={st.token}><Text style={st.tokenText}>{s}</Text></View>
+                ))}
+              </View>
 
-                {/* ── Résultat : 3 options ── */}
-                <Text style={st.resultTitle}>Résultat de l'élève</Text>
+              <Text style={[st.contentLabel, { marginTop: rs(16) }]}>Mots</Text>
+              <View style={st.tokensRow}>
+                {activeDoc.mots.map((m, i) => (
+                  <View key={`m${i}`} style={[st.token, st.tokenMot]}><Text style={st.tokenText}>{m}</Text></View>
+                ))}
+              </View>
+
+              <Text style={[st.contentLabel, { marginTop: rs(16) }]}>Opérations</Text>
+              <View style={st.opsGrid}>
+                {activeDoc.operations.map((o, i) => (
+                  <View key={`o${i}`} style={st.opItem}><Text style={st.opText}>{o}</Text></View>
+                ))}
+              </View>
+            </View>
+          </ScrollView>
+
+          <View style={st.evalBtnBar}>
+            <TouchableOpacity style={st.evalBtn} onPress={() => { setEvalIndex(0); setView("evaluer"); }} activeOpacity={0.85}>
+              <Feather name="edit-3" size={rs(16)} color="#fff" />
+              <Text style={st.evalBtnText}>Commencer l&apos;évaluation</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* VUE 5 — Évaluation élève par élève                              */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      {view === "evaluer" && activeDoc && (
+        <View style={{ flex: 1 }}>
+          {submitDone ? (
+            <View style={[st.center, { gap: rs(16), flex: 1 }]}>
+              <Feather name="check-circle" size={rs(56)} color={C.success} />
+              <Text style={st.doneTitle}>Évaluation enregistrée</Text>
+              <Text style={st.doneSub}>
+                {tires.length} élève{tires.length !== 1 ? "s" : ""} évalué{tires.length !== 1 ? "s" : ""}.{"\n"}
+                L&apos;enseignant verra les résultats dans son app.
+              </Text>
+              <TouchableOpacity style={st.doneBtn} onPress={terminer} activeOpacity={0.85}>
+                <Text style={st.doneBtnText}>Terminer</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <>
+              {enTete(
+                current ? eleveName(current) : "Évaluation",
+                `Étape 4/4 — Élève ${Math.min(evalIndex + 1, tires.length)}/${tires.length}`,
+              )}
+
+              <View style={st.progBarOuter}>
+                <View style={[st.progBarFill, { width: `${((evalIndex + 1) / Math.max(tires.length, 1)) * 100}%` as any }]} />
+              </View>
+
+              <ScrollView style={st.evalScroll} contentContainerStyle={{ paddingBottom: rs(16) }} showsVerticalScrollIndicator={false}>
+                {current && (
+                  <View style={st.presCard}>
+                    <View style={[st.eleveAvatar, { backgroundColor: C.brandSoft }]}>
+                      <Text style={[st.eleveAvatarText, { color: C.brand }]}>{initiales(current)}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={st.eleveName}>{eleveName(current)}</Text>
+                      <Text style={st.eleveGenre}>{current.classe}</Text>
+                    </View>
+                  </View>
+                )}
+
+                <Text style={st.resultTitle}>Résultat de l&apos;élève</Text>
                 <View style={st.resultRow}>
                   {RESULTATS.map(r => {
-                    const sel = results.get(current.tirage_id) === r.key;
+                    const sel = current ? results.get(current.id) === r.key : false;
                     return (
                       <TouchableOpacity
                         key={r.key}
-                        style={[st.resultBtn, { borderColor: r.color + "55", backgroundColor: sel ? r.color : r.soft }]}
-                        onPress={() => chooseResult(r.key)}
+                        style={[st.resultBtn, { backgroundColor: sel ? r.color : r.soft }]}
+                        onPress={() => choisirResultat(r.key)}
                         activeOpacity={0.8}
                       >
-                        <Feather name={r.icon} size={rf(20)} color={sel ? "#fff" : r.color} />
+                        <Feather name={r.icon} size={rs(20)} color={sel ? "#fff" : r.color} />
                         <Text style={[st.resultBtnTxt, { color: sel ? "#fff" : r.color }]}>{r.label}</Text>
                       </TouchableOpacity>
                     );
                   })}
                 </View>
 
-                {/* ── Autres élèves ── */}
-                {evalList.length > 1 && (
+                {tires.length > 1 && (
                   <View style={st.otherEleves}>
-                    <Text style={st.otherElevesTitle}>Élèves à évaluer</Text>
-                    {evalList.map((t, i) => {
-                      const r = results.get(t.tirage_id);
-                      const cfg = RESULTATS.find(x => x.key === r);
+                    <Text style={st.otherElevesTitle}>Élèves tirés au sort</Text>
+                    {tires.map((e, i) => {
+                      const r = results.get(e.id);
+                      const meta = RESULTATS.find(x => x.key === r);
                       return (
                         <TouchableOpacity
-                          key={t.tirage_id}
-                          style={[st.otherEleveRow, i === evalIndex && { backgroundColor: C.primarySoft + "50" }]}
+                          key={e.id}
+                          style={st.otherEleveRow}
                           onPress={() => setEvalIndex(i)}
-                          activeOpacity={0.75}
+                          activeOpacity={0.7}
                         >
-                          <Text style={st.otherEleveName} numberOfLines={1}>{eleveName(t)}</Text>
-                          <View style={[st.miniBadge, { backgroundColor: cfg ? cfg.soft : C.surfaceAlt }]}>
-                            <Text style={[st.miniBadgeText, { color: cfg ? cfg.color : C.textMuted }]}>
-                              {cfg ? cfg.label : "En attente"}
-                            </Text>
-                          </View>
+                          <Text style={[st.otherEleveName, i === evalIndex && { color: C.brand, fontWeight: "800" }]} numberOfLines={1}>
+                            {eleveName(e)}
+                          </Text>
+                          {meta ? (
+                            <View style={[st.miniBadge, { backgroundColor: meta.soft }]}>
+                              <Text style={[st.miniBadgeText, { color: meta.color }]}>{meta.label}</Text>
+                            </View>
+                          ) : (
+                            <View style={[st.miniBadge, { backgroundColor: C.surfaceAlt }]}>
+                              <Text style={[st.miniBadgeText, { color: C.textMuted }]}>À évaluer</Text>
+                            </View>
+                          )}
                         </TouchableOpacity>
                       );
                     })}
@@ -574,44 +585,40 @@ export default function SupEvaluationScreen() {
                 )}
               </ScrollView>
 
-              {/* Navigation + envoi */}
-              <View style={st.evalBtnBar}>
-                <View style={st.navRow}>
-                  <TouchableOpacity
-                    style={[st.navBtn, evalIndex === 0 && st.navBtnDisabled]}
-                    onPress={() => setEvalIndex(i => i - 1)}
-                    disabled={evalIndex === 0}
-                    activeOpacity={0.8}
-                  >
-                    <Feather name="chevron-left" size={rs(18)} color={evalIndex === 0 ? C.textMuted : C.text} />
-                    <Text style={[st.navBtnText, evalIndex === 0 && { color: C.textMuted }]}>Préc.</Text>
-                  </TouchableOpacity>
+              <View style={st.navRow}>
+                <TouchableOpacity
+                  style={[st.navBtn, evalIndex === 0 && st.navBtnDisabled]}
+                  onPress={() => setEvalIndex(i => Math.max(0, i - 1))}
+                  disabled={evalIndex === 0}
+                  activeOpacity={0.8}
+                >
+                  <Feather name="arrow-left" size={rs(15)} color={evalIndex === 0 ? C.textMuted : C.brand} />
+                  <Text style={[st.navBtnText, evalIndex === 0 && { color: C.textMuted }]}>Précédent</Text>
+                </TouchableOpacity>
 
-                  {evalIndex < evalList.length - 1 ? (
-                    <TouchableOpacity style={st.mainNavBtn} onPress={() => setEvalIndex(i => i + 1)} activeOpacity={0.85}>
-                      <Text style={st.mainNavBtnText}>Suivant</Text>
-                      <Feather name="chevron-right" size={rs(18)} color="#fff" />
-                    </TouchableOpacity>
-                  ) : submitting ? (
-                    <View style={[st.mainNavBtn, { backgroundColor: C.surfaceAlt }]}>
-                      <ActivityIndicator size="small" color={C.brand} />
-                    </View>
-                  ) : (
-                    <TouchableOpacity
-                      style={[st.mainNavBtn, { backgroundColor: nbEvalues < evalList.length ? C.surfaceAlt : C.success }]}
-                      onPress={submitAll}
-                      activeOpacity={0.85}
-                    >
-                      <Feather name="send" size={rs(16)} color={nbEvalues < evalList.length ? C.textMuted : "#fff"} />
-                      <Text style={[st.mainNavBtnText, nbEvalues < evalList.length && { color: C.textMuted }]}>
-                        Envoyer ({nbEvalues}/{evalList.length})
-                      </Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
+                {evalIndex < tires.length - 1 ? (
+                  <TouchableOpacity style={st.mainNavBtn} onPress={() => setEvalIndex(i => i + 1)} activeOpacity={0.85}>
+                    <Text style={st.mainNavBtnText}>Suivant</Text>
+                    <Feather name="arrow-right" size={rs(16)} color="#fff" />
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    style={[st.mainNavBtn, submitting && { opacity: 0.6 }]}
+                    onPress={envoyer}
+                    disabled={submitting}
+                    activeOpacity={0.85}
+                  >
+                    {submitting ? <ActivityIndicator size="small" color="#fff" /> : (
+                      <>
+                        <Feather name="send" size={rs(16)} color="#fff" />
+                        <Text style={st.mainNavBtnText}>Envoyer</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                )}
               </View>
             </>
-          ) : null}
+          )}
         </View>
       )}
 
@@ -619,8 +626,6 @@ export default function SupEvaluationScreen() {
     </View>
   );
 }
-
-// ── Styles ────────────────────────────────────────────────────────────────────
 
 const st = StyleSheet.create({
   root:        { flex: 1, backgroundColor: C.bg },
@@ -634,6 +639,24 @@ const st = StyleSheet.create({
   listContent: { paddingHorizontal: rs(14), paddingTop: rs(8), paddingBottom: rs(16), gap: rs(10) },
 
   // Sujets
+  /* Sélecteur de sujet — visible uniquement si plusieurs sujets actifs */
+
+  /* Élèves tirés au sort */
+  eleveRang:       { fontSize: rf(12), fontWeight: "700", color: C.textMuted, minWidth: rs(22), textAlign: "right" },
+  tirageBanner:    {
+    flexDirection: "row", alignItems: "center", gap: rs(8),
+    backgroundColor: C.brandSoft, borderRadius: rs(12),
+    paddingHorizontal: rs(12), paddingVertical: rs(10), marginBottom: rs(12),
+  },
+  tirageBannerTxt: { fontSize: rf(13), fontWeight: "600", color: C.brand, flex: 1 },
+  tireCard: {
+    flexDirection: "row", alignItems: "center", gap: rs(12),
+    backgroundColor: C.surface, borderRadius: rs(14),
+    borderWidth: 1.5, borderColor: C.brand + "40",
+    padding: rs(14), marginBottom: rs(10),
+  },
+  tireNom:         { fontSize: rf(17), fontWeight: "800", color: C.text },
+
   sujetCard: {
     flexDirection: "row", alignItems: "center", gap: rs(12),
     backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
@@ -669,15 +692,6 @@ const st = StyleSheet.create({
     backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
     borderRadius: rs(14), padding: rs(12),
   },
-  presBtns: { flexDirection: "row", gap: rs(8) },
-  presBtn: {
-    width: rs(38), height: rs(38), borderRadius: rs(11),
-    backgroundColor: C.successSoft, borderWidth: 1.5, borderColor: C.success + "55",
-    alignItems: "center", justifyContent: "center",
-  },
-  presBtnA:   { backgroundColor: C.dangerSoft, borderColor: C.danger + "55" },
-  presBtnOnP: { backgroundColor: C.success, borderColor: C.success },
-  presBtnOnA: { backgroundColor: C.danger, borderColor: C.danger },
 
   eleveAvatar:     { width: rs(38), height: rs(38), borderRadius: rs(19), backgroundColor: C.surfaceAlt, alignItems: "center", justifyContent: "center" },
   eleveAvatarText: { fontSize: rf(12), fontWeight: "700", color: C.textMuted },
@@ -691,9 +705,7 @@ const st = StyleSheet.create({
     borderTopWidth: 1, borderTopColor: C.border,
   },
   evalBtn:             { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: rs(8), backgroundColor: C.primary, borderRadius: rs(14), paddingVertical: rs(15) },
-  evalBtnDisabled:     { backgroundColor: C.surfaceAlt },
   evalBtnText:         { fontSize: rf(16), fontWeight: "800", color: "#fff" },
-  evalBtnTextDisabled: { color: C.textMuted },
 
   // Évaluation
   progBarOuter: { height: rs(3), backgroundColor: C.border },

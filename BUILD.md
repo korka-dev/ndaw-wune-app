@@ -50,8 +50,59 @@ Le build se lance sur les serveurs Expo. Une fois terminé (10-20 min), tu reço
 Pour tous les changements JavaScript/TypeScript (nouvelles fonctionnalités, corrections de bugs, changements d'API…), pas besoin de rebuilder. Lance simplement :
 
 ```bash
-eas update --branch preview --message "description du changement"
+eas update --branch preview --clear-cache --message "description du changement"
 ```
+
+### ⚠️ URL de l'API : le piège des fichiers .env
+
+`EXPO_PUBLIC_API_URL` est **inlinée dans le bundle** au moment du bundling.
+Contrairement à `eas build`, `eas update` n'utilise PAS le bloc `env` des
+profils de `eas.json` : il charge les fichiers `.env` locaux, dans cet ordre
+de priorité décroissante :
+
+```
+.env.production.local  >  .env.local  >  .env.production  >  .env
+```
+
+`.env.local` étant prioritaire sur `.env.production`, une URL de
+développement qui y traîne part chez tous les tuteurs et casse l'app (aucun
+appel API n'aboutit). C'est arrivé le 01/08/2026.
+
+Organisation en place pour l'éviter :
+
+| Fichier | Contenu | Chargé par |
+|---|---|---|
+| `.env.development.local` | URL LAN de dev (`http://192.168.x.x:8000/api/v1`) | `expo start` uniquement |
+| `.env.production` | `https://api.ndawwune.cloud/api/v1` | `eas update`, `expo export`, `eas build` |
+
+**Ne jamais recréer de `.env.local`** : il serait chargé aussi bien en
+développement qu'en production.
+
+`--clear-cache` est indispensable : Metro met en cache la valeur déjà inlinée,
+et un changement de `.env` sans vidage de cache produit un bundle avec
+l'ancienne URL (le log affiche pourtant le bon fichier chargé — trompeur).
+
+### Vérifier le bundle AVANT de publier
+
+```bash
+npx expo export --platform android --clear --output-dir /tmp/dist-check
+B=$(python3 -c "import json;print(json.load(open('/tmp/dist-check/metadata.json'))['fileMetadata']['android']['bundle'])")
+grep -aoE 'https?://[a-zA-Z0-9._:-]+/api/v1' "/tmp/dist-check/$B" | sort -u
+```
+
+La seule URL affichée doit être `https://api.ndawwune.cloud/api/v1`.
+
+### En cas de mauvaise publication
+
+```bash
+# Neutraliser immédiatement : les apps repassent sur le bundle embarqué dans l'APK
+eas update:roll-back-to-embedded --branch preview --message "annulation"
+```
+
+Puis republier une version correcte : la mise à jour la plus récente gagne.
+Aucun appareil n'a besoin de réinstaller — la récupération se fait au
+lancement suivant, `expo-updates` interrogeant `u.expo.dev` indépendamment de
+l'API de l'app.
 
 Comment ça se passe côté utilisateur, une fois l'APK à jour (voir point 2)
 installé au moins une fois :
@@ -59,11 +110,12 @@ installé au moins une fois :
   configuré dans `app.json`) déclenche une vérification à chaque lancement
   de l'app ; si une mise à jour existe, elle est téléchargée en arrière-plan
   et appliquée au lancement suivant, sans aucune action de l'utilisateur.
-- **Bandeau en direct** : un bandeau "Une nouvelle version est prête" avec un
-  bouton **Redémarrer** apparaît automatiquement en haut de l'écran dès
-  qu'une mise à jour a fini de se télécharger pendant que l'app est déjà
-  ouverte (`src/components/UpdateBanner.tsx`) — pas besoin d'attendre un
-  redémarrage manuel de l'app.
+- **Alerte à l'entrée dans l'app** : `src/components/UpdateModal.tsx` vérifie
+  au lancement ET à chaque retour depuis l'arrière-plan (`AppState`), télécharge
+  la nouvelle version en silence, puis affiche une boîte de dialogue
+  "Mise à jour disponible" avec un bouton **Faire la mise à jour** qui redémarre
+  l'app immédiatement. "Plus tard" reporte au prochain lancement, sans
+  réafficher l'alerte pendant la session en cours.
 - **Vérification manuelle** : un bouton "Vérifier les mises à jour" est
   disponible dans l'écran Profil, pour un utilisateur qui veut forcer la
   vérification immédiatement.
@@ -89,7 +141,7 @@ Les dépendances `postcss` et `ws` sont déjà patchées via `overrides` dans `p
 | Situation | Commande |
 |---|---|
 | Premier build / nouveau module natif | `eas build --profile preview --platform android` |
-| Mise à jour JS/TS (bugfix, feature…) | `eas update --branch preview --message "..."` |
+| Mise à jour JS/TS (bugfix, feature…) | `eas update --branch preview --clear-cache --message "..."` |
 | Après git pull / changement package.json | `npm install` |
 
 **Note ponctuelle** : les APK déjà installés avant l'ajout de la config
