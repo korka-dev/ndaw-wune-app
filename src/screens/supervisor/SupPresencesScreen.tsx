@@ -436,48 +436,19 @@ export default function SupPresencesScreen() {
       {/* ── Contenu principal ── */}
       <View style={styles.content}>
 
-        {/* ── Hero card ── */}
+        {/* ── En-tête du jour — une seule lecture : qui, quand, où en est-on ── */}
         <View style={styles.heroCard}>
-          <View style={styles.heroTop}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.heroDate}>{todayCapital}</Text>
-              <Text style={styles.heroGreet}>Bonjour, {user?.name ?? "Superviseur"}</Text>
-            </View>
-            <View style={styles.heroIconWrap}>
-              <Feather name="clipboard" size={rf(18)} color="#fff" />
-            </View>
-          </View>
+          <Text style={styles.heroGreet}>Bonjour, {user?.name ?? "Superviseur"}</Text>
+          <Text style={styles.heroDate}>{todayCapital}</Text>
 
-          {/* Barre de progression du pointage */}
-          <View style={styles.heroProgressWrap}>
-            <View style={styles.heroProgressBg}>
-              <View style={[styles.heroProgressFill, { width: `${progressPct}%` as any }]} />
-            </View>
-            <Text style={styles.heroProgressTxt}>
-              {defined}/{profs.length} pointé{defined > 1 ? "s" : ""}
-            </Text>
+          <View style={styles.heroProgressBg}>
+            <View style={[styles.heroProgressFill, { width: `${progressPct}%` as any }]} />
           </View>
-
-          {/* Stats intégrées dans la hero card */}
-          <View style={styles.heroStatsRow}>
-            <View style={styles.heroStat}>
-              <View style={[styles.heroStatDot, { backgroundColor: "#4ADE80" }]} />
-              <Text style={styles.heroStatVal}>{presentsCount}</Text>
-              <Text style={styles.heroStatLbl}>Présents</Text>
-            </View>
-            <View style={styles.heroStatDivider} />
-            <View style={styles.heroStat}>
-              <View style={[styles.heroStatDot, { backgroundColor: "#F87171" }]} />
-              <Text style={styles.heroStatVal}>{absentsCount}</Text>
-              <Text style={styles.heroStatLbl}>Absents</Text>
-            </View>
-            <View style={styles.heroStatDivider} />
-            <View style={styles.heroStat}>
-              <View style={[styles.heroStatDot, { backgroundColor: "rgba(255,255,255,0.4)" }]} />
-              <Text style={styles.heroStatVal}>{profs.length - defined}</Text>
-              <Text style={styles.heroStatLbl}>En attente</Text>
-            </View>
-          </View>
+          <Text style={styles.heroProgressTxt}>
+            {defined}/{profs.length} pointé{defined > 1 ? "s" : ""}
+            {presentsCount > 0 && ` · ${presentsCount} présent${presentsCount > 1 ? "s" : ""}`}
+            {absentsCount  > 0 && ` · ${absentsCount} absent${absentsCount > 1 ? "s" : ""}`}
+          </Text>
         </View>
 
         {/* Erreur / info hors-ligne */}
@@ -499,13 +470,10 @@ export default function SupPresencesScreen() {
             <View style={styles.periodeCard}>
               <View style={styles.periodeHeader}>
                 <Feather name="calendar" size={rf(17)} color={C.brand} />
-                <Text style={styles.periodeTitle}>Choisissez la période</Text>
+                <Text style={styles.periodeTitle}>Quelle période pointez-vous ?</Text>
               </View>
-              <Text style={styles.periodeSub}>
-                Sélectionnez la semaine et le jour de cours avant de pointer les tuteurs présents ou absents.
-              </Text>
 
-              <Text style={styles.periodeLabel}>Semaine de progression</Text>
+              <Text style={styles.periodeLabel}>Semaine</Text>
               <View style={styles.periodeGrid}>
                 {Array.from({ length: nbSemaines }, (_, i) => i + 1).map(n => {
                   const sel = draftSemaine === n;
@@ -522,7 +490,7 @@ export default function SupPresencesScreen() {
                 })}
               </View>
 
-              <Text style={[styles.periodeLabel, { marginTop: rs(14) }]}>Jour de cours</Text>
+              <Text style={[styles.periodeLabel, { marginTop: rs(14) }]}>Jour</Text>
               <View style={styles.periodeGrid}>
                 {JOURS_NUM.map((j, i) => {
                   const sel = draftJour === i;
@@ -573,20 +541,22 @@ export default function SupPresencesScreen() {
         ) : (
           /* ── État non validé : liste + bouton ── */
           <>
-            {/* Période choisie */}
-            {periode && (
-              <TouchableOpacity style={styles.periodePill} onPress={() => setPeriode(null)} activeOpacity={0.8}>
-                <Feather name="calendar" size={rf(12)} color={C.brand} />
-                <Text style={styles.periodePillTxt}>
-                  Semaine {periode.semaine} · {JOURS_NUM[periode.jour]}
-                </Text>
-                <Text style={styles.periodePillChange}>Changer</Text>
-              </TouchableOpacity>
-            )}
-
-            {/* En-tête liste */}
+            {/* Une seule ligne de contexte : période choisie + effectif */}
             <View style={styles.listHeader}>
-              <Text style={styles.listHeaderTitle}>Enseignants</Text>
+              {periode ? (
+                <TouchableOpacity
+                  style={styles.periodePill}
+                  onPress={() => setPeriode(null)}
+                  activeOpacity={0.8}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Feather name="calendar" size={rf(12)} color={C.brand} />
+                  <Text style={styles.periodePillTxt}>
+                    Semaine {periode.semaine} · {JOURS_NUM[periode.jour]}
+                  </Text>
+                  <Feather name="edit-2" size={rf(11)} color={C.brand} />
+                </TouchableOpacity>
+              ) : <View />}
               {profs.length > 0 && (
                 <Text style={styles.listHeaderCount}>{profs.length} enseignant{profs.length > 1 ? "s" : ""}</Text>
               )}
@@ -614,63 +584,52 @@ export default function SupPresencesScreen() {
                 const days = daysSince(prof.last_rapport_date);
                 const noRapport = days === null || days >= 3;
                 return (
-                <View key={prof.id} style={[styles.profCard, noRapport && styles.profCardAlert]}>
+                /* Toucher la carte marque présent tant que l'enseignant n'est
+                   pas encore pointé — un choix « Absent » déjà fait n'est
+                   jamais écrasé par une tape involontaire. */
+                <TouchableOpacity
+                  key={prof.id}
+                  style={styles.profCard}
+                  activeOpacity={locked || prof.present !== null ? 1 : 0.7}
+                  onPress={() => { if (!locked && prof.present === null) markPresent(prof.id); }}
+                >
                   <View style={styles.profCardTop}>
-                    <View style={[styles.avatar, styles.avatarLarge, { backgroundColor: avatarBg(prof) }]}>
-                      <Text style={[styles.avatarText, styles.avatarTextLarge, { color: avatarColor(prof) }]}>{prof.initiales}</Text>
+                    <View style={[styles.avatar, { backgroundColor: avatarBg(prof) }]}>
+                      <Text style={[styles.avatarText, { color: avatarColor(prof) }]}>{prof.initiales}</Text>
                     </View>
                     <View style={styles.profInfo}>
-                      <Text style={styles.profNameLarge}>{prof.nom}</Text>
-                      <View style={styles.profMetaRow}>
-                        <Feather name="book-open" size={rf(13)} color={C.textMuted} />
-                        <Text style={styles.profClasseLarge}>{prof.classe}</Text>
-                        {prof.present !== null && (
-                          <View style={[styles.profStatusPill, prof.present ? styles.profStatusPresent : styles.profStatusAbsent]}>
-                            <Text style={[styles.profStatusTxt, { color: prof.present ? C.success : C.danger }]}>
-                              {prof.present ? "Présent" : "Absent"}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                    </View>
-                  </View>
-                  {noRapport && (
-                    <View style={styles.rapportAlertRow}>
-                      <Feather name="alert-triangle" size={rf(13)} color="#D97706" />
-                      <Text style={styles.rapportAlertTxt}>
-                        {days === null
-                          ? "Aucun rapport soumis"
-                          : `Aucun rapport depuis ${days} jour${days > 1 ? "s" : ""}`}
+                      <Text style={styles.profName} numberOfLines={1}>{prof.nom}</Text>
+                      <Text style={styles.profMeta} numberOfLines={1}>
+                        {prof.classe}
+                        {noRapport && (days === null
+                          ? "  ·  ⚠ aucun rapport"
+                          : `  ·  ⚠ rapport il y a ${days} j`)}
+                        {prof.present === false && prof.motif ? `  ·  ${prof.motif}` : ""}
                       </Text>
                     </View>
-                  )}
-                  {prof.present === false && prof.motif && (
-                    <View style={styles.motifRow}>
-                      <Feather name="file-text" size={rf(11)} color={C.danger} />
-                      <Text style={styles.motifRowTxt} numberOfLines={1}>{prof.motif}</Text>
-                    </View>
-                  )}
+                  </View>
+
                   <View style={styles.profActions}>
                     <TouchableOpacity
                       onPress={() => markPresent(prof.id)}
                       disabled={locked}
                       activeOpacity={0.7}
-                      style={[styles.actionBtn, styles.actionBtnPresent, prof.present === true && styles.actionBtnPresentActive]}
+                      style={[styles.actionBtn, prof.present === true && styles.actionBtnPresentActive]}
                     >
                       <Feather name="check" size={rf(14)} color={prof.present === true ? "#fff" : C.success} />
-                      <Text style={[styles.actionBtnTxt, styles.actionBtnTxtPresent, prof.present === true && styles.actionBtnTxtPresentActive]}>Présent</Text>
+                      <Text style={[styles.actionBtnTxt, { color: prof.present === true ? "#fff" : C.success }]}>Présent</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => openMotifModal(prof)}
                       disabled={locked}
                       activeOpacity={0.7}
-                      style={[styles.actionBtn, styles.actionBtnAbsent, prof.present === false && styles.actionBtnAbsentActive]}
+                      style={[styles.actionBtn, prof.present === false && styles.actionBtnAbsentActive]}
                     >
                       <Feather name="x" size={rf(14)} color={prof.present === false ? "#fff" : C.danger} />
-                      <Text style={[styles.actionBtnTxt, styles.actionBtnTxtAbsent, prof.present === false && styles.actionBtnTxtAbsentActive]}>Absent</Text>
+                      <Text style={[styles.actionBtnTxt, { color: prof.present === false ? "#fff" : C.danger }]}>Absent</Text>
                     </TouchableOpacity>
                   </View>
-                </View>
+                </TouchableOpacity>
                 );
               })}
               <View style={{ height: rs(16) }} />
@@ -699,9 +658,8 @@ export default function SupPresencesScreen() {
                       style={{ marginRight: rs(8) }}
                     />
                     <Text style={[styles.validateText, defined === 0 && styles.validateTextDisabled]}>
-                      {isOnline
-                        ? `Valider les présences${defined > 0 ? ` (${defined}/${profs.length})` : ""}`
-                        : `Enregistrer hors-ligne${defined > 0 ? ` (${defined}/${profs.length})` : ""}`}
+                      {isOnline ? "Valider" : "Enregistrer hors-ligne"}
+                      {defined > 0 ? ` (${defined}/${profs.length})` : ""}
                     </Text>
                   </>
                 )}
@@ -936,9 +894,8 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface, borderRadius: rs(16), padding: rs(16),
     borderWidth: 1, borderColor: C.border, marginBottom: rs(12),
   },
-  periodeHeader: { flexDirection: "row", alignItems: "center", gap: rs(8) },
+  periodeHeader: { flexDirection: "row", alignItems: "center", gap: rs(8), marginBottom: rs(14) },
   periodeTitle:  { fontSize: rf(16), fontWeight: "800", color: C.text },
-  periodeSub:    { fontSize: rf(13), color: C.textMuted, marginTop: rs(4), marginBottom: rs(12), lineHeight: rf(18) },
   periodeLabel:  { fontSize: rf(12), fontWeight: "700", color: C.textMuted, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: rs(8) },
   periodeGrid:   { flexDirection: "row", flexWrap: "wrap", gap: rs(6) },
   periodeCell: {
@@ -962,33 +919,22 @@ const styles = StyleSheet.create({
   periodeBtnTxt: { fontSize: rf(14), fontWeight: "800", color: "#fff" },
   periodePill: {
     flexDirection: "row", alignItems: "center", gap: rs(6),
-    alignSelf: "flex-start", backgroundColor: C.brandSoft,
+    backgroundColor: C.brandSoft,
     borderRadius: rs(20), paddingHorizontal: rs(10), paddingVertical: rs(5),
-    marginBottom: rs(8),
   },
-  periodePillTxt:    { fontSize: rf(12), fontWeight: "700", color: C.brand },
-  periodePillChange: { fontSize: rf(12), fontWeight: "700", color: C.brand, textDecorationLine: "underline", marginLeft: rs(4) },
+  periodePillTxt: { fontSize: rf(12), fontWeight: "700", color: C.brand },
 
   content:      { flex: 1, paddingHorizontal: rs(16), paddingTop: rs(8) },
   center:       { flex: 1, backgroundColor: C.bg, alignItems: "center", justifyContent: "center", gap: rs(12) },
   loadingText:  { fontSize: rf(16), color: C.textMuted, marginTop: rs(8) },
 
-  /* Hero card */
-  heroCard:        { backgroundColor: C.brand, borderRadius: rs(18), padding: rs(12), marginBottom: rs(10) },
-  heroTop:         { flexDirection: "row", alignItems: "center", marginBottom: rs(8) },
-  heroDate:        { fontSize: rf(11), color: "rgba(255,255,255,0.7)", fontWeight: "600", textTransform: "capitalize" },
-  heroGreet:       { fontSize: rf(16), fontWeight: "800", color: "#fff", marginTop: rs(1) },
-  heroIconWrap:    { width: rs(38), height: rs(38), borderRadius: rs(11), backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" },
-  heroProgressWrap:{ flexDirection: "row", alignItems: "center", gap: rs(8), marginBottom: rs(8) },
-  heroProgressBg:  { flex: 1, height: rs(5), backgroundColor: "rgba(255,255,255,0.2)", borderRadius: rs(3), overflow: "hidden" },
+  /* En-tête du jour */
+  heroCard:        { backgroundColor: C.brand, borderRadius: rs(16), paddingHorizontal: rs(14), paddingVertical: rs(12), marginBottom: rs(10) },
+  heroGreet:       { fontSize: rf(16), fontWeight: "800", color: "#fff" },
+  heroDate:        { fontSize: rf(11), color: "rgba(255,255,255,0.7)", fontWeight: "600", textTransform: "capitalize", marginTop: rs(1), marginBottom: rs(10) },
+  heroProgressBg:  { height: rs(5), backgroundColor: "rgba(255,255,255,0.2)", borderRadius: rs(3), overflow: "hidden" },
   heroProgressFill:{ height: "100%", backgroundColor: "#fff", borderRadius: rs(3) },
-  heroProgressTxt: { fontSize: rf(11), color: "rgba(255,255,255,0.8)", fontWeight: "700", minWidth: rs(64), textAlign: "right" },
-  heroStatsRow:    { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(255,255,255,0.12)", borderRadius: rs(10), paddingVertical: rs(6) },
-  heroStat:        { flex: 1, alignItems: "center", gap: rs(1) },
-  heroStatDot:     { width: rs(6), height: rs(6), borderRadius: rs(3), marginBottom: rs(1) },
-  heroStatVal:     { fontSize: rf(17), fontWeight: "800", color: "#fff" },
-  heroStatLbl:     { fontSize: rf(10), color: "rgba(255,255,255,0.7)", fontWeight: "600" },
-  heroStatDivider: { width: 1, height: rs(22), backgroundColor: "rgba(255,255,255,0.15)" },
+  heroProgressTxt: { fontSize: rf(12), color: "rgba(255,255,255,0.85)", fontWeight: "700", marginTop: rs(6) },
 
   /* Error */
   errorBanner:  { flexDirection: "row", alignItems: "center", gap: rs(8), backgroundColor: C.dangerSoft, borderRadius: rs(12), padding: rs(12), marginBottom: rs(10) },
@@ -997,9 +943,8 @@ const styles = StyleSheet.create({
   warnText:     { color: C.warn },
   retryText:    { fontSize: rf(13), fontWeight: "700", color: C.danger, textDecorationLine: "underline" },
 
-  /* List header */
-  listHeader:      { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: rs(8) },
-  listHeaderTitle: { fontSize: rf(14), fontWeight: "800", color: C.brand, textTransform: "uppercase", letterSpacing: 0.6 },
+  /* Ligne de contexte au-dessus de la liste */
+  listHeader:      { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: rs(8), minHeight: rs(28) },
   listHeaderCount: { fontSize: rf(13), color: C.textMuted, fontWeight: "600" },
 
   /* List scroll */
@@ -1011,51 +956,28 @@ const styles = StyleSheet.create({
   emptyTitle:   { fontSize: rf(16), fontWeight: "700", color: C.text },
   emptyText:    { fontSize: rf(14), color: C.textMuted, textAlign: "center", lineHeight: rf(20), paddingHorizontal: rs(24) },
 
-  /* Prof card */
-  profCard:       { backgroundColor: C.surface, borderRadius: rs(16), borderWidth: 1.5, borderColor: C.border, padding: rs(16), marginBottom: rs(10), shadowColor: "#000", shadowOpacity: 0.04, shadowOffset: { width: 0, height: 2 }, shadowRadius: 4, elevation: 2 },
-  profCardAlert:  { borderColor: "#F59E0B55", backgroundColor: "#FFFBEB" },
-  profCardTop:    { flexDirection: "row", alignItems: "center", gap: rs(12), marginBottom: rs(10) },
-  avatar:         { width: rs(42), height: rs(42), borderRadius: rs(21), alignItems: "center", justifyContent: "center" },
-  avatarLarge:    { width: rs(50), height: rs(50), borderRadius: rs(25) },
+  /* Carte enseignant */
+  profCard:       { backgroundColor: C.surface, borderRadius: rs(14), borderWidth: 1, borderColor: C.border, padding: rs(12), marginBottom: rs(8) },
+  profCardTop:    { flexDirection: "row", alignItems: "center", gap: rs(10), marginBottom: rs(10) },
+  avatar:         { width: rs(40), height: rs(40), borderRadius: rs(20), alignItems: "center", justifyContent: "center" },
   avatarText:     { fontSize: rf(14), fontWeight: "700" },
-  avatarTextLarge:{ fontSize: rf(16) },
   profInfo:       { flex: 1 },
-  profName:       { fontSize: rf(15), fontWeight: "700", color: C.text, marginBottom: rs(3) },
-  profNameLarge:  { fontSize: rf(17), fontWeight: "800", color: C.text, marginBottom: rs(4) },
-  profMetaRow:    { flexDirection: "row", alignItems: "center", gap: rs(5) },
-  profClasse:     { fontSize: rf(12), color: C.textMuted, fontWeight: "500" },
-  profClasseLarge:{ fontSize: rf(13), color: C.textMuted, fontWeight: "600" },
-  rapportAlertRow:{ flexDirection: "row", alignItems: "center", gap: rs(6), backgroundColor: "#FEF3C7", borderRadius: rs(10), paddingHorizontal: rs(12), paddingVertical: rs(8), marginBottom: rs(10) },
-  rapportAlertTxt:{ fontSize: rf(13), fontWeight: "700", color: "#D97706", flex: 1 },
-  profStatusPill: { marginLeft: rs(6), paddingHorizontal: rs(8), paddingVertical: rs(2), borderRadius: rs(10) },
-  profStatusPresent: { backgroundColor: C.successSoft },
-  profStatusAbsent:  { backgroundColor: C.dangerSoft },
-  profStatusTxt:  { fontSize: rf(11), fontWeight: "700" },
+  profName:       { fontSize: rf(16), fontWeight: "700", color: C.text },
+  profMeta:       { fontSize: rf(12), color: C.textMuted, fontWeight: "500", marginTop: rs(2) },
 
-  /* Action buttons */
+  /* Boutons Présent / Absent */
   profActions:    { flexDirection: "row", gap: rs(8) },
-  actionBtn:      { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: rs(6), paddingVertical: rs(10), borderRadius: rs(10), borderWidth: 1.5 },
-  actionBtnPresent:       { borderColor: C.success + "55", backgroundColor: C.successSoft },
+  actionBtn:      { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: rs(6), paddingVertical: rs(9), borderRadius: rs(10), borderWidth: 1, borderColor: C.border, backgroundColor: C.surface },
   actionBtnPresentActive: { backgroundColor: C.success, borderColor: C.success },
-  actionBtnAbsent:        { borderColor: C.danger + "55", backgroundColor: C.dangerSoft },
-  actionBtnAbsentActive:  { backgroundColor: C.danger, borderColor: C.danger },
+  actionBtnAbsentActive:  { backgroundColor: C.danger,  borderColor: C.danger  },
   actionBtnTxt:           { fontSize: rf(13), fontWeight: "700" },
-  actionBtnTxtPresent:       { color: C.success },
-  actionBtnTxtPresentActive: { color: "#fff" },
-  actionBtnTxtAbsent:        { color: C.danger },
-  actionBtnTxtAbsentActive:  { color: "#fff" },
 
   /* Validate */
   validateWrap: { paddingVertical: rs(10) },
   validateBtn:         { backgroundColor: C.brand, paddingVertical: rs(15), borderRadius: rs(14), flexDirection: "row", alignItems: "center", justifyContent: "center" },
-  validateBtnLocked:   { backgroundColor: C.success },
   validateBtnDisabled: { backgroundColor: C.surfaceAlt },
   validateText:        { color: "#fff", fontSize: rf(16), fontWeight: "700" },
   validateTextDisabled:{ color: C.textMuted },
-
-  /* Motif row on prof card */
-  motifRow:    { flexDirection: "row", alignItems: "center", gap: rs(5), marginBottom: rs(8), paddingHorizontal: rs(2) },
-  motifRowTxt: { fontSize: rf(12), color: C.danger, fontWeight: "600", flex: 1 },
 
   /* Success modal */
   overlay:      { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center" },

@@ -6,17 +6,9 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import { useStore } from "../store/useStore";
 import { rs, rf } from "../utils/responsive";
 import { C } from "../utils/theme";
+import { segDureeLabel } from "../utils/duree";
 
 const JOURS_NUM = Array.from({ length: 7 }, (_, i) => `Jour ${i + 1}`);
-
-function toMin(t: string): number {
-  const [h, m] = t.split(":").map(Number);
-  return h * 60 + m;
-}
-
-function segDurMin(debut: string, fin: string): number {
-  return Math.max(0, toMin(fin) - toMin(debut));
-}
 
 function segTitle(seg: any): string {
   return seg.titre ?? seg.matiere ?? seg.classe ?? "";
@@ -55,11 +47,11 @@ export default function NextPlanningScreen() {
             <Text style={s.courseTitle}>{segTitle(seg)}</Text>
             
             <View style={s.courseMeta}>
-              {/* Badge Heure */}
+              {/* Badge Durée — le planning n'affiche plus d'horaires */}
               <View style={[s.badgeDur, { backgroundColor: C.brand }]}>
                 <Feather name="clock" size={rf(12)} color="#fff" />
                 <Text style={[s.courseDur, { color: "#fff" }]}>
-                  {seg.heure_debut.slice(0, 5)} - {seg.heure_fin.slice(0, 5)}
+                  {segDureeLabel(seg.heure_debut, seg.heure_fin)}
                 </Text>
               </View>
 

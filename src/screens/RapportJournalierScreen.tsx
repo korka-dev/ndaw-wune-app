@@ -50,6 +50,13 @@ const DIFFICULTES_FALLBACK = [
 
 const TOTAL_STEPS = 4;
 
+// Étape 1 — repli si la synchronisation n'a jamais eu lieu. En temps normal,
+// ces valeurs viennent de `syncData.nb_semaines` / `syncData.nb_jours`
+// (configurables par l'admin dans le dashboard, section "Questions de Rapport").
+const DEFAULT_NB_SEMAINES = 10;
+const DEFAULT_NB_JOURS    = 3;
+const SEMAINE_COLS        = 5;   // colonnes de la grille des semaines
+
 // ── Composants réutilisables ───────────────────────────────────────────────
 
 function Radio({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
@@ -170,6 +177,23 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
   // Libellés des champs fixes du formulaire, configurés par l'admin (repli = texte par défaut)
   const libelles = syncData?.rapport_libelles ?? {};
   const L = (cle: string, fallback: string) => libelles[cle] || fallback;
+
+  // Nombre de semaines / jours de progression — configuré par l'admin dans le
+  // dashboard (section « Semaines & jours de progression »), par école et/ou
+  // session. Repli sur les valeurs par défaut du backend si jamais synchronisé.
+  const nbSemaines = syncData?.nb_semaines ?? DEFAULT_NB_SEMAINES;
+  const nbJours    = syncData?.nb_jours    ?? DEFAULT_NB_JOURS;
+  const semaineRows = Math.ceil(nbSemaines / SEMAINE_COLS);
+
+  // Si l'admin réduit la configuration entre deux synchros, la sélection en
+  // cours peut sortir des bornes → on la réinitialise pour éviter de soumettre
+  // une semaine/un jour qui n'existe plus.
+  useEffect(() => {
+    setSemaine(prev => (prev !== null && prev > nbSemaines ? null : prev));
+  }, [nbSemaines]);
+  useEffect(() => {
+    setJourCours(prev => (prev !== null && prev > nbJours ? null : prev));
+  }, [nbJours]);
 
   // Étape 6 — Photos (jusqu'à 3)
   const [photos, setPhotos] = useState<{ uri: string; base64: string | null }[]>([]);
@@ -453,11 +477,11 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
                 <View style={{ flex: 1 }}>
                   <View style={s.semBannerTop}>
                     <Text style={s.semBannerLabel}>Semaine sélectionnée</Text>
-                    <Text style={s.semBannerPct}>{Math.round((semaine / 25) * 100)} %</Text>
+                    <Text style={s.semBannerPct}>{Math.round((semaine / nbSemaines) * 100)} %</Text>
                   </View>
-                  <Text style={s.semBannerSub}>{semaine} sur 25 semaines</Text>
+                  <Text style={s.semBannerSub}>{semaine} sur {nbSemaines} semaine{nbSemaines > 1 ? "s" : ""}</Text>
                   <View style={s.semProgressTrack}>
-                    <View style={[s.semProgressFill, { width: `${(semaine / 25) * 100}%` as any }]} />
+                    <View style={[s.semProgressFill, { width: `${(semaine / nbSemaines) * 100}%` as any }]} />
                   </View>
                 </View>
               </View>
@@ -468,12 +492,15 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
               </View>
             )}
 
-            {/* Grille 5 × 5 — flex:1 garantit l'alignement quelle que soit la taille d'écran */}
+            {/* Grille de semaines — nombre de lignes dérivé de la config admin.
+                flex:1 garantit l'alignement quelle que soit la taille d'écran. */}
             <View style={s.semGrid}>
-              {[0, 1, 2, 3, 4].map(rowIdx => (
+              {Array.from({ length: semaineRows }, (_, rowIdx) => (
                 <View key={rowIdx} style={s.semRow}>
-                  {[1, 2, 3, 4, 5].map(colIdx => {
-                    const n    = rowIdx * 5 + colIdx;
+                  {Array.from({ length: SEMAINE_COLS }, (_, colIdx) => {
+                    const n    = rowIdx * SEMAINE_COLS + colIdx + 1;
+                    // Cellule vide pour compléter la dernière ligne
+                    if (n > nbSemaines) return <View key={`spacer-${colIdx}`} style={s.semCellSpacer} />;
                     const sel  = semaine === n;
                     const past = semaine !== null && n < semaine;
                     return (
@@ -492,9 +519,9 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
               ))}
             </View>
 
-            <Text style={[s.question, { marginTop: rs(20) }]}>Jour de cours</Text>
+            <Text style={[s.question, { marginTop: rs(20) }]}>{L("tuteur.jour_cours_label", "Jour de cours")}</Text>
             <View style={s.jourRow}>
-              {[1, 2, 3].map(j => (
+              {Array.from({ length: nbJours }, (_, i) => i + 1).map(j => (
                 <TouchableOpacity
                   key={j} style={[s.jourBtn, jourCours === j && s.jourSel]}
                   onPress={() => setJourCours(j)} activeOpacity={0.7}
@@ -1012,6 +1039,7 @@ const s = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
     backgroundColor: C.surface,
   },
+  semCellSpacer: { flex: 1, aspectRatio: 1 },   // complète la dernière ligne
   semSel:     { backgroundColor: C.brand, borderColor: C.brand },
   semPast:    { backgroundColor: C.brandSoft, borderColor: C.brand + "40" },
   semNum:     { fontSize: rf(16), fontWeight: "800", color: C.textMuted, lineHeight: rf(18) },
@@ -1029,8 +1057,8 @@ const s = StyleSheet.create({
   toggleBtnTxtActive: { color: "#fff" },
 
   /* Jour */
-  jourRow: { flexDirection: "row", gap: rs(10) },
-  jourBtn: { flex: 1, paddingVertical: rs(14), borderRadius: rs(12), borderWidth: 1.5, borderColor: C.border, alignItems: "center" },
+  jourRow: { flexDirection: "row", flexWrap: "wrap", gap: rs(10) },
+  jourBtn: { flexGrow: 1, flexBasis: rs(80), paddingVertical: rs(14), paddingHorizontal: rs(6), borderRadius: rs(12), borderWidth: 1.5, borderColor: C.border, alignItems: "center" },
   jourSel:    { backgroundColor: C.brand, borderColor: C.brand },
   jourTxt:    { fontSize: rf(16), fontWeight: "600", color: C.textMuted },
   jourTxtSel: { color: "#fff" },

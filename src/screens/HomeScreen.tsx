@@ -17,6 +17,8 @@ import { seancesApi, rapportsApi, syncApi } from "../services/api";
 import { enqueueAction, upsertRapportCache } from "../services/db";
 import { rs, rf }                  from "../utils/responsive";
 import { C }                       from "../utils/theme";
+import { toMin, segDurMin, segDureeLabel } from "../utils/duree";
+import { joursDisponibles as listeJoursDisponibles } from "../utils/planning";
 import { useFocusEffect, useRouter } from "expo-router";
 import AppHeader                   from "../components/AppHeader";
 import TourTarget                  from "../components/TourTarget";
@@ -37,14 +39,6 @@ import { trackUsage } from "../services/usage";
 function pad(n: number) { return String(n).padStart(2, "0"); }
 function fmt(secs: number) {
   return `${pad(Math.floor(secs / 60))}:${pad(secs % 60)}`;
-}
-/** Convertit "HH:MM:SS" ou "HH:MM" en minutes depuis minuit */
-function toMin(t: string): number {
-  const [h, m] = t.split(":").map(Number);
-  return h * 60 + m;
-}
-function segDurMin(debut: string, fin: string): number {
-  return Math.max(0, toMin(fin) - toMin(debut));
 }
 /** Convertit des minutes depuis minuit en "HH:MM" */
 function toHHMM(totalMin: number): string {
@@ -72,17 +66,20 @@ export default function HomeScreen() {
   /* ── Jours proposés au sélecteur : le "jour" du planning est un index
      arbitraire défini par l'admin dans le dashboard (pas le jour réel de la
      semaine — un même "Jour 3" peut tomber n'importe quel jour calendaire
-     selon l'école). On liste donc tous les jours réellement présents dans le
-     planning synchronisé, peu importe le jour où l'app est ouverte, pour ne
-     jamais masquer un créneau existant. ── */
-  const joursDisponibles = useMemo(() => {
-    const set = new Set<number>(planning.map(p => p.jour));
-    if (set.size === 0) {
-      const nbJours = syncData?.nb_jours ?? 3;
-      return Array.from({ length: nbJours }, (_, i) => i);
-    }
-    return Array.from(set).sort((a, b) => a - b);
-  }, [planning, syncData?.nb_jours]);
+     selon l'école).
+
+     La liste réunit deux sources :
+      • les `nb_jours` configurés par l'admin (« Semaines & jours de
+        progression ») — le tuteur doit pouvoir choisir un jour même si aucun
+        créneau n'y est encore planifié ;
+      • les jours réellement présents dans le planning synchronisé — pour ne
+        jamais masquer un créneau existant, y compris au-delà de nb_jours.
+     Sans cette union, le sélecteur restait bloqué sur les seuls jours déjà
+     planifiés et ignorait la configuration du dashboard. ── */
+  const joursDisponibles = useMemo(
+    () => listeJoursDisponibles(planning, syncData?.nb_jours ?? 3),
+    [planning, syncData?.nb_jours],
+  );
 
   /* ── Période (Semaine de progression + Jour du planning admin) choisie
      manuellement par le tuteur avant d'afficher le planning correspondant ── */
@@ -787,10 +784,11 @@ export default function HomeScreen() {
     // 4. Séance active (Timer qui tourne) — inchangé
     if (isSeanceActive) {
       const displayTitle = activeSeg ? segTitle(activeSeg) : "Séance en cours";
-      const displayTimeRange = activeSeg
-        ? `${activeSeg.heure_debut.slice(0, 5)} – ${activeSeg.heure_fin.slice(0, 5)}`
+      // Durée de la tâche — le planning n'affiche plus d'horaires
+      const displayDuree = activeSeg
+        ? segDureeLabel(activeSeg.heure_debut, activeSeg.heure_fin)
         : "—";
-      
+
       const displayTimer = fmt(remainSec);
       const displaySub = remainSec > 0 
         ? `restantes sur ${durMin} min` 
@@ -806,7 +804,7 @@ export default function HomeScreen() {
               <Feather name={statusIcon} size={rf(10)} color="#fff" style={{ marginRight: rs(4) }} />
               <Text style={s.segBadgeTxt}>{statusLabel}</Text>
             </View>
-            <Text style={s.segTimeRange}>{displayTimeRange}</Text>
+            <Text style={s.segTimeRange}>{displayDuree}</Text>
           </View>
 
           <Text style={s.segTitle}>{displayTitle}</Text>
@@ -854,8 +852,8 @@ export default function HomeScreen() {
 
     // 5. Aucune séance active -> Prêt à démarrer l'activité
     const displayTitle = activeSeg ? segTitle(activeSeg) : "Aucun cours planifié";
-    const displayTimeRange = activeSeg
-      ? `${activeSeg.heure_debut.slice(0, 5)} – ${activeSeg.heure_fin.slice(0, 5)}`
+    const displayDuree = activeSeg
+      ? segDureeLabel(activeSeg.heure_debut, activeSeg.heure_fin)
       : "—";
 
     return (
@@ -865,7 +863,7 @@ export default function HomeScreen() {
             <Feather name="play" size={rf(10)} color="#fff" style={{ marginRight: rs(4) }} />
             <Text style={s.segBadgeTxt}>PRÊT À DÉMARRER</Text>
           </View>
-          <Text style={s.segTimeRange}>{displayTimeRange}</Text>
+          <Text style={s.segTimeRange}>{displayDuree}</Text>
         </View>
         <Text style={s.segTitle}>{displayTitle}</Text>
         <TouchableOpacity
@@ -897,8 +895,7 @@ export default function HomeScreen() {
       <View style={s.planItemBody}>
         <Text style={s.planItemTitle} numberOfLines={1}>{segTitle(seg)}</Text>
         <Text style={s.planItemMeta}>
-          {seg.heure_debut.slice(0, 5)} – {seg.heure_fin.slice(0, 5)}
-          {" · "}{segDurMin(seg.heure_debut, seg.heure_fin)} min
+          {segDureeLabel(seg.heure_debut, seg.heure_fin)}
         </Text>
       </View>
     </View>
@@ -906,9 +903,7 @@ export default function HomeScreen() {
 
   /** Carte d'un créneau du jour courant */
   const renderPlanRow = (seg: any, i: number) => {
-    const isDone    = completedSegIds.includes(seg.id);
-    const dur       = segDurMin(seg.heure_debut, seg.heure_fin);
-    const timeRange = `${seg.heure_debut.slice(0, 5)} – ${seg.heure_fin.slice(0, 5)}`;
+    const isDone = completedSegIds.includes(seg.id);
 
     return (
       <View key={seg.id} style={s.planItemCard}>
@@ -920,7 +915,7 @@ export default function HomeScreen() {
             {segTitle(seg)}
           </Text>
           <Text style={[s.planItemMeta, isDone && { opacity: 0.55 }]}>
-            {timeRange} · {dur} min
+            {segDureeLabel(seg.heure_debut, seg.heure_fin)}
           </Text>
         </View>
       </View>
@@ -1041,10 +1036,9 @@ export default function HomeScreen() {
       ) : (
         /* ── Mode normal : activité/timer fixe en haut, planning défile en bas ── */
         <View style={s.scroll}>
+          {/* La date et la salutation ont été retirées ici : l'AppHeader
+              identifie déjà le tuteur, et la carte d'activité gagne la place. */}
           <View style={s.fixedHeader}>
-            <Text style={s.dateLabel}>{dateLabel}</Text>
-            <Text style={s.greeting}>Bonjour, {greetName} 👋</Text>
-
             {periode && (
               <View style={s.periodePill}>
                 <Feather name="calendar" size={rf(12)} color={C.brand} />

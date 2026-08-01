@@ -14,16 +14,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useStore } from "../store/useStore";
 import { rs, rf } from "../utils/responsive";
 import { C } from "../utils/theme";
+import { segDurMin, dureeLabel } from "../utils/duree";
 
 const JOURS_FR = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
 
-function toMin(t: string): number {
-  const [h, m] = t.split(":").map(Number);
-  return h * 60 + m;
-}
-function segDurMin(debut: string, fin: string): number {
-  return Math.max(0, toMin(fin) - toMin(debut));
-}
 function segTitle(seg: any): string {
   return seg.titre ?? seg.matiere ?? seg.classe ?? "";
 }
@@ -58,11 +52,7 @@ export default function TodaySummaryScreen() {
 
   const doneCount  = todayPlan.filter(s => completedSegIds.includes(s.id)).length;
   const totalDurMin = todayPlan.reduce((acc, s) => acc + segDurMin(s.heure_debut, s.heure_fin), 0);
-  const totalH     = Math.floor(totalDurMin / 60);
-  const totalM     = totalDurMin % 60;
-  const totalLabel = totalH > 0
-    ? (totalM > 0 ? `${totalH}h ${totalM}min` : `${totalH}h`)
-    : `${totalM} min`;
+  const totalLabel = dureeLabel(totalDurMin);
 
   return (
     <SafeAreaView style={s.root} edges={["top", "bottom"]}>
@@ -159,9 +149,8 @@ export default function TodaySummaryScreen() {
                         {segTitle(seg)}
                       </Text>
 
-                      {/* Métadonnées */}
+                      {/* Métadonnées — durée de la tâche, jamais d'horaire */}
                       <View style={s.badgeRow}>
-                        {/* Heure */}
                         <View style={[s.badge, isDone ? s.badgeDone : s.badgeActive]}>
                           <Feather
                             name="clock"
@@ -169,7 +158,7 @@ export default function TodaySummaryScreen() {
                             color={isDone ? C.success : "#fff"}
                           />
                           <Text style={[s.badgeTxt, isDone ? s.badgeTxtDone : s.badgeTxtActive]}>
-                            {seg.heure_debut.slice(0, 5)} – {seg.heure_fin.slice(0, 5)}
+                            {dureeLabel(dur)}
                           </Text>
                         </View>
 
@@ -180,11 +169,6 @@ export default function TodaySummaryScreen() {
                             <Text style={[s.badgeTxt, s.badgeTxtNeutral]}>{seg.classe}</Text>
                           </View>
                         )}
-
-                        {/* Durée */}
-                        <View style={[s.badge, s.badgeNeutral]}>
-                          <Text style={[s.badgeTxt, s.badgeTxtNeutral]}>{dur} min</Text>
-                        </View>
                       </View>
 
                       {/* Matière si différent du titre */}
