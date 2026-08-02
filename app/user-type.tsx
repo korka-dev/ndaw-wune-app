@@ -7,6 +7,7 @@ import { Feather } from "@expo/vector-icons";
 import { rs, rf } from "../src/utils/responsive";
 import { C } from "../src/utils/theme";
 import AredLogo from "../src/components/AredLogo";
+import BackButton from "../src/components/BackButton";
 
 export default function UserTypeScreen() {
   const router = useRouter();
@@ -16,14 +17,7 @@ export default function UserTypeScreen() {
       <SafeAreaView style={s.safe}>
 
         {/* ── Bouton retour ── */}
-        <TouchableOpacity
-          style={s.backBtn}
-          onPress={() => router.back()}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          activeOpacity={0.7}
-        >
-          <Feather name="arrow-left" size={rf(20)} color={C.text} />
-        </TouchableOpacity>
+        <BackButton onPress={() => router.back()} style={{ alignSelf: "flex-start" }} />
 
         {/* ── Logo en haut ── */}
         <View style={s.logoWrap}>
@@ -84,18 +78,6 @@ const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: C.bg },
   safe:   { flex: 1 },
 
-  backBtn: {
-    marginTop: rs(12),
-    marginLeft: rs(16),
-    width: rs(40),
-    height: rs(40),
-    borderRadius: rs(12),
-    backgroundColor: C.surface,
-    borderWidth: 1,
-    borderColor: C.border,
-    alignItems: "center",
-    justifyContent: "center",
-  },
 
   logoWrap: {
     alignItems: "center",

@@ -24,6 +24,7 @@ import {
   RapportJournalierLocal,
 } from "../../services/db";
 import AppHeader from "../../components/AppHeader";
+import BackButton from "../../components/BackButton";
 import ProfileSheet from "../../components/ProfileSheet";
 import TourTarget from "../../components/TourTarget";
 
@@ -234,9 +235,11 @@ export default function SupRapportsScreen() {
   const FormTopBar = ({ step, onBack }: { step: 1 | 2; onBack: () => void }) => (
     <>
       <View style={styles.topBar}>
-        <TouchableOpacity onPress={onBack} style={styles.backBtn} hitSlop={{ top:10, bottom:10, left:10, right:10 }}>
-          <Feather name="arrow-left" size={rf(20)} color={C.text} />
-        </TouchableOpacity>
+        <BackButton
+          onPress={onBack}
+          label={step === 1 ? "Retour" : "Étape précédente"}
+          style={{ marginRight: rs(10) }}
+        />
         <Text style={styles.topTitle}>Rapport du jour</Text>
       </View>
       <View style={styles.progressWrap}>
@@ -258,6 +261,7 @@ export default function SupRapportsScreen() {
           onSyncPress={handleManualSync}
           syncing={syncing}
           isOnline={isOnline}
+          sectionLabel="Espace Superviseur"
         />
 
         <ScrollView contentContainerStyle={styles.menuPage} showsVerticalScrollIndicator={false}>
@@ -523,6 +527,7 @@ export default function SupRapportsScreen() {
         onSyncPress={handleManualSync}
         syncing={syncing}
         isOnline={isOnline}
+        sectionLabel="Espace Superviseur"
       />
 
       <ScrollView contentContainerStyle={styles.scrollPage} showsVerticalScrollIndicator={false}>
@@ -747,7 +752,6 @@ const styles = StyleSheet.create({
   /* ── Pages du formulaire (pas de modal — 2 pages dédiées) ── */
   formRoot: { flex:1, backgroundColor:C.bg },
   topBar:   { flexDirection:"row", alignItems:"center", paddingHorizontal:rs(16), paddingVertical:rs(12), backgroundColor:C.surface, borderBottomWidth:1, borderBottomColor:C.border },
-  backBtn:  { marginRight:rs(12) },
   topTitle: { fontSize:rf(18), fontWeight:"700", color:C.text, flex:1 },
   progressWrap: { flexDirection:"row", alignItems:"center", paddingHorizontal:rs(16), paddingVertical:rs(12), gap:rs(10) },
   progressBar:  { flex:1, height:rs(6), backgroundColor:C.border, borderRadius:rs(3), overflow:"hidden" },

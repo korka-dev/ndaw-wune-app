@@ -13,6 +13,7 @@ import { C } from "../../utils/theme";
 import { rf, rs } from "../../utils/responsive";
 import AppHeader from "../../components/AppHeader";
 import ProfileSheet from "../../components/ProfileSheet";
+import BackButton from "../../components/BackButton";
 
 // ── Composant ─────────────────────────────────────────────────────────────────
 
@@ -122,16 +123,18 @@ export default function SupDifficultesScreen() {
         onSyncPress={handleManualSync}
         syncing={syncing}
         isOnline={isOnline}
+        sectionLabel="Espace Superviseur"
       />
 
       <View style={styles.content}>
         {selectedTeacher ? (
           <>
             <View style={styles.header}>
-              <TouchableOpacity style={styles.backRow} onPress={() => setSelectedTeacherId(null)}>
-                <Feather name="arrow-left" size={rs(16)} color={C.text} />
-                <Text style={styles.backText}>Tous les enseignants</Text>
-              </TouchableOpacity>
+              <BackButton
+                onPress={() => setSelectedTeacherId(null)}
+                label="Tous les enseignants"
+                style={{ alignSelf: "flex-start" }}
+              />
               <Text style={styles.title}>{selectedTeacher.teacher_name}</Text>
               <Text style={styles.subtitle}>
                 {selectedItems.length} rapport{selectedItems.length !== 1 ? "s" : ""} avec difficulté{selectedItems.length !== 1 ? "s" : ""}
@@ -276,8 +279,6 @@ const styles = StyleSheet.create({
   title:       { fontSize: rf(20), fontWeight: "700", color: C.text },
   subtitle:    { fontSize: rf(13), color: C.textMuted, marginTop: rs(3), fontWeight: "500" },
 
-  backRow:     { flexDirection: "row", alignItems: "center", gap: rs(6), marginBottom: rs(8) },
-  backText:    { fontSize: rf(13), fontWeight: "600", color: C.text },
 
   countBadge:     { backgroundColor: C.dangerSoft, borderRadius: rs(10), minWidth: rs(24), height: rs(24), alignItems: "center", justifyContent: "center", paddingHorizontal: rs(6), marginRight: rs(8) },
   countBadgeText: { fontSize: rf(12), fontWeight: "800", color: C.danger },

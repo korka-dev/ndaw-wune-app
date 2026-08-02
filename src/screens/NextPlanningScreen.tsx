@@ -5,6 +5,7 @@ import { Feather } from "@expo/vector-icons";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useStore } from "../store/useStore";
 import { rs, rf } from "../utils/responsive";
+import BackButton from "../components/BackButton";
 import { C } from "../utils/theme";
 import { segDureeLabel } from "../utils/duree";
 
@@ -73,9 +74,7 @@ export default function NextPlanningScreen() {
     <SafeAreaView style={s.root} edges={["top", "bottom"]}>
       {/* En-tête avec bouton retour */}
       <View style={s.header}>
-        <TouchableOpacity style={s.backBtn} onPress={() => router.back()} activeOpacity={0.7}>
-          <Feather name="arrow-left" size={rf(20)} color={C.text} />
-        </TouchableOpacity>
+        <BackButton onPress={() => router.back()} />
         <Text style={s.headerTitle}>Prochain Cours</Text>
         <View style={{ width: rs(40) }} />
       </View>
@@ -113,14 +112,6 @@ const s = StyleSheet.create({
     paddingHorizontal: rs(16),
     paddingVertical: rs(12),
     backgroundColor: C.bg,
-  },
-  backBtn: {
-    width: rs(40), height: rs(40),
-    borderRadius: rs(12),
-    backgroundColor: C.surface,
-    borderWidth: 1,
-    borderColor: C.border,
-    alignItems: "center", justifyContent: "center",
   },
   headerTitle: { fontSize: rf(18), fontWeight: "700", color: C.text },
 

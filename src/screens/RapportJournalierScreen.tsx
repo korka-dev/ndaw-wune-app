@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView, Platform, Keyboard,
 } from "react-native";
 import AppHeader from "../components/AppHeader";
+import BackButton from "../components/BackButton";
 import ProfileSheet from "../components/ProfileSheet";
 import { Feather } from "@expo/vector-icons";
 import { format } from "date-fns";
@@ -874,13 +875,11 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
 
       {/* ── Barre titre ── */}
       <View style={s.topBar}>
-        <TouchableOpacity
-          onPress={step === 1 ? onBack : goPrev}
-          style={s.backBtn}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Feather name="arrow-left" size={rf(20)} color={C.text} />
-        </TouchableOpacity>
+        <BackButton
+          onPress={step === 1 ? (onBack ?? (() => {})) : goPrev}
+          label={step === 1 ? "Retour" : "Étape précédente"}
+          style={{ marginRight: rs(10) }}
+        />
         <Text style={s.topTitle}>Nouveau rapport</Text>
         {!isOnline && (
           <View style={s.offPill}>
@@ -951,7 +950,6 @@ const s = StyleSheet.create({
   /* Barre titre */
   topBar:  { flexDirection: "row", alignItems: "center", paddingHorizontal: rs(16), paddingVertical: rs(12), backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border },
   topTitle:{ fontSize: rf(18), fontWeight: "700", color: C.text, flex: 1 },
-  backBtn: { marginRight: rs(12) },
   offPill: { flexDirection: "row", alignItems: "center", gap: rs(4), backgroundColor: C.warnSoft, borderRadius: rs(20), paddingHorizontal: rs(10), paddingVertical: rs(4) },
   offTxt:  { fontSize: rf(13), color: C.warn, fontWeight: "600" },
 

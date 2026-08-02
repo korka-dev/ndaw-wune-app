@@ -13,6 +13,7 @@ import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useStore } from "../store/useStore";
 import { rs, rf } from "../utils/responsive";
+import BackButton from "../components/BackButton";
 import { C } from "../utils/theme";
 import { segDurMin, dureeLabel } from "../utils/duree";
 
@@ -58,9 +59,7 @@ export default function TodaySummaryScreen() {
     <SafeAreaView style={s.root} edges={["top", "bottom"]}>
       {/* ── En-tête ─────────────────────────────────────────── */}
       <View style={s.header}>
-        <TouchableOpacity style={s.backBtn} onPress={() => router.back()} activeOpacity={0.7}>
-          <Feather name="arrow-left" size={rf(20)} color={C.text} />
-        </TouchableOpacity>
+        <BackButton onPress={() => router.back()} />
         <Text style={s.headerTitle}>Résumé du jour</Text>
         <View style={{ width: rs(40) }} />
       </View>
@@ -195,11 +194,6 @@ const s = StyleSheet.create({
   header: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingHorizontal: rs(16), paddingVertical: rs(12), backgroundColor: C.bg,
-  },
-  backBtn: {
-    width: rs(40), height: rs(40), borderRadius: rs(12),
-    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-    alignItems: "center", justifyContent: "center",
   },
   headerTitle: { fontSize: rf(18), fontWeight: "700", color: C.text },
 

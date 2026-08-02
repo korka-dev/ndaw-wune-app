@@ -16,6 +16,7 @@ import { getRapportJournalierById } from "../services/db";
 import { useStore } from "../store/useStore";
 import AppHeader from "../components/AppHeader";
 import ProfileSheet from "../components/ProfileSheet";
+import BackButton from "../components/BackButton";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -72,9 +73,7 @@ export default function RapportDetailScreen() {
       <View style={s.root}>
         {header}
         <View style={s.topBar}>
-          <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
-            <Feather name="arrow-left" size={rf(20)} color={C.text} />
-          </TouchableOpacity>
+          <BackButton onPress={() => router.back()} style={{ marginRight: rs(10) }} />
           <Text style={s.topTitle}>Rapport</Text>
         </View>
         <View style={s.notFound}>
@@ -99,13 +98,7 @@ export default function RapportDetailScreen() {
 
       {/* ── Barre titre ── */}
       <View style={s.topBar}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={s.backBtn}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Feather name="arrow-left" size={rf(20)} color={C.text} />
-        </TouchableOpacity>
+        <BackButton onPress={() => router.back()} style={{ marginRight: rs(10) }} />
         <View style={{ flex: 1 }}>
           <Text style={s.topTitle} numberOfLines={1}>
             {fmtDate(item.date_rapport)}
@@ -243,7 +236,6 @@ const s = StyleSheet.create({
     borderBottomColor: C.border,
     gap: rs(10),
   },
-  backBtn:  { padding: rs(2) },
   topTitle: { fontSize: rf(17), fontWeight: "700", color: C.text, textTransform: "capitalize" },
   topSub:   { fontSize: rf(13), color: C.textMuted, marginTop: rs(1) },
 

@@ -21,6 +21,7 @@ import { remarquesApi } from "../services/api";
 import { enqueueAction } from "../services/db";
 import { trackUsage } from "../services/usage";
 import { rs, rf } from "../utils/responsive";
+import BackButton from "../components/BackButton";
 import { C } from "../utils/theme";
 import AppHeader from "../components/AppHeader";
 import ProfileSheet from "../components/ProfileSheet";
@@ -158,9 +159,7 @@ export default function RemarquesChatScreen() {
 
       {/* En-tête contextuel de l'assistant */}
       <View style={s.header}>
-        <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
-          <Feather name="arrow-left" size={rf(20)} color={C.text} />
-        </TouchableOpacity>
+        <BackButton onPress={() => router.back()} compact />
         <View style={s.headerIcon}>
           <Feather name="message-circle" size={rf(17)} color="#fff" />
         </View>
@@ -283,7 +282,6 @@ const s = StyleSheet.create({
     paddingHorizontal: rs(14), paddingBottom: rs(12),
     backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border,
   },
-  backBtn:    { padding: rs(4) },
   headerIcon: {
     width: rs(36), height: rs(36), borderRadius: rs(18),
     backgroundColor: C.brand, alignItems: "center", justifyContent: "center",

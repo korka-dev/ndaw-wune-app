@@ -28,6 +28,7 @@ import { trackUsage } from "../../services/usage";
 import { C } from "../../utils/theme";
 import { rf, rs } from "../../utils/responsive";
 import AppHeader from "../../components/AppHeader";
+import BackButton from "../../components/BackButton";
 import ProfileSheet from "../../components/ProfileSheet";
 import TourTarget from "../../components/TourTarget";
 import { useAndroidBack } from "../../hooks/useAndroidBack";
@@ -65,7 +66,7 @@ type ViewType = "enseignants" | "eleves" | "tires" | "dossier" | "evaluer";
 type Resultat = "reussi" | "intermediaire" | "pas_reussi";
 
 /** Nombre d'élèves tirés au sort par enseignant. */
-const NB_TIRAGE = 2;
+const NB_TIRAGE = 5;
 
 const RESULTATS: { key: Resultat; label: string; icon: keyof typeof Feather.glyphMap; color: string; soft: string }[] = [
   { key: "reussi",        label: "Réussi",        icon: "check-circle", color: C.success,  soft: C.successSoft },
@@ -111,11 +112,13 @@ export default function SupEvaluationScreen() {
   const [eleves,        setEleves]        = useState<Eleve[]>([]);
   const [loadingEleves, setLoadingEleves] = useState(false);
   const [tires,         setTires]         = useState<Eleve[]>([]);
+  // Présence des élèves tirés : un élève absent le jour de la visite est écarté
+  // de l'évaluation. Tous présents par défaut.
+  const [presences,     setPresences]     = useState<Map<string, boolean>>(new Map());
   const [activeDoc,     setActiveDoc]     = useState<EvalDoc | null>(null);
 
   // Évaluation
   const [results,    setResults]    = useState<Map<string, Resultat>>(new Map());
-  const [evalIndex,  setEvalIndex]  = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [submitDone, setSubmitDone] = useState(false);
 
@@ -161,7 +164,7 @@ export default function SupEvaluationScreen() {
     if (view === "eleves")   {
       setView("enseignants");
       setActiveEns(null); setEleves([]); setTires([]);
-      setResults(new Map()); setEvalIndex(0); setSubmitDone(false);
+      setResults(new Map()); setSubmitDone(false);
     }
   }, [view]);
 
@@ -171,7 +174,7 @@ export default function SupEvaluationScreen() {
 
   const ouvrirEnseignant = async (ens: Enseignant) => {
     setActiveEns(ens);
-    setTires([]); setResults(new Map()); setEvalIndex(0); setSubmitDone(false);
+    setTires([]); setResults(new Map()); setSubmitDone(false);
     setView("eleves");
     setLoadingEleves(true);
     try {
@@ -194,15 +197,38 @@ export default function SupEvaluationScreen() {
 
   const lancerTirage = () => {
     if (eleves.length === 0) return;
-    setTires(tirerAuSort(eleves, NB_TIRAGE));
+    const choisis = tirerAuSort(eleves, NB_TIRAGE);
+    setTires(choisis);
+    setPresences(new Map(choisis.map(e => [e.id, true])));
     setResults(new Map());
-    setEvalIndex(0);
     setView("tires");
   };
+
+  const basculerPresence = (id: string) => {
+    setPresences(prev => {
+      const m = new Map(prev);
+      const present = m.get(id) !== false;
+      m.set(id, !present);
+      return m;
+    });
+    // Un élève marqué absent ne doit pas conserver de résultat saisi.
+    setResults(prev => {
+      const m = new Map(prev);
+      m.delete(id);
+      return m;
+    });
+  };
+
+  /** Élèves réellement évalués : les tirés présents. */
+  const aEvaluer = tires.filter(e => presences.get(e.id) !== false);
 
   // ── Étape 3 → 4 : ouvrir le dossier d'évaluation ───────────────────────────
 
   const ouvrirDossier = () => {
+    if (aEvaluer.length === 0) {
+      Alert.alert("Aucun élève présent", "Marquez au moins un élève présent, ou relancez le tirage.");
+      return;
+    }
     if (evalDocs.length === 0) {
       Alert.alert(
         "Dossier d'évaluation manquant",
@@ -216,16 +242,12 @@ export default function SupEvaluationScreen() {
 
   // ── Étape 5 : évaluation et envoi ──────────────────────────────────────────
 
-  const current = tires[evalIndex] ?? null;
-
-  const choisirResultat = (r: Resultat) => {
-    if (!current) return;
-    setResults(prev => new Map(prev).set(current.id, r));
-  };
+  /** Nombre d'élèves déjà notés (parmi les présents). */
+  const nbNotes = aEvaluer.filter(e => results.has(e.id)).length;
 
   const envoyer = async () => {
     if (!activeDoc || submitting) return;
-    const manquants = tires.filter(e => !results.has(e.id));
+    const manquants = aEvaluer.filter(e => !results.has(e.id));
     if (manquants.length > 0) {
       Alert.alert("Évaluation incomplète", "Choisissez un résultat pour chaque élève tiré au sort.");
       return;
@@ -233,7 +255,7 @@ export default function SupEvaluationScreen() {
     setSubmitting(true);
     try {
       await superviseurApi.submitEvaluations(
-        tires.map(e => ({
+        aEvaluer.map(e => ({
           eleve_id:   e.id,
           competence: activeDoc.titre,   // le dossier tient lieu de sujet évalué
           resultat:   results.get(e.id)!,
@@ -251,7 +273,7 @@ export default function SupEvaluationScreen() {
   const terminer = () => {
     setView("enseignants");
     setActiveEns(null); setEleves([]); setTires([]);
-    setResults(new Map()); setEvalIndex(0); setSubmitDone(false);
+    setResults(new Map()); setSubmitDone(false);
     fetchData().catch(() => {});
   };
 
@@ -266,9 +288,7 @@ export default function SupEvaluationScreen() {
 
   const enTete = (titre: string, sous: string) => (
     <View style={st.subHeader}>
-      <TouchableOpacity onPress={retour} style={st.backBtn} disabled={submitting}>
-        <Feather name="arrow-left" size={rs(20)} color={submitting ? C.textMuted : C.text} />
-      </TouchableOpacity>
+      <BackButton onPress={retour} disabled={submitting} style={{ marginRight: rs(10) }} />
       <View style={{ flex: 1 }}>
         <Text style={st.subHeaderTitle} numberOfLines={1}>{titre}</Text>
         <Text style={st.subHeaderSub}>{sous}</Text>
@@ -410,27 +430,50 @@ export default function SupEvaluationScreen() {
       {/* ═══════════════════════════════════════════════════════════════ */}
       {view === "tires" && activeEns && (
         <View style={{ flex: 1 }}>
-          {enTete(activeEns.teacher_name, `Étape 2/4 — ${tires.length} élève${tires.length !== 1 ? "s" : ""} tiré${tires.length !== 1 ? "s" : ""} au sort`)}
+          {enTete(activeEns.teacher_name, `Étape 2/4 — ${tires.length} tiré${tires.length !== 1 ? "s" : ""} · ${aEvaluer.length} à évaluer`)}
 
           <ScrollView contentContainerStyle={st.listContent} showsVerticalScrollIndicator={false}>
             <View style={st.tirageBanner}>
               <Feather name="shuffle" size={rf(15)} color={C.brand} />
               <Text style={st.tirageBannerTxt}>
-                Tirage effectué parmi les {eleves.length} élèves de la classe
+                Tirage parmi les {eleves.length} élèves · marquez les absents avant de continuer
               </Text>
             </View>
 
-            {tires.map(e => (
-              <View key={e.id} style={st.tireCard}>
-                <View style={[st.eleveAvatar, { backgroundColor: C.brandSoft }]}>
-                  <Text style={[st.eleveAvatarText, { color: C.brand }]}>{initiales(e)}</Text>
+            {tires.map(e => {
+              const present = presences.get(e.id) !== false;
+              return (
+                <View key={e.id} style={[st.tireCard, !present && st.tireCardAbsent]}>
+                  <View style={[st.eleveAvatar, { backgroundColor: present ? C.brandSoft : C.surfaceAlt }]}>
+                    <Text style={[st.eleveAvatarText, { color: present ? C.brand : C.textMuted }]}>
+                      {initiales(e)}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[st.tireNom, !present && st.tireNomAbsent]} numberOfLines={1}>
+                      {eleveName(e)}
+                    </Text>
+                    <Text style={st.eleveGenre}>
+                      {e.classe}{!present ? "  ·  Absent" : ""}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[st.presenceToggle, !present && st.presenceToggleAbsent]}
+                    onPress={() => basculerPresence(e.id)}
+                    activeOpacity={0.75}
+                  >
+                    <Feather
+                      name={present ? "user-check" : "user-x"}
+                      size={rf(14)}
+                      color={present ? C.success : C.danger}
+                    />
+                    <Text style={[st.presenceToggleTxt, { color: present ? C.success : C.danger }]}>
+                      {present ? "Présent" : "Absent"}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={st.tireNom} numberOfLines={1}>{eleveName(e)}</Text>
-                  <Text style={st.eleveGenre}>{e.classe}</Text>
-                </View>
-              </View>
-            ))}
+              );
+            })}
           </ScrollView>
 
           <View style={st.navRow}>
@@ -486,7 +529,7 @@ export default function SupEvaluationScreen() {
           </ScrollView>
 
           <View style={st.evalBtnBar}>
-            <TouchableOpacity style={st.evalBtn} onPress={() => { setEvalIndex(0); setView("evaluer"); }} activeOpacity={0.85}>
+            <TouchableOpacity style={st.evalBtn} onPress={() => setView("evaluer")} activeOpacity={0.85}>
               <Feather name="edit-3" size={rs(16)} color="#fff" />
               <Text style={st.evalBtnText}>Commencer l&apos;évaluation</Text>
             </TouchableOpacity>
@@ -495,7 +538,7 @@ export default function SupEvaluationScreen() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════════ */}
-      {/* VUE 5 — Évaluation élève par élève                              */}
+      {/* VUE 5 — Évaluation : tous les élèves tirés sur une seule page    */}
       {/* ═══════════════════════════════════════════════════════════════ */}
       {view === "evaluer" && activeDoc && (
         <View style={{ flex: 1 }}>
@@ -504,7 +547,7 @@ export default function SupEvaluationScreen() {
               <Feather name="check-circle" size={rs(56)} color={C.success} />
               <Text style={st.doneTitle}>Évaluation enregistrée</Text>
               <Text style={st.doneSub}>
-                {tires.length} élève{tires.length !== 1 ? "s" : ""} évalué{tires.length !== 1 ? "s" : ""}.{"\n"}
+                {aEvaluer.length} élève{aEvaluer.length !== 1 ? "s" : ""} évalué{aEvaluer.length !== 1 ? "s" : ""}.{"\n"}
                 L&apos;enseignant verra les résultats dans son app.
               </Text>
               <TouchableOpacity style={st.doneBtn} onPress={terminer} activeOpacity={0.85}>
@@ -513,109 +556,68 @@ export default function SupEvaluationScreen() {
             </View>
           ) : (
             <>
-              {enTete(
-                current ? eleveName(current) : "Évaluation",
-                `Étape 4/4 — Élève ${Math.min(evalIndex + 1, tires.length)}/${tires.length}`,
-              )}
+              {enTete("Évaluation", `Étape 4/4 — ${nbNotes}/${aEvaluer.length} élève${aEvaluer.length !== 1 ? "s" : ""} noté${nbNotes !== 1 ? "s" : ""}`)}
 
               <View style={st.progBarOuter}>
-                <View style={[st.progBarFill, { width: `${((evalIndex + 1) / Math.max(tires.length, 1)) * 100}%` as any }]} />
+                <View style={[st.progBarFill, { width: `${(nbNotes / Math.max(aEvaluer.length, 1)) * 100}%` as any }]} />
               </View>
 
+              {/* Un bloc par élève : son nom, puis ses trois options juste en dessous */}
               <ScrollView style={st.evalScroll} contentContainerStyle={{ paddingBottom: rs(16) }} showsVerticalScrollIndicator={false}>
-                {current && (
-                  <View style={st.presCard}>
-                    <View style={[st.eleveAvatar, { backgroundColor: C.brandSoft }]}>
-                      <Text style={[st.eleveAvatarText, { color: C.brand }]}>{initiales(current)}</Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={st.eleveName}>{eleveName(current)}</Text>
-                      <Text style={st.eleveGenre}>{current.classe}</Text>
-                    </View>
-                  </View>
-                )}
-
-                <Text style={st.resultTitle}>Résultat de l&apos;élève</Text>
-                <View style={st.resultRow}>
-                  {RESULTATS.map(r => {
-                    const sel = current ? results.get(current.id) === r.key : false;
-                    return (
-                      <TouchableOpacity
-                        key={r.key}
-                        style={[st.resultBtn, { backgroundColor: sel ? r.color : r.soft }]}
-                        onPress={() => choisirResultat(r.key)}
-                        activeOpacity={0.8}
-                      >
-                        <Feather name={r.icon} size={rs(20)} color={sel ? "#fff" : r.color} />
-                        <Text style={[st.resultBtnTxt, { color: sel ? "#fff" : r.color }]}>{r.label}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-
-                {tires.length > 1 && (
-                  <View style={st.otherEleves}>
-                    <Text style={st.otherElevesTitle}>Élèves tirés au sort</Text>
-                    {tires.map((e, i) => {
-                      const r = results.get(e.id);
-                      const meta = RESULTATS.find(x => x.key === r);
-                      return (
-                        <TouchableOpacity
-                          key={e.id}
-                          style={st.otherEleveRow}
-                          onPress={() => setEvalIndex(i)}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={[st.otherEleveName, i === evalIndex && { color: C.brand, fontWeight: "800" }]} numberOfLines={1}>
-                            {eleveName(e)}
+                {aEvaluer.map((e, i) => {
+                  const choisi = results.get(e.id);
+                  return (
+                    <View key={e.id} style={st.eleveEvalCard}>
+                      <View style={st.eleveEvalTop}>
+                        <View style={[st.eleveAvatar, { backgroundColor: choisi ? C.successSoft : C.brandSoft }]}>
+                          <Text style={[st.eleveAvatarText, { color: choisi ? C.success : C.brand }]}>
+                            {initiales(e)}
                           </Text>
-                          {meta ? (
-                            <View style={[st.miniBadge, { backgroundColor: meta.soft }]}>
-                              <Text style={[st.miniBadgeText, { color: meta.color }]}>{meta.label}</Text>
-                            </View>
-                          ) : (
-                            <View style={[st.miniBadge, { backgroundColor: C.surfaceAlt }]}>
-                              <Text style={[st.miniBadgeText, { color: C.textMuted }]}>À évaluer</Text>
-                            </View>
-                          )}
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                )}
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={st.eleveName} numberOfLines={1}>{eleveName(e)}</Text>
+                          <Text style={st.eleveGenre}>{e.classe}</Text>
+                        </View>
+                        <Text style={st.eleveRang}>{i + 1}/{aEvaluer.length}</Text>
+                      </View>
+
+                      <View style={st.resultRow}>
+                        {RESULTATS.map(r => {
+                          const sel = choisi === r.key;
+                          return (
+                            <TouchableOpacity
+                              key={r.key}
+                              style={[st.resultBtn, { backgroundColor: sel ? r.color : r.soft }]}
+                              onPress={() => setResults(prev => new Map(prev).set(e.id, r.key))}
+                              activeOpacity={0.8}
+                            >
+                              <Feather name={r.icon} size={rs(18)} color={sel ? "#fff" : r.color} />
+                              <Text style={[st.resultBtnTxt, { color: sel ? "#fff" : r.color }]}>{r.label}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  );
+                })}
               </ScrollView>
 
-              <View style={st.navRow}>
+              <View style={st.evalBtnBar}>
                 <TouchableOpacity
-                  style={[st.navBtn, evalIndex === 0 && st.navBtnDisabled]}
-                  onPress={() => setEvalIndex(i => Math.max(0, i - 1))}
-                  disabled={evalIndex === 0}
-                  activeOpacity={0.8}
+                  style={[st.evalBtn, (nbNotes < aEvaluer.length || submitting) && st.evalBtnOff]}
+                  onPress={envoyer}
+                  disabled={nbNotes < aEvaluer.length || submitting}
+                  activeOpacity={0.85}
                 >
-                  <Feather name="arrow-left" size={rs(15)} color={evalIndex === 0 ? C.textMuted : C.brand} />
-                  <Text style={[st.navBtnText, evalIndex === 0 && { color: C.textMuted }]}>Précédent</Text>
+                  {submitting ? <ActivityIndicator size="small" color="#fff" /> : (
+                    <>
+                      <Feather name="send" size={rs(16)} color={nbNotes < aEvaluer.length ? C.textMuted : "#fff"} />
+                      <Text style={[st.evalBtnText, nbNotes < aEvaluer.length && { color: C.textMuted }]}>
+                        Envoyer les {aEvaluer.length} évaluations
+                      </Text>
+                    </>
+                  )}
                 </TouchableOpacity>
-
-                {evalIndex < tires.length - 1 ? (
-                  <TouchableOpacity style={st.mainNavBtn} onPress={() => setEvalIndex(i => i + 1)} activeOpacity={0.85}>
-                    <Text style={st.mainNavBtnText}>Suivant</Text>
-                    <Feather name="arrow-right" size={rs(16)} color="#fff" />
-                  </TouchableOpacity>
-                ) : (
-                  <TouchableOpacity
-                    style={[st.mainNavBtn, submitting && { opacity: 0.6 }]}
-                    onPress={envoyer}
-                    disabled={submitting}
-                    activeOpacity={0.85}
-                  >
-                    {submitting ? <ActivityIndicator size="small" color="#fff" /> : (
-                      <>
-                        <Feather name="send" size={rs(16)} color="#fff" />
-                        <Text style={st.mainNavBtnText}>Envoyer</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                )}
               </View>
             </>
           )}
@@ -656,6 +658,25 @@ const st = StyleSheet.create({
     padding: rs(14), marginBottom: rs(10),
   },
   tireNom:         { fontSize: rf(17), fontWeight: "800", color: C.text },
+  tireCardAbsent:  { borderColor: C.border, backgroundColor: C.surfaceAlt, opacity: 0.85 },
+  tireNomAbsent:   { color: C.textMuted, textDecorationLine: "line-through" },
+  presenceToggle:  {
+    flexDirection: "row", alignItems: "center", gap: rs(5),
+    paddingHorizontal: rs(10), paddingVertical: rs(7),
+    borderRadius: rs(10), borderWidth: 1.5, borderColor: C.success + "55",
+    backgroundColor: C.successSoft,
+  },
+  presenceToggleAbsent: { borderColor: C.danger + "55", backgroundColor: C.dangerSoft },
+  presenceToggleTxt:    { fontSize: rf(12), fontWeight: "700" },
+
+  /* Évaluation — un bloc par élève */
+  eleveEvalCard: {
+    backgroundColor: C.surface, borderRadius: rs(14),
+    borderWidth: 1, borderColor: C.border,
+    padding: rs(14), marginBottom: rs(12),
+  },
+  eleveEvalTop:  { flexDirection: "row", alignItems: "center", gap: rs(12), marginBottom: rs(12) },
+  evalBtnOff:    { backgroundColor: C.surfaceAlt },
 
   sujetCard: {
     flexDirection: "row", alignItems: "center", gap: rs(12),
@@ -682,7 +703,6 @@ const st = StyleSheet.create({
     paddingHorizontal: rs(14), paddingTop: rs(10), paddingBottom: rs(12),
     borderBottomWidth: 1, borderBottomColor: C.border,
   },
-  backBtn:        { padding: rs(4) },
   subHeaderTitle: { fontSize: rf(16), fontWeight: "800", color: C.text },
   subHeaderSub:   { fontSize: rf(12), color: C.textMuted, marginTop: rs(1) },
 
@@ -722,7 +742,6 @@ const st = StyleSheet.create({
   opItem:       { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: rs(10), paddingHorizontal: rs(14), paddingVertical: rs(8) },
   opText:       { fontSize: rf(16), fontWeight: "700", color: C.text, fontFamily: "monospace" },
 
-  resultTitle: { fontSize: rf(16), fontWeight: "800", color: C.text, marginTop: rs(4) },
   resultRow:   { flexDirection: "row", gap: rs(8) },
   resultBtn: {
     flex: 1, alignItems: "center", justifyContent: "center", gap: rs(6),
@@ -731,17 +750,10 @@ const st = StyleSheet.create({
   resultBtnTxt: { fontSize: rf(12), fontWeight: "800", textAlign: "center" },
 
   // Autres élèves
-  otherEleves:      { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: rs(14), overflow: "hidden" },
-  otherElevesTitle: { fontSize: rf(11), fontWeight: "700", color: C.textMuted, paddingHorizontal: rs(14), paddingTop: rs(12), paddingBottom: rs(6), textTransform: "uppercase" },
-  otherEleveRow:    { flexDirection: "row", alignItems: "center", paddingHorizontal: rs(14), paddingVertical: rs(10), borderTopWidth: 1, borderTopColor: C.border + "60" },
-  otherEleveName:   { flex: 1, fontSize: rf(14), color: C.text, fontWeight: "500" },
-  miniBadge:        { paddingHorizontal: rs(8), paddingVertical: rs(3), borderRadius: rs(8) },
-  miniBadgeText:    { fontSize: rf(11), fontWeight: "700" },
 
   // Navigation évaluation
   navRow:        { flexDirection: "row", gap: rs(10) },
   navBtn:        { flexDirection: "row", alignItems: "center", gap: rs(4), paddingVertical: rs(14), paddingHorizontal: rs(16), backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: rs(14) },
-  navBtnDisabled: { opacity: 0.4 },
   navBtnText:    { fontSize: rf(14), fontWeight: "700", color: C.text },
   mainNavBtn:    { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: rs(8), paddingVertical: rs(14), borderRadius: rs(14), backgroundColor: C.primary },
   mainNavBtnText: { fontSize: rf(15), fontWeight: "800", color: "#fff" },

@@ -15,6 +15,7 @@ import { useRouter } from "expo-router";
 import { rs, rf } from "../utils/responsive";
 import { C } from "../utils/theme";
 import AredLogo from "../components/AredLogo";
+import BackButton from "../components/BackButton";
 
 /* ── Formatage automatique du numéro sénégalais ────────────────
    Format affiché : XX XXX XX XX  (9 chiffres max)
@@ -87,9 +88,7 @@ export default function LoginScreen() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
         {/* Bouton retour */}
-        <TouchableOpacity style={s.backBtn} onPress={() => router.back()} activeOpacity={0.7}>
-          <Feather name="arrow-left" size={rf(20)} color={C.text} />
-        </TouchableOpacity>
+        <BackButton onPress={() => router.back()} style={{ alignSelf: "flex-start" }} />
 
         <ScrollView
           contentContainerStyle={s.scroll}
@@ -189,14 +188,6 @@ export default function LoginScreen() {
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
 
-  backBtn: {
-    margin: rs(16),
-    width: rs(40), height: rs(40),
-    borderRadius: rs(12),
-    backgroundColor: C.surfaceAlt,
-    alignItems: "center", justifyContent: "center",
-    alignSelf: "flex-start",
-  },
 
   scroll: {
     flexGrow: 1,

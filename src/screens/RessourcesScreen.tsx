@@ -36,6 +36,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as IntentLauncher from "expo-intent-launcher";
 
 import { rs, rf } from "../utils/responsive";
+import BackButton from "../components/BackButton";
 import { C } from "../utils/theme";
 import AppHeader from "../components/AppHeader";
 import ProfileSheet from "../components/ProfileSheet";
@@ -150,10 +151,7 @@ function InlineViewer({
     <View style={vw.wrap}>
       {/* Barre de navigation */}
       <View style={vw.bar}>
-        <TouchableOpacity style={vw.backBtn} onPress={onClose}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Feather name="arrow-left" size={rf(18)} color={C.text} />
-        </TouchableOpacity>
+        <BackButton onPress={onClose} compact />
         <View style={{ flex: 1 }}>
           <Text style={vw.barTitle} numberOfLines={1}>{doc.title}</Text>
           {source.kind === "pdf" && total > 0 && (
@@ -762,10 +760,6 @@ const vw = StyleSheet.create({
     backgroundColor: C.surface,
     paddingHorizontal: rs(12), paddingVertical: rs(10),
     borderBottomWidth: 1, borderBottomColor: C.border, gap: rs(8),
-  },
-  backBtn:    {
-    width: rs(36), height: rs(36), borderRadius: rs(10),
-    backgroundColor: C.surfaceAlt, alignItems: "center", justifyContent: "center",
   },
   extBtn:     {
     width: rs(36), height: rs(36), borderRadius: rs(10),
