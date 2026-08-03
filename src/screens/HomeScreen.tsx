@@ -1003,6 +1003,26 @@ export default function HomeScreen() {
               <Text style={s.periodeBtnTxt}>Afficher le planning</Text>
             </TouchableOpacity>
           </View>
+
+          {/* Rappel vers les rapports — l'écran de choix de période est le
+              premier que voit le tuteur en ouvrant l'app : c'est le bon endroit
+              pour lui rappeler son rapport du jour. */}
+          <TouchableOpacity
+            style={s.rappelRapportBtn}
+            // `navigate` bascule sur l'onglet Rapports ; `push` empilerait un
+            // second écran par-dessus l'accueil (retour incohérent).
+            onPress={() => router.navigate("/(tabs)/rapports")}
+            activeOpacity={0.85}
+          >
+            <View style={s.rappelRapportIcon}>
+              <Feather name="file-text" size={rf(17)} color={C.brand} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={s.rappelRapportTxt}>N&apos;oubliez pas vos rapports</Text>
+              <Text style={s.rappelRapportSub}>Toucher pour ouvrir vos rapports</Text>
+            </View>
+            <Feather name="chevron-right" size={rf(18)} color={C.brand} />
+          </TouchableOpacity>
         </ScrollView>
       ) : todayPlan.length === 0 ? (
         <ScrollView
@@ -1213,6 +1233,23 @@ const s = StyleSheet.create({
   },
   periodeBtnDisabled: { opacity: 0.45 },
   periodeBtnTxt: { fontSize: rf(15), fontWeight: "800", color: "#fff" },
+
+  /* Rappel « n'oubliez pas vos rapports » sous le choix de période */
+  rappelRapportBtn: {
+    flexDirection: "row", alignItems: "center", gap: rs(12),
+    backgroundColor: C.brandSoft,
+    borderWidth: 1.5, borderColor: C.brand + "40",
+    borderRadius: rs(16),
+    paddingHorizontal: rs(14), paddingVertical: rs(14),
+    marginTop: rs(16),
+  },
+  rappelRapportIcon: {
+    width: rs(38), height: rs(38), borderRadius: rs(12),
+    backgroundColor: C.surface,
+    alignItems: "center", justifyContent: "center",
+  },
+  rappelRapportTxt: { fontSize: rf(15), fontWeight: "800", color: C.brand },
+  rappelRapportSub: { fontSize: rf(12), color: C.textMuted, marginTop: rs(2) },
 
   periodePill: {
     flexDirection: "row", alignItems: "center", gap: rs(6),

@@ -17,6 +17,7 @@ import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Updates from "expo-updates";
+import RemplacementSheet from "./RemplacementSheet";
 import Constants from "expo-constants";
 import { useStore } from "../store/useStore";
 import { openAppGuide } from "./AppGuide";
@@ -48,6 +49,7 @@ export default function ProfileSheet({ visible, onClose }: Props) {
   const insets = useSafeAreaInsets();
   const { height: screenH } = useWindowDimensions();
   const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [remplacementOpen, setRemplacementOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const appVersion = Constants.expoConfig?.version ?? "—";
 
@@ -130,6 +132,7 @@ export default function ProfileSheet({ visible, onClose }: Props) {
   ];
 
   return (
+    <>
     <Modal
       visible={visible}
       animationType="slide"
@@ -203,6 +206,30 @@ export default function ProfileSheet({ visible, onClose }: Props) {
               ))}
             </View>
 
+            {/* ── Remplacement d'élève — tuteurs uniquement ── */}
+            {isEnseignant && (
+              <View style={s.menuCard}>
+                <TouchableOpacity
+                  style={s.menuRow}
+                  activeOpacity={0.6}
+                  onPress={() => {
+                    // Android n'affiche qu'une Modal à la fois : il faut fermer
+                    // celle du profil AVANT d'ouvrir celle du remplacement,
+                    // sinon la seconde ne s'affiche jamais. Le délai laisse
+                    // l'animation de fermeture se terminer.
+                    onClose();
+                    setTimeout(() => setRemplacementOpen(true), 320);
+                  }}
+                >
+                  <View style={s.menuIconBox}>
+                    <Feather name="repeat" size={rf(22)} color={C.brand} />
+                  </View>
+                  <Text style={s.menuLabel}>Remplacer un élève</Text>
+                  <Feather name="chevron-right" size={rf(20)} color="#AAA" />
+                </TouchableOpacity>
+              </View>
+            )}
+
             {/* ── Aide ── */}
             <View style={s.menuCard}>
               <TouchableOpacity
@@ -258,6 +285,14 @@ export default function ProfileSheet({ visible, onClose }: Props) {
         </View>
       </View>
     </Modal>
+
+    {/* Feuille de remplacement — rendue en frère du Modal du profil, jamais
+        en même temps que lui (voir le onPress du bouton). */}
+    <RemplacementSheet
+      visible={remplacementOpen}
+      onClose={() => setRemplacementOpen(false)}
+    />
+    </>
   );
 }
 

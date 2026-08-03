@@ -44,6 +44,21 @@ function makeInitials(name: string) {
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
+/**
+ * Où en est l'enseignant de ses rapports journaliers ?
+ * On le dit dans les deux sens : « ✓ rapport reçu » rassure le superviseur
+ * autant que « ⚠ aucun rapport » l'alerte. Sans le cas positif, un tuteur à
+ * jour et un tuteur dont l'information manque se ressemblaient à l'écran.
+ */
+function libelleRapport(dateStr: string | null): { texte: string; alerte: boolean } {
+  const jours = daysSince(dateStr);
+  if (jours === null)  return { texte: "aucun rapport envoyé", alerte: true };
+  if (jours >= 3)      return { texte: `dernier rapport il y a ${jours} j`, alerte: true };
+  if (jours === 0)     return { texte: "rapport envoyé aujourd'hui", alerte: false };
+  if (jours === 1)     return { texte: "rapport envoyé hier", alerte: false };
+  return { texte: `rapport envoyé il y a ${jours} j`, alerte: false };
+}
+
 function daysSince(dateStr: string | null): number | null {
   if (!dateStr) return null;
   const d = new Date(dateStr);
@@ -608,8 +623,7 @@ export default function SupPresencesScreen() {
                 </View>
               )}
               {profs.map((prof, i) => {
-                const days = daysSince(prof.last_rapport_date);
-                const noRapport = days === null || days >= 3;
+                const rapport = libelleRapport(prof.last_rapport_date);
                 return (
                 /* Toucher la carte marque présent tant que l'enseignant n'est
                    pas encore pointé — un choix « Absent » déjà fait n'est
@@ -628,9 +642,9 @@ export default function SupPresencesScreen() {
                       <Text style={styles.profName} numberOfLines={1}>{prof.nom}</Text>
                       <Text style={styles.profMeta} numberOfLines={1}>
                         {prof.classe}
-                        {noRapport && (days === null
-                          ? "  ·  ⚠ aucun rapport"
-                          : `  ·  ⚠ rapport il y a ${days} j`)}
+                        <Text style={rapport.alerte ? styles.metaAlerte : styles.metaOk}>
+                          {`  ·  ${rapport.alerte ? "⚠" : "✓"} ${rapport.texte}`}
+                        </Text>
                         {prof.present === false && prof.motif ? `  ·  ${prof.motif}` : ""}
                       </Text>
                     </View>
@@ -1002,6 +1016,8 @@ const styles = StyleSheet.create({
   profInfo:       { flex: 1 },
   profName:       { fontSize: rf(16), fontWeight: "700", color: C.text },
   profMeta:       { fontSize: rf(12), color: C.textMuted, fontWeight: "500", marginTop: rs(2) },
+  metaAlerte:     { color: C.warn,    fontWeight: "700" },
+  metaOk:         { color: C.success, fontWeight: "700" },
 
   /* Boutons Présent / Absent */
   profActions:    { flexDirection: "row", gap: rs(8) },

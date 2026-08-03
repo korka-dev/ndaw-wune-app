@@ -89,6 +89,27 @@ describe("Historique des rapports après déconnexion / reconnexion", () => {
     expect(apres.find(r => r.id === "rj_attente")?.synced).toBe(0);
   });
 
+  test("plusieurs rapports superviseur le même jour ne se confondent pas", () => {
+    // Les rapports superviseur portent tous semaine=1 et jour_cours=1 : un
+    // superviseur qui visite trois tuteurs dans la journée en soumet trois,
+    // impossibles à distinguer par leur date. Le rattrapage doit tout de même
+    // en apparier un par ligne, sans doublon ni perte.
+    for (const id of ["s_a", "s_b", "s_c"]) {
+      insertRapportJournalier({ ...rapportLocal(id), semaine: 1, jour_cours: 1 });
+      markRapportJournalierSynced(id);                 // sans id serveur (ancien code)
+    }
+    expect(getRapportsJournalier()).toHaveLength(3);
+
+    for (const sid of ["srv1", "srv2", "srv3"]) {
+      upsertRapportJournalierFromServer({ ...rapportServeur(sid), semaine: 1, jour_cours: 1 });
+    }
+
+    const apres = getRapportsJournalier();
+    expect(apres).toHaveLength(3);                              // ni doublon ni perte
+    expect(new Set(apres.map(r => r.server_id)).size).toBe(3);  // trois ids distincts
+    expect(apres.every(r => r.synced === 1)).toBe(true);
+  });
+
   test("des rapports de dates différentes coexistent", () => {
     upsertRapportJournalierFromServer(rapportServeur("s1", "2026-08-01"));
     upsertRapportJournalierFromServer(rapportServeur("s2", "2026-07-31"));

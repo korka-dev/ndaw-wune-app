@@ -7,7 +7,8 @@
  *   3. "tires"       → les élèves tirés au hasard dans cette liste
  *   4. "dossier"     → contenu du dossier d'évaluation (lettres, syllabes, mots,
  *                      opérations) dans la langue d'enseignement de l'école
- *   5. "evaluer"     → un élève après l'autre : Réussi / Intermédiaire / Pas réussi
+ *   5. "evaluer"     → chaque élève tiré, avec pour chaque partie du dossier
+ *                      (lettres, syllabes, mots, opérations) : Réussi / Pas réussi
  *
  * Le tirage est fait dans l'app, sur la liste réelle de la classe, au moment où
  * le superviseur est devant les élèves — et non plus à l'avance par l'admin.
@@ -63,16 +64,33 @@ interface Eleve {
 
 type ViewType = "enseignants" | "eleves" | "tires" | "dossier" | "evaluer";
 
-type Resultat = "reussi" | "intermediaire" | "pas_reussi";
+type Resultat = "reussi" | "pas_reussi";
 
 /** Nombre d'élèves tirés au sort par enseignant. */
 const NB_TIRAGE = 5;
 
 const RESULTATS: { key: Resultat; label: string; icon: keyof typeof Feather.glyphMap; color: string; soft: string }[] = [
-  { key: "reussi",        label: "Réussi",        icon: "check-circle", color: C.success,  soft: C.successSoft },
-  { key: "intermediaire", label: "Intermédiaire", icon: "minus-circle", color: C.warn,     soft: C.warnSoft },
-  { key: "pas_reussi",    label: "Pas réussi",    icon: "x-circle",     color: C.danger,   soft: C.dangerSoft },
+  { key: "reussi",     label: "Réussi",     icon: "check-circle", color: C.success, soft: C.successSoft },
+  { key: "pas_reussi", label: "Pas réussi", icon: "x-circle",     color: C.danger,  soft: C.dangerSoft  },
 ];
+
+/**
+ * Les quatre parties d'un dossier d'évaluation. Le superviseur se prononce sur
+ * chacune séparément : un élève peut lire ses lettres sans réussir les
+ * opérations, ce qu'un résultat global ne permettait pas de dire.
+ *
+ * `champ` pointe la liste correspondante du dossier : une partie vide (dossier
+ * sans opérations, par exemple) n'est pas proposée à la notation.
+ */
+const CATEGORIES: { key: string; label: string; champ: keyof EvalDoc }[] = [
+  { key: "Lettres",    label: "Lettres",    champ: "lettres"    },
+  { key: "Syllabes",   label: "Syllabes",   champ: "syllabes"   },
+  { key: "Mots",       label: "Mots",       champ: "mots"       },
+  { key: "Opérations", label: "Opérations", champ: "operations" },
+];
+
+/** Clé d'un résultat : un élève × une catégorie. */
+const cleResultat = (eleveId: string, categorie: string) => `${eleveId}::${categorie}`;
 
 const eleveName = (e: Eleve): string => `${e.prenom ? `${e.prenom} ` : ""}${e.nom}`;
 const initiales = (e: Eleve): string =>
@@ -242,25 +260,45 @@ export default function SupEvaluationScreen() {
 
   // ── Étape 5 : évaluation et envoi ──────────────────────────────────────────
 
-  /** Nombre d'élèves déjà notés (parmi les présents). */
-  const nbNotes = aEvaluer.filter(e => results.has(e.id)).length;
+  /** Parties du dossier réellement remplies : on ne note que celles-là. */
+  const categoriesActives = React.useMemo(
+    () => (activeDoc
+      ? CATEGORIES.filter(c => ((activeDoc[c.champ] as string[]) ?? []).length > 0)
+      : []),
+    [activeDoc],
+  );
+
+  /** Un élève est noté quand TOUTES les parties du dossier ont un résultat. */
+  const eleveComplet = (e: Eleve) =>
+    categoriesActives.length > 0
+    && categoriesActives.every(c => results.has(cleResultat(e.id, c.key)));
+
+  const nbNotes = aEvaluer.filter(eleveComplet).length;
 
   const envoyer = async () => {
     if (!activeDoc || submitting) return;
-    const manquants = aEvaluer.filter(e => !results.has(e.id));
+    const manquants = aEvaluer.filter(e => !eleveComplet(e));
     if (manquants.length > 0) {
-      Alert.alert("Évaluation incomplète", "Choisissez un résultat pour chaque élève tiré au sort.");
+      Alert.alert(
+        "Évaluation incomplète",
+        `Indiquez « Réussi » ou « Pas réussi » pour chaque partie du dossier : ${manquants.map(eleveName).join(", ")}.`,
+      );
       return;
     }
     setSubmitting(true);
     try {
+      // Une ligne par élève ET par partie du dossier : la table
+      // `evaluations_eleves` est déjà indexée sur (élève, compétence, date),
+      // les quatre résultats coexistent donc sans conflit.
       await superviseurApi.submitEvaluations(
-        aEvaluer.map(e => ({
-          eleve_id:   e.id,
-          competence: activeDoc.titre,   // le dossier tient lieu de sujet évalué
-          resultat:   results.get(e.id)!,
-          date_eval:  aujourdhui(),
-        })),
+        aEvaluer.flatMap(e =>
+          categoriesActives.map(c => ({
+            eleve_id:   e.id,
+            competence: c.key,
+            resultat:   results.get(cleResultat(e.id, c.key))!,
+            date_eval:  aujourdhui(),
+          })),
+        ),
       );
       setSubmitDone(true);
     } catch {
@@ -562,15 +600,17 @@ export default function SupEvaluationScreen() {
                 <View style={[st.progBarFill, { width: `${(nbNotes / Math.max(aEvaluer.length, 1)) * 100}%` as any }]} />
               </View>
 
-              {/* Un bloc par élève : son nom, puis ses trois options juste en dessous */}
+              {/* Un bloc par élève : son nom, puis une ligne par partie du
+                  dossier (lettres, syllabes, mots, opérations) avec le choix
+                  Réussi / Pas réussi pour chacune. */}
               <ScrollView style={st.evalScroll} contentContainerStyle={{ paddingBottom: rs(16) }} showsVerticalScrollIndicator={false}>
                 {aEvaluer.map((e, i) => {
-                  const choisi = results.get(e.id);
+                  const complet = eleveComplet(e);
                   return (
                     <View key={e.id} style={st.eleveEvalCard}>
                       <View style={st.eleveEvalTop}>
-                        <View style={[st.eleveAvatar, { backgroundColor: choisi ? C.successSoft : C.brandSoft }]}>
-                          <Text style={[st.eleveAvatarText, { color: choisi ? C.success : C.brand }]}>
+                        <View style={[st.eleveAvatar, { backgroundColor: complet ? C.successSoft : C.brandSoft }]}>
+                          <Text style={[st.eleveAvatarText, { color: complet ? C.success : C.brand }]}>
                             {initiales(e)}
                           </Text>
                         </View>
@@ -578,25 +618,38 @@ export default function SupEvaluationScreen() {
                           <Text style={st.eleveName} numberOfLines={1}>{eleveName(e)}</Text>
                           <Text style={st.eleveGenre}>{e.classe}</Text>
                         </View>
-                        <Text style={st.eleveRang}>{i + 1}/{aEvaluer.length}</Text>
+                        {complet
+                          ? <Feather name="check-circle" size={rs(18)} color={C.success} />
+                          : <Text style={st.eleveRang}>{i + 1}/{aEvaluer.length}</Text>}
                       </View>
 
-                      <View style={st.resultRow}>
-                        {RESULTATS.map(r => {
-                          const sel = choisi === r.key;
-                          return (
-                            <TouchableOpacity
-                              key={r.key}
-                              style={[st.resultBtn, { backgroundColor: sel ? r.color : r.soft }]}
-                              onPress={() => setResults(prev => new Map(prev).set(e.id, r.key))}
-                              activeOpacity={0.8}
-                            >
-                              <Feather name={r.icon} size={rs(18)} color={sel ? "#fff" : r.color} />
-                              <Text style={[st.resultBtnTxt, { color: sel ? "#fff" : r.color }]}>{r.label}</Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </View>
+                      {categoriesActives.map(cat => {
+                        const cle    = cleResultat(e.id, cat.key);
+                        const choisi = results.get(cle);
+                        return (
+                          <View key={cat.key} style={st.categorieRow}>
+                            <Text style={st.categorieLabel}>{cat.label}</Text>
+                            <View style={st.categorieBtns}>
+                              {RESULTATS.map(r => {
+                                const sel = choisi === r.key;
+                                return (
+                                  <TouchableOpacity
+                                    key={r.key}
+                                    style={[st.categorieBtn, { backgroundColor: sel ? r.color : r.soft }]}
+                                    onPress={() => setResults(prev => new Map(prev).set(cle, r.key))}
+                                    activeOpacity={0.8}
+                                  >
+                                    <Feather name={r.icon} size={rs(14)} color={sel ? "#fff" : r.color} />
+                                    <Text style={[st.categorieBtnTxt, { color: sel ? "#fff" : r.color }]}>
+                                      {r.label}
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            </View>
+                          </View>
+                        );
+                      })}
                     </View>
                   );
                 })}
@@ -613,7 +666,7 @@ export default function SupEvaluationScreen() {
                     <>
                       <Feather name="send" size={rs(16)} color={nbNotes < aEvaluer.length ? C.textMuted : "#fff"} />
                       <Text style={[st.evalBtnText, nbNotes < aEvaluer.length && { color: C.textMuted }]}>
-                        Envoyer les {aEvaluer.length} évaluations
+                        Envoyer ({aEvaluer.length * categoriesActives.length} résultats)
                       </Text>
                     </>
                   )}
@@ -675,6 +728,14 @@ const st = StyleSheet.create({
     borderWidth: 1, borderColor: C.border,
     padding: rs(14), marginBottom: rs(12),
   },
+  categorieRow:   { marginTop: rs(10) },
+  categorieLabel: { fontSize: rf(13), fontWeight: "700", color: C.text, marginBottom: rs(6) },
+  categorieBtns:  { flexDirection: "row", gap: rs(8) },
+  categorieBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: rs(5), paddingVertical: rs(9), borderRadius: rs(10),
+  },
+  categorieBtnTxt: { fontSize: rf(13), fontWeight: "700" },
   eleveEvalTop:  { flexDirection: "row", alignItems: "center", gap: rs(12), marginBottom: rs(12) },
   evalBtnOff:    { backgroundColor: C.surfaceAlt },
 
@@ -742,12 +803,6 @@ const st = StyleSheet.create({
   opItem:       { backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: rs(10), paddingHorizontal: rs(14), paddingVertical: rs(8) },
   opText:       { fontSize: rf(16), fontWeight: "700", color: C.text, fontFamily: "monospace" },
 
-  resultRow:   { flexDirection: "row", gap: rs(8) },
-  resultBtn: {
-    flex: 1, alignItems: "center", justifyContent: "center", gap: rs(6),
-    borderRadius: rs(14), borderWidth: 1.5, paddingVertical: rs(14),
-  },
-  resultBtnTxt: { fontSize: rf(12), fontWeight: "800", textAlign: "center" },
 
   // Autres élèves
 

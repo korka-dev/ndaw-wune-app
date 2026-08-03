@@ -9,6 +9,7 @@ import { useStore } from "../../store/useStore";
 import { C } from "../../utils/theme";
 import { rf, rs } from "../../utils/responsive";
 import { rapportJournalierApi, superviseurApi } from "../../services/api";
+import { hydrateRapportsFromServer } from "../../services/rapportsHistory";
 import {
   getCachedSupRapportQuestions,
   setCachedSupRapportQuestions,
@@ -25,11 +26,10 @@ import {
 } from "../../services/db";
 import AppHeader from "../../components/AppHeader";
 import BackButton from "../../components/BackButton";
+import DateField from "../../components/DateField";
 import ProfileSheet from "../../components/ProfileSheet";
 import TourTarget from "../../components/TourTarget";
 
-const BILANS = ["Bien", "Moyen", "Difficile"] as const;
-type Bilan = typeof BILANS[number];
 
 const TOTAL_STEPS = 2;
 
@@ -49,6 +49,14 @@ export default function SupRapportsScreen() {
       if (isOnline && hasPending) {
         await syncOffline(true);
         setHistory(getRapportsJournalier());
+      }
+
+      // La base locale est vidée à la déconnexion, alors que le serveur
+      // conserve tout l'historique du superviseur : sans cette réhydratation,
+      // une reconnexion affichait une liste vide.
+      if (isOnline) {
+        const n = await hydrateRapportsFromServer();
+        if (n > 0) setHistory(getRapportsJournalier());
       }
     } catch (e) {
       console.warn("[SupRapports] Erreur lecture SQLite :", e);
@@ -83,9 +91,43 @@ export default function SupRapportsScreen() {
   const [supQuestions, setSupQuestions] = useState<SupRapportQuestionItem[]>([]);
   const [reponses,     setReponses]     = useState<Record<string, string>>({});
 
+  /* Enseignants rattachés au superviseur — le rapport porte sur l'un d'eux, il
+     le choisit plutôt que de retaper son nom (fautes de frappe, homonymes). */
+  const tuteursSupervises: string[] = React.useMemo(() => {
+    const list = (useStore.getState().syncData as any)?.assigned_teachers ?? [];
+    return Array.from(new Set(list.map((t: any) => String(t?.name ?? "").trim()).filter(Boolean))) as string[];
+  }, [syncing]);
+
   // Libellés des champs fixes de ce rapport, configurés par l'admin (repli = texte par défaut)
   const [libelles, setLibelles] = useState<Record<string, string>>({});
   const L = (cle: string, fallback: string) => libelles[cle] || fallback;
+
+  /* Questions complémentaires réellement affichées.
+     Les cinq questions du rapport sont désormais des champs fixes ; une
+     question créée dans le dashboard qui redit la même chose apparaîtrait deux
+     fois à l'écran. On écarte donc les doublons, comparés sans tenir compte de
+     la casse, des accents ni de la ponctuation. La question reste dans le
+     dashboard : c'est là qu'il faut la supprimer pour de bon. */
+  const normaliser = (s: string) =>
+    s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+  const questionsAffichees = React.useMemo(() => {
+    const fixes = new Set([
+      L("superviseur.date_supervision_label", "Quelle est la date de supervision ?"),
+      L("superviseur.tuteur_label",           "Quel est le tuteur supervisé ?"),
+      L("superviseur.points_forts_label",     "Quels sont les points forts de la supervision ?"),
+      L("superviseur.points_ameliorer_label", "Quels sont les points à améliorer ?"),
+      L("superviseur.recommandations_label",  "Quelles sont les recommandations ?"),
+    ].map(normaliser));
+    const vues = new Set<string>();
+    return supQuestions.filter(q => {
+      const cle = normaliser(q.label ?? "");
+      if (fixes.has(cle) || vues.has(cle)) return false;   // doublon d'une fixe, ou d'elle-même
+      vues.add(cle);
+      return true;
+    });
+  }, [supQuestions, libelles]);
+
 
   useEffect(() => {
     getCachedSupRapportQuestions().then(cached => { if (cached) setSupQuestions(cached); }).catch(() => {});
@@ -117,33 +159,37 @@ export default function SupRapportsScreen() {
   const [detail,     setDetail]     = useState<RapportJournalierLocal | null>(null);
   const [sending,    setSending]    = useState(false);
   const [sent,       setSent]       = useState(false);
-  const [classesTerminees, setClassesTerminees] = useState(4);
-  const [incidents,        setIncidents]        = useState<boolean | null>(null);
-  const [incidentDetail,   setIncidentDetail]   = useState("");
-  const [bilan,            setBilan]            = useState<Bilan | null>(null);
-  const [commentaire,      setCommentaire]      = useState("");
+  // Cinq questions structurantes du rapport de supervision, toutes à réponse
+  // libre. Leur intitulé vient des libellés configurés dans le dashboard.
+  const [dateSupervision,  setDateSupervision]  = useState("");
+  const [tuteurSupervise,  setTuteurSupervise]  = useState("");
+  const [pointsForts,      setPointsForts]      = useState("");
+  const [pointsAmeliorer,  setPointsAmeliorer]  = useState("");
+  const [recommandations,  setRecommandations]  = useState("");
 
   const okCount = history.filter(r => r.synced === 1).length;
   const pendingCount = history.filter(r => r.synced === 0).length;
-  const bilanColor: Record<Bilan, string> = { Bien:C.success, Moyen:C.warn, Difficile:C.danger };
 
-  /* Date du jour, affichée en en-tête des pages du formulaire (remplace l'ancienne date factice) */
-  const todayLabel = (() => {
-    const d = new Date().toLocaleDateString("fr-FR", { weekday:"long", day:"numeric", month:"long" });
-    return d.charAt(0).toUpperCase() + d.slice(1);
-  })();
+  /* Date du jour au format jj/mm/aaaa — pré-remplie dans le champ « date de
+     supervision », que le superviseur reste libre de corriger (visite de la
+     veille saisie le lendemain, par exemple). */
+  const dateDuJour = () => new Date().toLocaleDateString("fr-FR");
 
   const resetForm = () => {
     setFormStep(0);
     setView("menu");
-    setClassesTerminees(4); setIncidents(null); setIncidentDetail(""); setBilan(null); setCommentaire("");
+    setDateSupervision(dateDuJour()); setTuteurSupervise("");
+    setPointsForts(""); setPointsAmeliorer(""); setRecommandations("");
     setReponses({});
   };
 
-  const startForm = () => setFormStep(1);
+  const startForm = () => {
+    if (!dateSupervision) setDateSupervision(dateDuJour());
+    setFormStep(1);
+  };
 
-  /* Si un incident est signalé, sa description devient obligatoire avant de continuer */
-  const canGoNext = incidents !== null && (!incidents || incidentDetail.trim().length > 0);
+  /* La date et le tuteur identifient le rapport : ils sont requis pour avancer. */
+  const canGoNext = dateSupervision.trim().length > 0 && tuteurSupervise.trim().length > 0;
 
   const goNext = () => {
     if (!canGoNext) return;
@@ -152,10 +198,9 @@ export default function SupRapportsScreen() {
 
   const goPrev = () => setFormStep(1);
 
-  const missingRequiredQuestion = supQuestions.find(q => q.required && !reponses[q.id]?.trim());
+  const missingRequiredQuestion = questionsAffichees.find(q => q.required && !reponses[q.id]?.trim());
 
   const handleSend = async () => {
-    if (bilan === null) return;
     if (missingRequiredQuestion) {
       Alert.alert("Champ manquant", `Veuillez répondre : « ${missingRequiredQuestion.label} »`);
       return;
@@ -167,14 +212,20 @@ export default function SupRapportsScreen() {
       const dateIso = format(now, "yyyy-MM-dd");
       const offline = !isOnline;
 
+      // Le résumé reprend chaque question avec son intitulé courant (celui
+      // configuré dans le dashboard) : le rapport reste lisible même si un
+      // libellé est reformulé plus tard.
+      const rep = (v: string) => v.trim() || "Non précisé";
       const resume = [
-        `Classes ayant terminé leur planning : ${classesTerminees}`,
-        `Incidents signalés : ${incidents ? `Oui — ${incidentDetail.trim()}` : "Non"}`,
-        `Bilan global : ${bilan}`,
+        `${L("superviseur.date_supervision_label", "Date de supervision")} : ${rep(dateSupervision)}`,
+        `${L("superviseur.tuteur_label", "Tuteur supervisé")} : ${rep(tuteurSupervise)}`,
+        `${L("superviseur.points_forts_label", "Points forts")} : ${rep(pointsForts)}`,
+        `${L("superviseur.points_ameliorer_label", "Points à améliorer")} : ${rep(pointsAmeliorer)}`,
+        `${L("superviseur.recommandations_label", "Recommandations")} : ${rep(recommandations)}`,
       ].join("\n");
 
-      const commentFinal = commentaire.trim() ? `${resume}\n\n${commentaire.trim()}` : resume;
-      const diffsJson = JSON.stringify(incidents ? [incidentDetail.trim() || "Incident signalé"] : []);
+      const commentFinal = resume;
+      const diffsJson = JSON.stringify([]);
       const reponsesJson = Object.keys(reponses).length > 0 ? JSON.stringify(reponses) : null;
 
       insertRapportJournalier({
@@ -185,7 +236,7 @@ export default function SupRapportsScreen() {
         semaine: 1, jour_cours: 1,
         difficultes: diffsJson,
         autres_difficultes: null,
-        description_difficultes: incidents ? incidentDetail.trim() : null,
+        description_difficultes: null,
         directeur_venu: 0, besoin_appui: 0, domaines_appui: null,
         has_observations: 1,
         commentaires: commentFinal,
@@ -203,7 +254,7 @@ export default function SupRapportsScreen() {
         semaine: 1, jour_cours: 1,
         difficultes: diffsJson,
         autres_difficultes: null,
-        description_difficultes: incidents ? incidentDetail.trim() : null,
+        description_difficultes: null,
         directeur_venu: false, besoin_appui: false, domaines_appui: null,
         has_observations: true,
         commentaires: commentFinal,
@@ -213,7 +264,12 @@ export default function SupRapportsScreen() {
       };
 
       if (isOnline) {
-        try { await rapportJournalierApi.submit(apiBody); markRapportJournalierSynced(localId); }
+        try {
+          // L'id renvoyé par le serveur évite de dupliquer le rapport quand
+          // l'historique est retéléchargé après une reconnexion.
+          const res = await rapportJournalierApi.submit(apiBody);
+          markRapportJournalierSynced(localId, res?.data?.id);
+        }
         catch { enqueueAction("SUBMIT_RAPPORT_JOURNALIER", apiBody); }
       } else {
         enqueueAction("SUBMIT_RAPPORT_JOURNALIER", apiBody);
@@ -315,54 +371,74 @@ export default function SupRapportsScreen() {
       >
         <FormTopBar step={1} onBack={resetForm} />
         <ScrollView style={styles.formBody} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.formScrollContent}>
-          <Text style={styles.stepIntro}>{todayLabel} · {user?.name ?? "Superviseur"}</Text>
-          <Text style={styles.stepHeading}>Votre tournée du jour</Text>
-          <Text style={styles.stepSub}>Renseignez ces quelques informations pour commencer votre rapport.</Text>
+          <View style={styles.fieldCard}>
+            <View style={styles.fieldCardHeader}>
+              <View style={[styles.fieldIconWrap, { backgroundColor: C.brandSoft }]}>
+                <Feather name="calendar" size={rf(17)} color={C.brand} />
+              </View>
+              <Text style={styles.fieldLabel}>{L("superviseur.date_supervision_label", "Quelle est la date de supervision ?")}</Text>
+            </View>
+            <DateField
+              value={dateSupervision}
+              onChange={setDateSupervision}
+              placeholder="Choisir la date de la visite"
+            />
+          </View>
+
+          <View style={styles.fieldCard}>
+            <View style={styles.fieldCardHeader}>
+              <View style={[styles.fieldIconWrap, { backgroundColor: C.brandSoft }]}>
+                <Feather name="user" size={rf(17)} color={C.brand} />
+              </View>
+              <Text style={styles.fieldLabel}>{L("superviseur.tuteur_label", "Quel est le tuteur supervisé ?")}</Text>
+            </View>
+            {tuteursSupervises.length > 0 ? (
+              tuteursSupervises.map(nom => {
+                const sel = tuteurSupervise === nom;
+                return (
+                  <TouchableOpacity
+                    key={nom}
+                    style={[styles.tuteurRow, sel && styles.tuteurRowSel]}
+                    onPress={() => setTuteurSupervise(sel ? "" : nom)}
+                    activeOpacity={0.75}
+                  >
+                    <View style={[styles.tuteurRadio, sel && styles.tuteurRadioSel]}>
+                      {sel && <Feather name="check" size={rf(12)} color="#fff" />}
+                    </View>
+                    <Text style={[styles.tuteurNom, sel && styles.tuteurNomSel]} numberOfLines={1}>{nom}</Text>
+                  </TouchableOpacity>
+                );
+              })
+            ) : (
+              // Aucun enseignant rattaché : on n'enferme pas le superviseur
+              // dans une liste vide, il saisit le nom à la main.
+              <TextInput
+                value={tuteurSupervise}
+                onChangeText={setTuteurSupervise}
+                placeholder="Nom et prénom du tuteur"
+                placeholderTextColor={C.textMuted}
+                style={styles.champLibre}
+              />
+            )}
+          </View>
 
           <View style={styles.fieldCard}>
             <View style={styles.fieldCardHeader}>
               <View style={[styles.fieldIconWrap, { backgroundColor: C.successSoft }]}>
-                <Feather name="check-square" size={rf(17)} color={C.success} />
+                <Feather name="thumbs-up" size={rf(17)} color={C.success} />
               </View>
-              <Text style={styles.fieldLabel}>{L("superviseur.classes_terminees_label", "Classes ayant terminé leur planning")}</Text>
+              <Text style={styles.fieldLabel}>{L("superviseur.points_forts_label", "Quels sont les points forts de la supervision ?")}</Text>
             </View>
-            <View style={styles.counterRow}>
-              <TouchableOpacity onPress={() => setClassesTerminees(p => Math.max(0,p-1))} style={styles.counterBtn}><Text style={styles.counterBtnText}>−</Text></TouchableOpacity>
-              <Text style={styles.counterValue}>{classesTerminees}</Text>
-              <TouchableOpacity onPress={() => setClassesTerminees(p => Math.min(20,p+1))} style={styles.counterBtn}><Text style={styles.counterBtnText}>+</Text></TouchableOpacity>
-            </View>
+            <TextInput
+              value={pointsForts}
+              onChangeText={setPointsForts}
+              multiline
+              placeholder="Ce qui a bien fonctionné pendant la séance…"
+              placeholderTextColor={C.textMuted}
+              style={styles.champLibreLong}
+            />
           </View>
 
-          <View style={styles.fieldCard}>
-            <View style={styles.fieldCardHeader}>
-              <View style={[styles.fieldIconWrap, { backgroundColor: C.dangerSoft }]}>
-                <Feather name="alert-triangle" size={rf(17)} color={C.danger} />
-              </View>
-              <Text style={styles.fieldLabel}>{L("superviseur.incidents_question", "Incidents signalés ?")}</Text>
-            </View>
-            <View style={styles.optionRow}>
-              {([{v:false,l:"Non ✓",c:C.success},{v:true,l:"Oui ⚠",c:C.danger}] as {v:boolean;l:string;c:string}[]).map(opt => {
-                const sel = incidents === opt.v;
-                return <TouchableOpacity key={String(opt.v)} onPress={() => setIncidents(opt.v)} style={[styles.toggle, sel && { borderColor:opt.c, backgroundColor:opt.c+"22" }]}>
-                  <Text style={[styles.toggleText, sel && { color:opt.c }]}>{opt.l}</Text>
-                </TouchableOpacity>;
-              })}
-            </View>
-
-            {/* Zone de description — visible uniquement si un incident est signalé */}
-            {incidents === true && (
-              <View style={styles.incidentBox}>
-                <Text style={styles.incidentLabel}>Décrivez l'incident <Text style={styles.fieldLabelOptional}>(obligatoire)</Text></Text>
-                <TextInput
-                  value={incidentDetail} onChangeText={setIncidentDetail}
-                  multiline numberOfLines={3}
-                  placeholder="Que s'est-il passé ? Où, quand, qui est concerné…"
-                  placeholderTextColor={C.textMuted}
-                  style={styles.incidentInput}
-                />
-              </View>
-            )}
-          </View>
         </ScrollView>
 
         <View style={styles.navRow}>
@@ -375,9 +451,9 @@ export default function SupRapportsScreen() {
     );
   }
 
-  /* ── Page 2 : Bilan global → fin ── */
+  /* ── Page 2 : observations de la supervision → fin ── */
   if (formStep === 2) {
-    const canSend = bilan !== null && !missingRequiredQuestion;
+    const canSend = !missingRequiredQuestion;
     return (
       <KeyboardAvoidingView
         style={[styles.formRoot, { paddingTop: insets.top }]}
@@ -385,41 +461,42 @@ export default function SupRapportsScreen() {
       >
         <FormTopBar step={2} onBack={goPrev} />
         <ScrollView style={styles.formBody} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.formScrollContent}>
-          <Text style={styles.stepIntro}>{todayLabel} · {user?.name ?? "Superviseur"}</Text>
-          <Text style={styles.stepHeading}>Bilan de la journée</Text>
-          <Text style={styles.stepSub}>Donnez votre appréciation globale et ajoutez vos observations.</Text>
+          <View style={styles.fieldCard}>
+            <View style={styles.fieldCardHeader}>
+              <View style={[styles.fieldIconWrap, { backgroundColor: C.warnSoft }]}>
+                <Feather name="trending-up" size={rf(17)} color={C.warn} />
+              </View>
+              <Text style={styles.fieldLabel}>{L("superviseur.points_ameliorer_label", "Quels sont les points à améliorer ?")}</Text>
+            </View>
+            <TextInput
+              value={pointsAmeliorer}
+              onChangeText={setPointsAmeliorer}
+              multiline
+              placeholder="Ce qui mérite d'être renforcé…"
+              placeholderTextColor={C.textMuted}
+              style={styles.champLibreLong}
+            />
+          </View>
 
           <View style={styles.fieldCard}>
             <View style={styles.fieldCardHeader}>
               <View style={[styles.fieldIconWrap, { backgroundColor: C.brandSoft }]}>
-                <Feather name="bar-chart-2" size={rf(17)} color={C.brand} />
+                <Feather name="clipboard" size={rf(17)} color={C.brand} />
               </View>
-              <Text style={styles.fieldLabel}>{L("superviseur.bilan_label", "Bilan global")}</Text>
+              <Text style={styles.fieldLabel}>{L("superviseur.recommandations_label", "Quelles sont les recommandations ?")}</Text>
             </View>
-            <View style={styles.optionRow}>
-              {BILANS.map(b => {
-                const sel = bilan === b;
-                const col = bilanColor[b];
-                return <TouchableOpacity key={b} onPress={() => setBilan(b)} style={[styles.bilanBtn, sel && { borderColor:col, backgroundColor:col+"22" }]}>
-                  <Text style={[styles.bilanText, sel && { color:col }]}>{b}</Text>
-                </TouchableOpacity>;
-              })}
-            </View>
-          </View>
-
-          <View style={styles.fieldCard}>
-            <View style={styles.fieldCardHeader}>
-              <View style={[styles.fieldIconWrap, { backgroundColor: C.surfaceAlt }]}>
-                <Feather name="message-square" size={rf(17)} color={C.textMuted} />
-              </View>
-              <Text style={styles.fieldLabel}>{L("superviseur.commentaire_label", "Commentaire")} <Text style={styles.fieldLabelOptional}>(optionnel)</Text></Text>
-            </View>
-            <TextInput value={commentaire} onChangeText={setCommentaire} multiline numberOfLines={4} placeholder="Observations, points positifs, difficultés rencontrées…" placeholderTextColor={C.textMuted}
-              style={styles.textarea} />
+            <TextInput
+              value={recommandations}
+              onChangeText={setRecommandations}
+              multiline
+              placeholder="Vos conseils concrets au tuteur…"
+              placeholderTextColor={C.textMuted}
+              style={styles.champLibreLong}
+            />
           </View>
 
           {/* Questions complémentaires configurées par l'admin (dynamiques) */}
-          {supQuestions.map(q => (
+          {questionsAffichees.map(q => (
             <View key={q.id} style={styles.fieldCard}>
               <View style={styles.fieldCardHeader}>
                 <View style={[styles.fieldIconWrap, { backgroundColor: C.surfaceAlt }]}>
@@ -762,28 +839,43 @@ const styles = StyleSheet.create({
      disponible grâce aux cartes pleine largeur (au lieu de flotter centré
      avec un grand vide autour, comme c'était le cas auparavant). */
   formScrollContent: { paddingTop:rs(18), paddingBottom:rs(28) },
-  stepIntro:   { fontSize:rf(13), color:C.textMuted, fontWeight:"600" },
-  stepHeading: { fontSize:rf(21), fontWeight:"800", color:C.text, marginTop:rs(3) },
-  stepSub:     { fontSize:rf(14), color:C.textMuted, marginTop:rs(4), marginBottom:rs(20), lineHeight:rf(20) },
 
   /* Carte de champ — pleine largeur, en-tête icône + libellé, contenu dessous */
   fieldCard:       { backgroundColor:C.surface, borderWidth:1, borderColor:C.border, borderRadius:rs(16), padding:rs(16), marginBottom:rs(14) },
   fieldCardHeader: { flexDirection:"row", alignItems:"center", gap:rs(11), marginBottom:rs(16) },
   fieldIconWrap:   { width:rs(36), height:rs(36), borderRadius:rs(10), backgroundColor:C.brandSoft, alignItems:"center", justifyContent:"center" },
   fieldLabel:      { flex:1, fontSize:rf(15.5), fontWeight:"700", color:C.text },
-  fieldLabelOptional: { fontWeight:"400", color:C.textMuted, fontSize:rf(13) },
 
-  counterRow: { flexDirection:"row", alignItems:"center", justifyContent:"center", gap:rs(22), backgroundColor:C.surfaceAlt, borderRadius:rs(13), paddingVertical:rs(12) },
+  tuteurRow: {
+    flexDirection: "row", alignItems: "center", gap: rs(10),
+    borderWidth: 1.5, borderColor: C.border, borderRadius: rs(12),
+    paddingHorizontal: rs(12), paddingVertical: rs(12),
+    backgroundColor: C.bg, marginBottom: rs(8),
+  },
+  tuteurRowSel:   { borderColor: C.brand, backgroundColor: C.brandSoft },
+  tuteurRadio: {
+    width: rs(22), height: rs(22), borderRadius: rs(11),
+    borderWidth: 2, borderColor: C.border,
+    alignItems: "center", justifyContent: "center",
+  },
+  tuteurRadioSel: { borderColor: C.brand, backgroundColor: C.brand },
+  tuteurNom:      { flex: 1, fontSize: rf(15), color: C.text, fontWeight: "500" },
+  tuteurNomSel:   { color: C.brand, fontWeight: "700" },
+
+  champLibre: {
+    borderWidth: 1.5, borderColor: C.border, borderRadius: rs(12),
+    paddingHorizontal: rs(12), paddingVertical: rs(11),
+    color: C.text, fontSize: rf(15),
+    backgroundColor: C.bg, width: "100%",
+  },
+  champLibreLong: {
+    borderWidth: 1.5, borderColor: C.border, borderRadius: rs(12),
+    padding: rs(12), color: C.text, fontSize: rf(15),
+    minHeight: rs(90), textAlignVertical: "top",
+    backgroundColor: C.bg, width: "100%",
+  },
   optionRow:  { flexDirection:"row", gap:rs(10), width:"100%" },
-  counterBtn: { width:rs(40), height:rs(40), borderRadius:rs(20), backgroundColor:C.surface, borderWidth:1, borderColor:C.border, alignItems:"center", justifyContent:"center" },
-  counterBtnText: { fontSize:rf(20), color:C.text, fontWeight:"700" },
-  counterValue: { fontSize:rf(26), fontWeight:"800", color:C.text, minWidth:rs(46), textAlign:"center" },
-  toggle:     { flex:1, paddingVertical:rs(12), borderRadius:rs(11), borderWidth:2, borderColor:C.border, alignItems:"center" },
-  toggleText: { fontSize:rf(16), fontWeight:"700", color:C.textMuted },
   /* Zone de description de l'incident — apparaît seulement si "Oui" est sélectionné */
-  incidentBox:   { marginTop:rs(14), backgroundColor:C.dangerSoft, borderWidth:1, borderColor:C.danger+"33", borderRadius:rs(13), padding:rs(14) },
-  incidentLabel: { fontSize:rf(14), fontWeight:"700", color:C.danger, marginBottom:rs(8) },
-  incidentInput: { borderWidth:1.5, borderColor:C.danger+"55", borderRadius:rs(11), padding:rs(12), color:C.text, fontSize:rf(14.5), minHeight:rs(80), textAlignVertical:"top", backgroundColor:C.surface },
   bilanBtn:   { flex:1, paddingVertical:rs(12), borderRadius:rs(11), borderWidth:2, borderColor:C.border, alignItems:"center" },
   bilanText:  { fontSize:rf(15), fontWeight:"700", color:C.textMuted },
   textarea:   { borderWidth:1.5, borderColor:C.border, borderRadius:rs(12), padding:rs(12), color:C.text, fontSize:rf(15), minHeight:rs(100), textAlignVertical:"top", backgroundColor:C.bg, width:"100%", alignSelf:"stretch" },
