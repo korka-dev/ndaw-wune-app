@@ -318,12 +318,13 @@ export const remarquesApi = {
 
 // ── Remplacement d'élève (vue enseignant) ─────────────────────────────────────
 export const remplacementsApi = {
-  /** Remplace un élève par un autre, avec motif. Effet immédiat sur le roster. */
+  /**
+   * Remplace un titulaire par un remplaçant déjà recensé dans la même
+   * classe (Base NWV 2026 / RCT). Effet immédiat sur le roster.
+   */
   create: (d: {
-    ancien_eleve_id?: string | null;
-    ancien_eleve_nom?: string | null;
-    nouveau_eleve_nom: string;
-    classe: string;
+    ancien_eleve_id: string;
+    nouveau_eleve_id: string;
     motif: string;
   }) => api.post("/app/remplacements", d),
 };

@@ -48,7 +48,10 @@ export interface SyncPayload {
     classe: string; matiere: string | null;
     titre: string | null;          // titre du segment (ex: "Accueil & rituels")
   }[];
-  eleves?: { id: string; nom: string; prenom: string | null; classe: string }[];
+  eleves?: { id: string; nom: string; prenom: string | null; classe: string; statut_selection?: string | null }[];
+  /** Élèves "Remplaçant" (Base NWV 2026 / RCT) des classes du tuteur — réservoir
+   *  pour RemplacementSheet, pas affichés dans les listes courantes. */
+  remplacants?: { id: string; nom: string; prenom: string | null; classe: string; statut_selection?: string | null }[];
   rapport_questions?: {
     id: string; label: string; type: string;
     options: string[] | null; required: boolean; ordre: number;

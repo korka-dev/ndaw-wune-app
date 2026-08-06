@@ -2,19 +2,21 @@
  * Remplacement d'un élève par le tuteur.
  *
  * Un élève quitte la classe en cours d'année (déménagement, abandon) et un
- * autre le remplace : le tuteur le fait lui-même depuis son profil, sans
- * attendre une correction côté dashboard.
+ * remplaçant déjà recensé dans la Base NWV 2026 (RCT) le remplace : le
+ * tuteur le fait lui-même depuis son profil, sans attendre une correction
+ * côté dashboard.
  *
- * Parcours : liste de ses élèves → il en choisit un → il saisit le nom et le
- * prénom du remplaçant → confirmation.
+ * Parcours : liste de ses titulaires → il en choisit un → il choisit un
+ * remplaçant de la même classe (pas de saisie libre) → confirmation.
  *
- * Côté serveur (POST /app/remplacements) l'effet est immédiat : le nouvel élève
- * est créé actif dans la même classe, l'ancien passe en « inactif », et
- * l'opération est journalisée pour remonter au dashboard admin.
+ * Côté serveur (POST /app/remplacements) l'effet est immédiat : le titulaire
+ * sortant passe en statut « inactif », le remplaçant est promu « Titulaire »
+ * (il rejoint les listes du tuteur), et l'opération est journalisée pour
+ * remonter au dashboard admin.
  */
 import React, { useMemo, useState } from "react";
 import {
-  View, Text, Modal, TextInput, TouchableOpacity, StyleSheet,
+  View, Text, Modal, TouchableOpacity, StyleSheet,
   ScrollView, ActivityIndicator, Alert, KeyboardAvoidingView, Platform,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
@@ -37,13 +39,13 @@ const initiales   = (e: EleveLocal) =>
 export default function RemplacementSheet({ visible, onClose }: Props) {
   const { syncData, isOnline, syncOffline } = useStore();
 
-  const [choisi,   setChoisi]   = useState<EleveLocal | null>(null);
-  const [nom,      setNom]      = useState("");
-  const [prenom,   setPrenom]   = useState("");
-  const [envoi,    setEnvoi]    = useState(false);
+  const [choisi,     setChoisi]     = useState<EleveLocal | null>(null);
+  const [remplacant, setRemplacant] = useState<EleveLocal | null>(null);
+  const [envoi,      setEnvoi]      = useState(false);
 
-  // Élèves du tuteur, restreints à ses classes (même règle que le rapport),
-  // triés par nom pour être retrouvés du regard.
+  // Élèves du tuteur, restreints à ses classes (même règle que le rapport) —
+  // déjà uniquement des titulaires, le serveur ne renvoie plus les
+  // remplaçants dans `eleves`. Triés par nom pour être retrouvés du regard.
   const eleves: EleveLocal[] = useMemo(() => {
     const tous    = (syncData?.eleves ?? []) as EleveLocal[];
     const classes = syncData?.profile?.classes ?? null;
@@ -51,17 +53,22 @@ export default function RemplacementSheet({ visible, onClose }: Props) {
     return [...filtres].sort((a, b) => nomComplet(a).localeCompare(nomComplet(b)));
   }, [syncData]);
 
+  // Remplaçants disponibles pour la classe de l'élève choisi.
+  const remplacants: EleveLocal[] = useMemo(() => {
+    if (!choisi) return [];
+    const tous = (syncData?.remplacants ?? []) as EleveLocal[];
+    return tous
+      .filter(e => e.classe === choisi.classe)
+      .sort((a, b) => nomComplet(a).localeCompare(nomComplet(b)));
+  }, [syncData, choisi]);
+
   const fermer = () => {
-    setChoisi(null); setNom(""); setPrenom("");
+    setChoisi(null); setRemplacant(null);
     onClose();
   };
 
   const confirmer = async () => {
-    if (!choisi || envoi) return;
-    if (!nom.trim()) {
-      Alert.alert("Nom manquant", "Saisissez au moins le nom du nouvel élève.");
-      return;
-    }
+    if (!choisi || !remplacant || envoi) return;
     if (!isOnline) {
       Alert.alert(
         "Connexion requise",
@@ -74,20 +81,15 @@ export default function RemplacementSheet({ visible, onClose }: Props) {
     try {
       await remplacementsApi.create({
         ancien_eleve_id:   choisi.id,
-        ancien_eleve_nom:  nomComplet(choisi),
-        // Le serveur sépare nom et prénom : on lui envoie « Prénom Nom ».
-        nouveau_eleve_nom: `${prenom.trim()} ${nom.trim()}`.trim(),
-        classe:            choisi.classe,
-        // Le serveur exige un motif non vide ; il n'est plus demandé au
-        // tuteur, on renseigne donc une valeur par défaut explicite.
+        nouveau_eleve_id:  remplacant.id,
         motif:             "Remplacement saisi par le tuteur",
       });
       // La liste des élèves vient de la synchronisation : on la rafraîchit pour
-      // que le nouvel élève apparaisse tout de suite dans les rapports.
+      // que le remplaçant apparaisse tout de suite dans les rapports.
       await syncOffline(true).catch(() => {});
       Alert.alert(
         "Remplacement enregistré",
-        `${nomComplet(choisi)} a été remplacé par ${prenom.trim()} ${nom.trim()}`.trim() + ".",
+        `${nomComplet(choisi)} a été remplacé par ${nomComplet(remplacant)}.`,
         [{ text: "OK", onPress: fermer }],
       );
     } catch {
@@ -113,7 +115,9 @@ export default function RemplacementSheet({ visible, onClose }: Props) {
               <Text style={s.titre}>Remplacer un élève</Text>
               <Text style={s.sousTitre}>
                 {choisi
-                  ? "Qui le remplace ?"
+                  ? remplacants.length > 0
+                    ? `Choisissez le remplaçant · ${remplacants.length} disponible${remplacants.length > 1 ? "s" : ""}`
+                    : "Aucun remplaçant disponible"
                   : `Choisissez l'élève qui quitte la classe · ${eleves.length} élève${eleves.length > 1 ? "s" : ""}`}
               </Text>
             </View>
@@ -133,7 +137,12 @@ export default function RemplacementSheet({ visible, onClose }: Props) {
                     </Text>
                   </View>
                 ) : eleves.map(e => (
-                  <TouchableOpacity key={e.id} style={s.ligne} onPress={() => setChoisi(e)} activeOpacity={0.7}>
+                  <TouchableOpacity
+                    key={e.id}
+                    style={s.ligne}
+                    onPress={() => { setChoisi(e); setRemplacant(null); }}
+                    activeOpacity={0.7}
+                  >
                     <View style={s.avatar}>
                       <Text style={s.avatarTxt}>{initiales(e)}</Text>
                     </View>
@@ -147,7 +156,7 @@ export default function RemplacementSheet({ visible, onClose }: Props) {
               <View style={{ height: rs(20) }} />
             </ScrollView>
           ) : (
-            /* ── Étape 2 : saisir le remplaçant ── */
+            /* ── Étape 2 : choisir le remplaçant ── */
             <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
               <View style={s.sortant}>
                 <Feather name="user-minus" size={rf(15)} color={C.danger} />
@@ -155,45 +164,66 @@ export default function RemplacementSheet({ visible, onClose }: Props) {
                   <Text style={s.sortantNom}>{nomComplet(choisi)}</Text>
                   <Text style={s.sortantClasse}>Quitte la classe {choisi.classe}</Text>
                 </View>
-                <TouchableOpacity onPress={() => setChoisi(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <TouchableOpacity onPress={() => { setChoisi(null); setRemplacant(null); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                   <Text style={s.changer}>Changer</Text>
                 </TouchableOpacity>
               </View>
 
-              <Text style={s.champLabel}>Prénom du nouvel élève</Text>
-              <TextInput
-                value={prenom} onChangeText={setPrenom}
-                placeholder="Prénom" placeholderTextColor={C.textMuted}
-                style={s.champ}
-              />
+              {remplacants.length === 0 ? (
+                <View style={s.vide}>
+                  <Feather name="user-x" size={rf(30)} color={C.border} />
+                  <Text style={s.videTxt}>
+                    Aucun remplaçant disponible pour cette classe. Contactez l&apos;administrateur.
+                  </Text>
+                </View>
+              ) : (
+                remplacants.map(e => (
+                  <TouchableOpacity
+                    key={e.id}
+                    style={[s.ligne, remplacant?.id === e.id && s.ligneChoisie]}
+                    onPress={() => setRemplacant(e)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={s.avatar}>
+                      <Text style={s.avatarTxt}>{initiales(e)}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={s.ligneNom} numberOfLines={1}>{nomComplet(e)}</Text>
+                      <Text style={s.ligneClasse}>{e.classe}</Text>
+                    </View>
+                    <Feather
+                      name={remplacant?.id === e.id ? "check-circle" : "circle"}
+                      size={rf(18)}
+                      color={remplacant?.id === e.id ? C.brand : C.textMuted}
+                    />
+                  </TouchableOpacity>
+                ))
+              )}
 
-              <Text style={s.champLabel}>Nom du nouvel élève *</Text>
-              <TextInput
-                value={nom} onChangeText={setNom}
-                placeholder="Nom de famille" placeholderTextColor={C.textMuted}
-                style={s.champ}
-              />
+              {remplacants.length > 0 && (
+                <>
+                  <Text style={s.avertissement}>
+                    L&apos;ancien élève sortira de vos listes et le remplaçant les rejoindra
+                    immédiatement, dans la même classe.
+                  </Text>
 
-              <Text style={s.avertissement}>
-                L&apos;ancien élève sortira de vos listes et le nouveau les rejoindra
-                immédiatement, dans la même classe.
-              </Text>
-
-              <TouchableOpacity
-                style={[s.valider, (envoi || !nom.trim()) && s.valideDesactive]}
-                onPress={confirmer}
-                disabled={envoi || !nom.trim()}
-                activeOpacity={0.85}
-              >
-                {envoi
-                  ? <ActivityIndicator size="small" color="#fff" />
-                  : <>
-                      <Feather name="check" size={rf(16)} color={!nom.trim() ? C.textMuted : "#fff"} />
-                      <Text style={[s.validerTxt, !nom.trim() && { color: C.textMuted }]}>
-                        Confirmer le remplacement
-                      </Text>
-                    </>}
-              </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[s.valider, (envoi || !remplacant) && s.valideDesactive]}
+                    onPress={confirmer}
+                    disabled={envoi || !remplacant}
+                    activeOpacity={0.85}
+                  >
+                    {envoi
+                      ? <ActivityIndicator size="small" color="#fff" />
+                      : <>
+                          <Feather name="check" size={rf(16)} color={!remplacant ? C.textMuted : "#fff"} />
+                          <Text style={[s.validerTxt, !remplacant && { color: C.textMuted }]}>
+                            Confirmer le remplacement
+                          </Text>
+                        </>}
+                  </TouchableOpacity>
+                </>
+              )}
               <View style={{ height: rs(24) }} />
             </ScrollView>
           )}
@@ -227,6 +257,9 @@ const s = StyleSheet.create({
     backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
     borderRadius: rs(13), padding: rs(12), marginBottom: rs(8),
   },
+  ligneChoisie: {
+    borderColor: C.brand, borderWidth: 1.5, backgroundColor: C.brandSoft,
+  },
   avatar:     { width: rs(40), height: rs(40), borderRadius: rs(20), backgroundColor: C.brandSoft, alignItems: "center", justifyContent: "center" },
   avatarTxt:  { fontSize: rf(14), fontWeight: "700", color: C.brand },
   ligneNom:   { fontSize: rf(15), fontWeight: "700", color: C.text },
@@ -243,14 +276,6 @@ const s = StyleSheet.create({
   sortantNom:    { fontSize: rf(15), fontWeight: "700", color: C.text },
   sortantClasse: { fontSize: rf(12), color: C.textMuted, marginTop: rs(2) },
   changer:       { fontSize: rf(13), fontWeight: "700", color: C.brand, textDecorationLine: "underline" },
-
-  champLabel: { fontSize: rf(13), fontWeight: "700", color: C.text, marginBottom: rs(6) },
-  champ: {
-    borderWidth: 1.5, borderColor: C.border, borderRadius: rs(12),
-    paddingHorizontal: rs(12), paddingVertical: rs(11),
-    fontSize: rf(15), color: C.text, backgroundColor: C.surface,
-    marginBottom: rs(14),
-  },
 
   avertissement: { fontSize: rf(12.5), color: C.textMuted, lineHeight: rf(18), marginBottom: rs(16) },
 

@@ -441,6 +441,14 @@ export default function SupPresencesScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defined, profs.length, locked, validating, loading]);
 
+  /* Enseignants dont le rapport manque ou date de plus de 2 jours.
+     Même seuil que l'alerte affichée sur chaque carte : au-delà de 2 jours
+     (donc 3 et plus), le superviseur doit relancer. */
+  const enRetard = profs.filter(p => {
+    const j = daysSince(p.last_rapport_date);
+    return j === null || j >= 3;
+  });
+
   const avatarBg    = (p: Prof) => p.present === true ? C.successSoft : p.present === false ? C.dangerSoft : C.surfaceAlt;
   const avatarColor = (p: Prof) => p.present === true ? C.success    : p.present === false ? C.danger     : C.textMuted;
 
@@ -559,6 +567,40 @@ export default function SupPresencesScreen() {
                 <Text style={styles.periodeBtnTxt}>Commencer le pointage</Text>
               </TouchableOpacity>
             </View>
+
+            {/* Rappel des rapports en retard — affiché avant le pointage, au
+                moment où le superviseur prépare sa tournée et peut encore
+                relancer les tuteurs concernés. */}
+            {enRetard.length > 0 && (
+              <View style={styles.retardCard}>
+                <View style={styles.retardTop}>
+                  <View style={styles.retardIcone}>
+                    <Feather name="alert-triangle" size={rf(17)} color={C.warn} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.retardTitre}>
+                      {enRetard.length} tuteur{enRetard.length > 1 ? "s" : ""} en retard de rapport
+                    </Text>
+                    <Text style={styles.retardSous}>
+                      Aucun rapport reçu depuis plus de 2 jours
+                    </Text>
+                  </View>
+                </View>
+
+                {enRetard.map(p => {
+                  const j = daysSince(p.last_rapport_date);
+                  return (
+                    <View key={p.id} style={styles.retardLigne}>
+                      <View style={styles.retardPuce} />
+                      <Text style={styles.retardNom} numberOfLines={1}>{p.nom}</Text>
+                      <Text style={styles.retardDelai}>
+                        {j === null ? "aucun rapport" : `il y a ${j} j`}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
           </ScrollView>
         ) : locked ? (
           /* ── État validé : card de complétion uniquement ── */
@@ -968,6 +1010,25 @@ const styles = StyleSheet.create({
   content:      { flex: 1, paddingHorizontal: rs(16), paddingTop: rs(8) },
   center:       { flex: 1, backgroundColor: C.bg, alignItems: "center", justifyContent: "center", gap: rs(12) },
   loadingText:  { fontSize: rf(16), color: C.textMuted, marginTop: rs(8) },
+
+  /* Alerte « rapports en retard » sous le choix de période */
+  retardCard: {
+    backgroundColor: C.warnSoft,
+    borderWidth: 1.5, borderColor: C.warn + "44",
+    borderRadius: rs(16), padding: rs(14), marginBottom: rs(12),
+  },
+  retardTop:   { flexDirection: "row", alignItems: "center", gap: rs(10), marginBottom: rs(10) },
+  retardIcone: { width: rs(38), height: rs(38), borderRadius: rs(12), backgroundColor: C.surface, alignItems: "center", justifyContent: "center" },
+  retardTitre: { fontSize: rf(14.5), fontWeight: "800", color: C.text },
+  retardSous:  { fontSize: rf(12), color: C.textMuted, marginTop: rs(2) },
+  retardLigne: {
+    flexDirection: "row", alignItems: "center", gap: rs(8),
+    paddingVertical: rs(7),
+    borderTopWidth: 1, borderTopColor: C.warn + "22",
+  },
+  retardPuce:  { width: rs(6), height: rs(6), borderRadius: rs(3), backgroundColor: C.warn },
+  retardNom:   { flex: 1, fontSize: rf(14), fontWeight: "600", color: C.text },
+  retardDelai: { fontSize: rf(12), fontWeight: "700", color: C.warn },
 
   /* Cartes de synthèse — identiques à celles de l'écran Rapports */
   statsRow:     { flexDirection: "row", gap: rs(10), marginBottom: rs(10) },
