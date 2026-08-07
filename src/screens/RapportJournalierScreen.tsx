@@ -11,6 +11,7 @@ import {
 import AppHeader from "../components/AppHeader";
 import BackButton from "../components/BackButton";
 import ProfileSheet from "../components/ProfileSheet";
+import DateField from "../components/DateField";
 import { Feather } from "@expo/vector-icons";
 import { format } from "date-fns";
 import * as ImagePicker from "expo-image-picker";
@@ -50,6 +51,14 @@ const DIFFICULTES_FALLBACK = [
 ];
 
 const TOTAL_STEPS = 4;
+
+/** "jj/mm/aaaa" (format de DateField) → "aaaa-mm-jj" attendu par le backend.
+ *  Repli sur la date du jour si la valeur est absente ou mal formée. */
+function dateFrToIso(valeur: string): string {
+  const m = valeur.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!m) return format(new Date(), "yyyy-MM-dd");
+  return `${m[3]}-${m[2]}-${m[1]}`;
+}
 
 // Étape 1 — repli si la synchronisation n'a jamais eu lieu. En temps normal,
 // ces valeurs viennent de `syncData.nb_semaines` / `syncData.nb_jours`
@@ -143,7 +152,10 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
   // ── État formulaire ────────────────────────────────────────────────────
   const [step, setStep] = useState(1);
 
-  // Étape 1 — Absences
+  // Étape 1 — Date du rapport + Absences
+  // Pré-remplie à aujourd'hui, mais modifiable : un tuteur remplit parfois
+  // son rapport le lendemain de la séance concernée.
+  const [dateRapport, setDateRapport] = useState(() => new Date().toLocaleDateString("fr-FR"));
   const [hasAbsences, setHasAbsences] = useState<boolean | null>(null); // null = pas encore répondu
   const [absentIds,   setAbsentIds]   = useState<string[]>([]);
 
@@ -291,6 +303,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
   const validateStep = (s: number): string | null => {
     switch (s) {
       case 1: // Progression + Absences
+        if (!dateRapport.trim()) return "Veuillez indiquer la date du rapport.";
         if (!semaine)   return "Veuillez sélectionner la semaine.";
         if (!jourCours) return "Veuillez sélectionner le jour de cours.";
         if (hasAbsences === null) return "Veuillez indiquer s'il y a des absences.";
@@ -341,7 +354,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
     setLoading(true);
     try {
       const localId   = `rj_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-      const dateIso   = format(new Date(), "yyyy-MM-dd");
+      const dateIso   = dateFrToIso(dateRapport);
       const diffsJson = JSON.stringify(difficultes);
       const offline   = !isOnline;
 
@@ -425,6 +438,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
   const resetForm = () => {
     submittingRef.current = false;
     setStep(1);
+    setDateRapport(new Date().toLocaleDateString("fr-FR"));
     setHasAbsences(null); setAbsentIds([]);
     setSemaine(null); setJourCours(null);
     setDifficultes([]); setAutresDifficultes(""); setDescriptionDifficultes("");
@@ -472,8 +486,12 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
       case 1:
         return (
           <ScrollView style={s.stepBody} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            {/* Date du rapport — pré-remplie à aujourd'hui, modifiable */}
+            <Text style={s.question}>{L("tuteur.date_rapport_label", "Date du rapport")}</Text>
+            <DateField value={dateRapport} onChange={setDateRapport} placeholder="Choisir une date" />
+
             {/* Progression */}
-            <Text style={s.question}>{L("tuteur.semaine_label", "Semaine de progression")}</Text>
+            <Text style={[s.question, { marginTop: rs(20) }]}>{L("tuteur.semaine_label", "Semaine de progression")}</Text>
 
             {/* Banner sélection */}
             {semaine ? (
