@@ -525,6 +525,13 @@ export default function SupRapportsScreen() {
                 />
               )}
 
+              {q.type === "date" && (
+                <DateField
+                  value={reponses[q.id] ?? ""}
+                  onChange={(v) => setReponses(prev => ({ ...prev, [q.id]: v }))}
+                />
+              )}
+
               {q.type === "oui_non" && (
                 <View style={styles.optionRow}>
                   <TouchableOpacity

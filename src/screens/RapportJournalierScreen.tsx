@@ -779,6 +779,13 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
                   />
                 )}
 
+                {q.type === "date" && (
+                  <DateField
+                    value={reponses[q.id] ?? ""}
+                    onChange={(v) => setReponses(prev => ({ ...prev, [q.id]: v }))}
+                  />
+                )}
+
                 {q.type === "texte_long" && (
                   <TextInput
                     style={[s.area, { minHeight: rs(100) }]}
