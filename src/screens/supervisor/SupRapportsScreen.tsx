@@ -586,6 +586,30 @@ export default function SupRapportsScreen() {
                   })}
                 </View>
               )}
+
+              {/* Sélection dans la liste réelle des tuteurs supervisés (résolue côté app) */}
+              {q.type === "selection_tuteur" && (
+                <View style={{ gap: rs(8) }}>
+                  {tuteursSupervises.length === 0 ? (
+                    <Text style={styles.choiceTxt}>Aucun tuteur supervisé.</Text>
+                  ) : tuteursSupervises.map(nom => {
+                    const selected = (reponses[q.id] ?? "").split("||").filter(Boolean);
+                    const checked = selected.includes(nom);
+                    return (
+                      <TouchableOpacity
+                        key={nom}
+                        onPress={() => {
+                          const next = checked ? selected.filter(o => o !== nom) : [...selected, nom];
+                          setReponses(prev => ({ ...prev, [q.id]: next.join("||") }));
+                        }}
+                        style={[styles.choiceRow, checked && styles.choiceRowSel]}
+                      >
+                        <Text style={[styles.choiceTxt, checked && styles.choiceTxtSel]}>{nom}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
             </View>
           ))}
         </ScrollView>

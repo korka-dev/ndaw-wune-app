@@ -836,6 +836,26 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
                     />
                   );
                 })}
+
+                {/* Sélection dans la liste réelle des élèves du tuteur (résolue côté app) */}
+                {q.type === "selection_eleve" && (
+                  elevesDisponibles.length === 0 ? (
+                    <Text style={s.optLabel}>Aucun élève disponible.</Text>
+                  ) : elevesDisponibles.map(eleve => {
+                    const selected = (reponses[q.id] ?? "").split("||").filter(Boolean);
+                    const label = nomEleve(eleve);
+                    const checked = selected.includes(label);
+                    return (
+                      <Check
+                        key={eleve.id} label={label} checked={checked}
+                        onPress={() => {
+                          const next = checked ? selected.filter(o => o !== label) : [...selected, label];
+                          setReponses(prev => ({ ...prev, [q.id]: next.join("||") }));
+                        }}
+                      />
+                    );
+                  })
+                )}
               </View>
             ))}
 
