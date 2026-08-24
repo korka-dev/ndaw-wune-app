@@ -329,6 +329,19 @@ export const remplacementsApi = {
   }) => api.post("/app/remplacements", d),
 };
 
+// ── Remplaçants (vivier — vue enseignant) ─────────────────────────────────────
+export const remplacantsApi = {
+  /**
+   * Le tuteur recense lui-même un remplaçant pour une de ses classes (rejoint
+   * le même vivier que la Base NWV 2026 / RCT).
+   */
+  create: (d: {
+    nom: string;
+    prenom: string;
+    classe: string;
+  }) => api.post("/app/remplacants", d),
+};
+
 // ── Ressources pédagogiques ───────────────────────────────────────────────────
 export const ressourcesApi = {
   list: () => api.get("/app/ressources"),

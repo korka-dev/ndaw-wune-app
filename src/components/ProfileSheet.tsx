@@ -18,6 +18,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Updates from "expo-updates";
 import RemplacementSheet from "./RemplacementSheet";
+import RemplacantsListSheet from "./RemplacantsListSheet";
 import Constants from "expo-constants";
 import { useStore } from "../store/useStore";
 import { openAppGuide } from "./AppGuide";
@@ -50,6 +51,7 @@ export default function ProfileSheet({ visible, onClose }: Props) {
   const { height: screenH } = useWindowDimensions();
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [remplacementOpen, setRemplacementOpen] = useState(false);
+  const [remplacantsListOpen, setRemplacantsListOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const appVersion = Constants.expoConfig?.version ?? "—";
 
@@ -210,7 +212,7 @@ export default function ProfileSheet({ visible, onClose }: Props) {
             {isEnseignant && (
               <View style={s.menuCard}>
                 <TouchableOpacity
-                  style={s.menuRow}
+                  style={[s.menuRow, s.menuBorder]}
                   activeOpacity={0.6}
                   onPress={() => {
                     // Android n'affiche qu'une Modal à la fois : il faut fermer
@@ -225,6 +227,20 @@ export default function ProfileSheet({ visible, onClose }: Props) {
                     <Feather name="repeat" size={rf(22)} color={C.brand} />
                   </View>
                   <Text style={s.menuLabel}>Remplacer un élève</Text>
+                  <Feather name="chevron-right" size={rf(20)} color="#AAA" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={s.menuRow}
+                  activeOpacity={0.6}
+                  onPress={() => {
+                    onClose();
+                    setTimeout(() => setRemplacantsListOpen(true), 320);
+                  }}
+                >
+                  <View style={s.menuIconBox}>
+                    <Feather name="users" size={rf(22)} color={C.brand} />
+                  </View>
+                  <Text style={s.menuLabel}>Liste des remplaçants</Text>
                   <Feather name="chevron-right" size={rf(20)} color="#AAA" />
                 </TouchableOpacity>
               </View>
@@ -291,6 +307,10 @@ export default function ProfileSheet({ visible, onClose }: Props) {
     <RemplacementSheet
       visible={remplacementOpen}
       onClose={() => setRemplacementOpen(false)}
+    />
+    <RemplacantsListSheet
+      visible={remplacantsListOpen}
+      onClose={() => setRemplacantsListOpen(false)}
     />
     </>
   );

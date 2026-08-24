@@ -22,6 +22,7 @@ import {
 import { Feather } from "@expo/vector-icons";
 import { useStore } from "../store/useStore";
 import { remplacementsApi } from "../services/api";
+import AjouterRemplacantSheet from "./AjouterRemplacantSheet";
 import { C } from "../utils/theme";
 import { rs, rf } from "../utils/responsive";
 
@@ -42,6 +43,11 @@ export default function RemplacementSheet({ visible, onClose }: Props) {
   const [choisi,     setChoisi]     = useState<EleveLocal | null>(null);
   const [remplacant, setRemplacant] = useState<EleveLocal | null>(null);
   const [envoi,      setEnvoi]      = useState(false);
+  const [ajoutOuvert, setAjoutOuvert] = useState(false);
+  // Remplaçant tout juste ajouté par le tuteur, pas encore remonté dans
+  // syncData.remplacants (le refresh est asynchrone) — on l'ajoute nous-mêmes
+  // pour qu'il soit sélectionnable immédiatement, sans changer d'écran.
+  const [ajoutesLocalement, setAjoutesLocalement] = useState<EleveLocal[]>([]);
 
   // Élèves du tuteur, restreints à ses classes (même règle que le rapport) —
   // déjà uniquement des titulaires, le serveur ne renvoie plus les
@@ -57,10 +63,11 @@ export default function RemplacementSheet({ visible, onClose }: Props) {
   const remplacants: EleveLocal[] = useMemo(() => {
     if (!choisi) return [];
     const tous = (syncData?.remplacants ?? []) as EleveLocal[];
-    return tous
+    const fusion = [...tous, ...ajoutesLocalement.filter(a => !tous.some(t => t.id === a.id))];
+    return fusion
       .filter(e => e.classe === choisi.classe)
       .sort((a, b) => nomComplet(a).localeCompare(nomComplet(b)));
-  }, [syncData, choisi]);
+  }, [syncData, choisi, ajoutesLocalement]);
 
   const fermer = () => {
     setChoisi(null); setRemplacant(null);
@@ -173,10 +180,21 @@ export default function RemplacementSheet({ visible, onClose }: Props) {
                 <View style={s.vide}>
                   <Feather name="user-x" size={rf(30)} color={C.border} />
                   <Text style={s.videTxt}>
-                    Aucun remplaçant disponible pour cette classe. Contactez l&apos;administrateur.
+                    Aucun remplaçant disponible pour la classe {choisi.classe}.
                   </Text>
                 </View>
-              ) : (
+              ) : null}
+
+              <TouchableOpacity
+                style={s.ajouterLien}
+                onPress={() => setAjoutOuvert(true)}
+                activeOpacity={0.7}
+              >
+                <Feather name="user-plus" size={rf(15)} color={C.brand} />
+                <Text style={s.ajouterLienTxt}>Ajouter un remplaçant pour cette classe</Text>
+              </TouchableOpacity>
+
+              {remplacants.length > 0 && (
                 remplacants.map(e => (
                   <TouchableOpacity
                     key={e.id}
@@ -229,6 +247,18 @@ export default function RemplacementSheet({ visible, onClose }: Props) {
           )}
         </KeyboardAvoidingView>
       </View>
+
+      <AjouterRemplacantSheet
+        visible={ajoutOuvert}
+        onClose={() => setAjoutOuvert(false)}
+        classes={choisi ? [choisi.classe] : []}
+        classeInitiale={choisi?.classe}
+        onCreated={(e) => {
+          setAjoutesLocalement(prev => [...prev, e]);
+          setRemplacant(e);
+          syncOffline(true).catch(() => {});
+        }}
+      />
     </Modal>
   );
 }
@@ -267,6 +297,13 @@ const s = StyleSheet.create({
 
   vide:    { alignItems: "center", gap: rs(10), paddingVertical: rs(40) },
   videTxt: { fontSize: rf(14), color: C.textMuted, textAlign: "center", paddingHorizontal: rs(30), lineHeight: rf(20) },
+
+  ajouterLien: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: rs(8),
+    borderWidth: 1, borderColor: C.brand, borderStyle: "dashed",
+    borderRadius: rs(13), paddingVertical: rs(12), marginBottom: rs(12),
+  },
+  ajouterLienTxt: { fontSize: rf(13.5), fontWeight: "700", color: C.brand },
 
   sortant: {
     flexDirection: "row", alignItems: "center", gap: rs(10),
