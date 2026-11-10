@@ -58,6 +58,7 @@ class MockDatabase {
     const table = this._table(sql);
     if (!table) return null;
     const rows = this._filter(this.tables.get(table) ?? [], sql, params);
+    if (/COUNT\(\*\)\s+AS\s+n/i.test(sql)) return { n: rows.length } as unknown as T;
     return (rows[0] as unknown as T) ?? null;
   }
 
@@ -181,6 +182,13 @@ class MockDatabase {
       return { lastInsertRowId: 0, changes: rows.length - filtered.length };
     }
 
+    // DELETE ... WHERE col = ? [AND col = <littéral>] — suppression filtrée générique
+    if (/WHERE/i.test(sql)) {
+      const filtered = rows.filter(r => !this._rowMatches(r, sql, params));
+      this.tables.set(table, filtered);
+      return { lastInsertRowId: 0, changes: rows.length - filtered.length };
+    }
+
     return { lastInsertRowId: 0, changes: 0 };
   }
 
@@ -195,6 +203,9 @@ class MockDatabase {
     for (const part of where.split(/\s+AND\s+/i)) {
       const eq = part.match(/(\w+)\s*=\s*\?/);
       if (eq) { conds.push({ col: eq[1], value: params[i++], isNull: false }); continue; }
+      // Comparaison à un littéral numérique (ex. `synced = 1`) : ne consomme aucun paramètre
+      const lit = part.match(/(\w+)\s*=\s*(-?\d+)\s*$/);
+      if (lit) { conds.push({ col: lit[1], value: Number(lit[2]), isNull: false }); continue; }
       const isNull = part.match(/(\w+)\s+IS\s+NULL/i);
       if (isNull) conds.push({ col: isNull[1], value: null, isNull: true });
     }

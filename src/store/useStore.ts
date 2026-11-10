@@ -3,8 +3,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { authApi } from "../services/api";
 import { setSecure, getSecure, clearAuthTokens } from "../services/secureStorage";
 import { fetchAndCache, fetchAndCacheSupervisor, getCached, clearCache, SyncPayload } from "../services/cache";
-import { clearAllLocalData } from "../services/db";
-import { flushQueue, clearOfflineIdMap } from "../services/queue";
+import { clearSessionLocalData, setLocalOwner } from "../services/db";
+import { flushQueue } from "../services/queue";
 import { cancelAllSessionAlerts } from "../services/notifications";
 
 const ACTIVE_SEANCE_KEY = "active_seance";
@@ -146,8 +146,12 @@ export const useStore = create<AppStore>((set, get) => ({
     await cancelAllSessionAlerts(); // Annule les rappels de séance planifiés
     await clearAuthTokens();        // SecureStore : access_token, refresh_token, user_role
     await clearCache();             // AsyncStorage : snapshot JSON de sync
-    clearAllLocalData();            // SQLite : queue offline + rapports cache
-    await clearOfflineIdMap();      // AsyncStorage : mapping IDs offline
+    // SQLite : caches uniquement. Les saisies NON ENVOYÉES (file hors ligne,
+    // rapports non synchronisés, erreurs archivées) sont conservées, rattachées
+    // à leur auteur, et reprendront à sa prochaine connexion.
+    clearSessionLocalData();
+    // Le mapping IDs offline → IDs serveur est conservé : il sert à réconcilier
+    // les séances encore en attente d'envoi (identifiants aléatoires, sans risque).
     await AsyncStorage.removeItem(ACTIVE_SEANCE_KEY).catch(() => {});
     set({
       user: null,
@@ -196,3 +200,9 @@ export const useStore = create<AppStore>((set, get) => ({
     }
   },
 }));
+
+// Le propriétaire des données locales suit toujours le compte connecté : la file
+// hors ligne n'est jamais lue ni envoyée sous l'identité d'un autre utilisateur.
+useStore.subscribe((state) => {
+  setLocalOwner(state.user?.id ? String(state.user.id) : null);
+});

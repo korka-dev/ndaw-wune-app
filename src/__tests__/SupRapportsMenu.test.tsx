@@ -19,14 +19,21 @@ import { TouchableOpacity, Text, View } from "react-native";
 jest.mock("expo-secure-store");
 jest.mock("../services/api", () => ({
   rapportJournalierApi: { submit: jest.fn() },
-  superviseurApi:       { sync: jest.fn(), getPresenceCheck: jest.fn() },
+  superviseurApi:       {
+    sync:             jest.fn(() => Promise.resolve({ data: {} })),
+    getPresenceCheck: jest.fn(() => Promise.resolve({ data: {} })),
+  },
 }));
 jest.mock("../store/useStore", () => ({
-  useStore: jest.fn(() => ({
-    user:        { name: "Test Superviseur" },
-    isOnline:    true,
-    syncOffline: jest.fn(),
-  })),
+  useStore: Object.assign(
+    jest.fn(() => ({
+      user:        { name: "Test Superviseur" },
+      isOnline:    true,
+      syncOffline: jest.fn(),
+    })),
+    // L'écran lit aussi useStore.getState() (liste des tuteurs supervisés)
+    { getState: jest.fn(() => ({ syncData: { assigned_teachers: [] } })) },
+  ),
 }));
 jest.mock("../services/db", () => ({
   getRapportsJournalier:       jest.fn(() => []),

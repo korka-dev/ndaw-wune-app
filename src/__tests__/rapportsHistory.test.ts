@@ -11,7 +11,8 @@ import {
   markRapportJournalierSynced,
   getRapportsJournalier,
   upsertRapportJournalierFromServer,
-  clearAllLocalData,
+  clearSessionLocalData,
+  setLocalOwner,
 } from "../services/db";
 
 jest.mock("expo-secure-store");
@@ -20,6 +21,7 @@ beforeEach(() => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   (require("expo-sqlite") as { __resetDB: () => void }).__resetDB();
   initDB();
+  setLocalOwner("test-user");
 });
 
 const rapportLocal = (id: string, date = "2026-08-01") => ({
@@ -49,7 +51,7 @@ describe("Historique des rapports après déconnexion / reconnexion", () => {
     markRapportJournalierSynced("rj_1", "uuid-serveur-1");
     expect(getRapportsJournalier()).toHaveLength(1);
 
-    clearAllLocalData();                       // déconnexion
+    clearSessionLocalData();                   // déconnexion
     expect(getRapportsJournalier()).toHaveLength(0);
 
     upsertRapportJournalierFromServer(rapportServeur("uuid-serveur-1"));

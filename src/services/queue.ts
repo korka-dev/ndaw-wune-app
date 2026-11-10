@@ -85,7 +85,21 @@ export async function clearOfflineIdMap(): Promise<void> {
   await AsyncStorage.removeItem(OFFLINE_ID_MAP_KEY);
 }
 
-export async function flushQueue(): Promise<number> {
+/**
+ * Un seul envoi à la fois : retour réseau, retour au premier plan et bouton de
+ * synchronisation manuelle peuvent tous déclencher flushQueue() en même temps.
+ * Les appels simultanés partagent la même exécution — aucune action n'est
+ * envoyée deux fois en parallèle.
+ */
+let _flushInFlight: Promise<number> | null = null;
+
+export function flushQueue(): Promise<number> {
+  if (_flushInFlight) return _flushInFlight;
+  _flushInFlight = _flushQueueInner().finally(() => { _flushInFlight = null; });
+  return _flushInFlight;
+}
+
+async function _flushQueueInner(): Promise<number> {
   const pending = getPendingActions();
   if (pending.length === 0) return 0;
 

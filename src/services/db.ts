@@ -140,6 +140,19 @@ const MIGRATIONS: Migration[] = [
       } catch { /* colonne déjà présente */ }
     },
   },
+  {
+    // Isolation par utilisateur : chaque saisie hors ligne appartient à son auteur.
+    // Les lignes sans owner_id (anciennes versions) ne sont jamais envoyées ni
+    // affichées pour un autre compte.
+    version: 7,
+    up: (db) => {
+      for (const table of ["offline_queue", "rapports_journalier", "failed_queue"]) {
+        try {
+          db.execSync(`ALTER TABLE ${table} ADD COLUMN owner_id TEXT`);
+        } catch { /* colonne déjà présente */ }
+      }
+    },
+  },
 ];
 
 const CURRENT_DB_VERSION = MIGRATIONS.reduce((max, m) => Math.max(max, m.version), 0);
@@ -157,6 +170,23 @@ function runMigrations(db: SQLite.SQLiteDatabase): void {
     version = migration.version;
   }
   // Ne pas forcer user_version si toutes les migrations ne sont pas passées.
+}
+
+// ── Propriétaire des données locales ─────────────────────────────────────────
+//
+// Les actions en attente et les rapports non envoyés sont rattachés à l'auteur
+// (owner_id). Une déconnexion ou une expiration de session ne les supprime plus :
+// elles restent sur l'appareil et ne sont envoyées / affichées que pour leur
+// auteur — jamais sous l'identité d'un autre compte qui se connecte ensuite.
+
+let _localOwner: string | null = null;
+
+export function setLocalOwner(id: string | null): void {
+  _localOwner = id;
+}
+
+export function getLocalOwner(): string | null {
+  return _localOwner;
 }
 
 // ── Initialisation ────────────────────────────────────────────────────────────
@@ -290,8 +320,8 @@ export function enqueueAction(action: QueueAction, payload: object): number {
   const db  = getDB();
   const json = JSON.stringify(payload);
   const result = db.runSync(
-    `INSERT INTO offline_queue (action, payload) VALUES (?, ?)`,
-    [action, json],
+    `INSERT INTO offline_queue (action, payload, owner_id) VALUES (?, ?, ?)`,
+    [action, json, _localOwner],
   );
   console.log(`[Queue] Enqueued ${action} → id ${result.lastInsertRowId}`);
   return result.lastInsertRowId;
@@ -301,10 +331,22 @@ export function enqueueAction(action: QueueAction, payload: object): number {
  * Retourne toutes les actions en attente, triées par ordre de création.
  */
 export function getPendingActions(): QueueItem[] {
-  const db = getDB();
-  return db.getAllSync<QueueItem>(
-    `SELECT * FROM offline_queue ORDER BY id ASC`,
+  // Uniquement les actions du compte connecté — jamais celles d'un autre utilisateur
+  if (!_localOwner) return [];
+  return getDB().getAllSync<QueueItem>(
+    `SELECT * FROM offline_queue WHERE owner_id = ? ORDER BY id ASC`,
+    [_localOwner],
   );
+}
+
+/** Nombre de saisies non envoyées du compte connecté (file + rapports non synchronisés). */
+export function countUnsentForOwner(): number {
+  if (!_localOwner) return 0;
+  const q = getDB().getFirstSync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM offline_queue WHERE owner_id = ?`, [_localOwner]);
+  const r = getDB().getFirstSync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM rapports_journalier WHERE owner_id = ? AND synced = 0`, [_localOwner]);
+  return (q?.n ?? 0) + (r?.n ?? 0);
 }
 
 /**
@@ -442,8 +484,8 @@ export function insertRapportJournalier(r: Omit<RapportJournalierLocal, "created
       nb_absences, absents, semaine, jour_cours, difficultes,
       autres_difficultes, description_difficultes,
       directeur_venu, besoin_appui, domaines_appui,
-      has_observations, commentaires, soumis_en_offline, photo_classe, photos_classe, reponses_questions, synced
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
+      has_observations, commentaires, soumis_en_offline, photo_classe, photos_classe, reponses_questions, owner_id, synced
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
     [
       r.id, r.date_rapport, r.ief, r.commune, r.ecole, r.superviseur, r.nom_tuteur,
       r.nb_absences, r.absents ?? null, r.semaine, r.jour_cours, r.difficultes,
@@ -451,6 +493,7 @@ export function insertRapportJournalier(r: Omit<RapportJournalierLocal, "created
       r.directeur_venu, r.besoin_appui, r.domaines_appui ?? null,
       r.has_observations, r.commentaires ?? null, r.soumis_en_offline,
       r.photo_classe ?? null, r.photos_classe ?? null, r.reponses_questions ?? null,
+      _localOwner,
     ],
   );
 }
@@ -563,8 +606,8 @@ export function upsertRapportJournalierFromServer(r: {
       autres_difficultes, description_difficultes,
       directeur_venu, besoin_appui, domaines_appui,
       has_observations, commentaires, soumis_en_offline, photo_classe, photos_classe,
-      reponses_questions, server_id, synced, created_at
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      reponses_questions, server_id, synced, created_at, owner_id
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       `srv_${r.server_id}`, r.date_rapport, r.ief, r.commune, r.ecole, r.superviseur, r.nom_tuteur,
       r.nb_absences, r.absents, r.semaine, r.jour_cours, r.difficultes,
@@ -572,6 +615,7 @@ export function upsertRapportJournalierFromServer(r: {
       r.directeur_venu, r.besoin_appui, r.domaines_appui,
       r.has_observations, r.commentaires, r.soumis_en_offline,
       r.photo_classe, r.photos_classe, r.reponses_questions, r.server_id, 1, r.created_at,
+      _localOwner,
     ],
   );
 }
@@ -580,8 +624,11 @@ export function upsertRapportJournalierFromServer(r: {
  * Retourne tous les rapports journaliers, du plus récent au plus ancien.
  */
 export function getRapportsJournalier(): RapportJournalierLocal[] {
+  // Uniquement les rapports du compte connecté
+  if (!_localOwner) return [];
   return getDB().getAllSync<RapportJournalierLocal>(
-    `SELECT * FROM rapports_journalier ORDER BY date_rapport DESC, created_at DESC`,
+    `SELECT * FROM rapports_journalier WHERE owner_id = ? ORDER BY date_rapport DESC, created_at DESC`,
+    [_localOwner],
   );
 }
 
@@ -704,8 +751,8 @@ export function clearSupervisorPresenceCache(): void {
  */
 export function archiveFailedAction(item: Omit<FailedQueueItem, "id" | "failed_at">): void {
   getDB().runSync(
-    `INSERT INTO failed_queue (action, payload, attempts, last_error) VALUES (?, ?, ?, ?)`,
-    [item.action, item.payload, item.attempts, item.last_error ?? null],
+    `INSERT INTO failed_queue (action, payload, attempts, last_error, owner_id) VALUES (?, ?, ?, ?, ?)`,
+    [item.action, item.payload, item.attempts, item.last_error ?? null, _localOwner],
   );
 }
 
@@ -714,8 +761,10 @@ export function archiveFailedAction(item: Omit<FailedQueueItem, "id" | "failed_a
  * Utilisé pour afficher les erreurs dans l'écran Profil.
  */
 export function getFailedActions(): FailedQueueItem[] {
+  if (!_localOwner) return [];
   return getDB().getAllSync<FailedQueueItem>(
-    `SELECT * FROM failed_queue ORDER BY failed_at DESC`,
+    `SELECT * FROM failed_queue WHERE owner_id = ? ORDER BY failed_at DESC`,
+    [_localOwner],
   );
 }
 
@@ -723,16 +772,32 @@ export function getFailedActions(): FailedQueueItem[] {
  * Supprime toutes les actions archivées (si l'utilisateur les a vues / acquittées).
  */
 export function clearFailedQueue(): void {
-  getDB().execSync(`DELETE FROM failed_queue`);
+  if (!_localOwner) return;
+  getDB().runSync(`DELETE FROM failed_queue WHERE owner_id = ?`, [_localOwner]);
 }
 
 // ── Nettoyage complet (logout) ────────────────────────────────────────────────
 
+/**
+ * Nettoyage à la DÉCONNEXION : supprime les caches (rapports déjà envoyés,
+ * listes superviseur, rapports de séance…) mais CONSERVE les saisies non
+ * envoyées (file d'attente, rapports non synchronisés, erreurs archivées) :
+ * elles restent rattachées à leur auteur et reprendront à sa reconnexion.
+ */
+export function clearSessionLocalData(): void {
+  const db = getDB();
+  db.runSync(`DELETE FROM rapports_journalier WHERE synced = 1`);
+  clearRapportsCache();
+  clearSupervisorTeachersCache();
+  db.runSync(`DELETE FROM supervisor_presence_local WHERE synced = 1`);
+}
+
+/** Purge TOTALE, y compris les saisies non envoyées — réservée à une action volontaire explicite. */
 export function clearAllLocalData(): void {
   clearQueue();
   clearRapportsCache();
   clearRapportsJournalier();
-  clearFailedQueue();
+  getDB().execSync(`DELETE FROM failed_queue`);
   clearSupervisorTeachersCache();
   clearSupervisorPresenceCache();
 }

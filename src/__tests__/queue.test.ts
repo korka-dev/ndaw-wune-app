@@ -15,7 +15,7 @@
  *   - Appels API (seancesApi, rapportsApi, etc.) → jest.mock
  */
 
-import { initDB, enqueueAction, getPendingActions, getFailedActions, markActionFailed } from "../services/db";
+import { initDB, enqueueAction, getPendingActions, getFailedActions, markActionFailed, setLocalOwner } from "../services/db";
 import { flushQueue, MAX_ATTEMPTS } from "../services/queue";
 
 // ── Mocks des APIs ────────────────────────────────────────────────────────────
@@ -64,6 +64,7 @@ beforeEach(() => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   (require("@react-native-async-storage/async-storage") as { __resetStore: () => void }).__resetStore();
   initDB();
+  setLocalOwner("test-user");
   resetMocks();
 });
 

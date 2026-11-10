@@ -28,6 +28,9 @@ import {
   getFailedActions,
   clearFailedQueue,
   clearAllLocalData,
+  clearSessionLocalData,
+  setLocalOwner,
+  countUnsentForOwner,
 } from "../services/db";
 
 // Note : expo-sqlite et async-storage sont déjà redirigés vers les mocks manuels
@@ -45,6 +48,7 @@ beforeEach(() => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   (require("@react-native-async-storage/async-storage") as { __resetStore: () => void }).__resetStore();
   initDB();
+  setLocalOwner("test-user");
 });
 
 // ── offline_queue ─────────────────────────────────────────────────────────────
@@ -232,5 +236,46 @@ describe("clearAllLocalData", () => {
     expect(getPendingActions()).toHaveLength(0);
     expect(getCachedRapports()).toHaveLength(0);
     expect(getFailedActions()).toHaveLength(0);
+  });
+});
+
+// ── Isolation par utilisateur & conservation à la déconnexion (APP-19/20) ──────
+
+describe("isolation par utilisateur", () => {
+  test("la file d'un utilisateur n'est jamais visible ni envoyée sous un autre compte", () => {
+    setLocalOwner("tuteur-A");
+    enqueueAction("SUBMIT_RAPPORT_JOURNALIER", { x: 1 });
+    expect(getPendingActions()).toHaveLength(1);
+
+    setLocalOwner("tuteur-B");                 // B se connecte sur le même appareil
+    expect(getPendingActions()).toHaveLength(0);
+
+    setLocalOwner("tuteur-A");                 // A revient : son travail est intact
+    expect(getPendingActions()).toHaveLength(1);
+  });
+
+  test("sans utilisateur connecté, aucune action n'est exposée", () => {
+    enqueueAction("FINISH_SEANCE", { seance_id: "a" });
+    setLocalOwner(null);
+    expect(getPendingActions()).toHaveLength(0);
+  });
+
+  test("clearSessionLocalData (déconnexion) conserve les saisies non envoyées", () => {
+    enqueueAction("SUBMIT_RAPPORT_JOURNALIER", { x: 1 });
+    insertRapportJournalier({
+      id: "rj_local", date_rapport: "2026-08-01", ief: "F", commune: "C", ecole: "E",
+      superviseur: "S", nom_tuteur: "T", nb_absences: 0, absents: null, semaine: 1, jour_cours: 1,
+      difficultes: "[]", autres_difficultes: null, description_difficultes: null,
+      directeur_venu: 1, besoin_appui: 0, domaines_appui: null, has_observations: 0,
+      commentaires: null, soumis_en_offline: 1, photo_classe: null, photos_classe: null,
+      reponses_questions: null,
+    });
+    expect(countUnsentForOwner()).toBe(2);
+
+    clearSessionLocalData();                   // déconnexion
+
+    expect(getPendingActions()).toHaveLength(1);
+    expect(getRapportsJournalier().map((r) => r.id)).toEqual(["rj_local"]);
+    expect(countUnsentForOwner()).toBe(2);
   });
 });
