@@ -10,14 +10,15 @@
       "prebuildCommand": "expo prebuild --clean --platform android",
       "android": {
         "buildType": "apk"
-      }
+      },
+      "channel": "development"
     },
     "preview": {
       "channel": "preview",
       "distribution": "internal",
       "prebuildCommand": "expo prebuild --clean",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.ndawwune.cloud/api/v1"
+        "EXPO_PUBLIC_API_URL": "https://api.ndawwune.ared-edu.org/api/v1"
       },
       "android": {
         "buildType": "apk"
@@ -30,7 +31,7 @@
       "channel": "production",
       "prebuildCommand": "expo prebuild --clean",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.ndawwune.cloud/api/v1"
+        "EXPO_PUBLIC_API_URL": "https://api.ndawwune.ared-edu.org/api/v1"
       },
       "android": {
         "buildType": "app-bundle"
