@@ -98,7 +98,14 @@ export function errorMessage(err: unknown): string {
   }
   if (typeof rawDetail === "string") return rawDetail;
   if (rawDetail && typeof rawDetail === "object" && "message" in rawDetail) {
-    return String((rawDetail as { message: unknown }).message);
+    const d = rawDetail as { message: unknown; erreurs?: { index?: number; erreur?: string }[] };
+    // Lot d'évaluations refusé (APP-29 : LOT_INVALIDE / HORS_PERIMETRE) : on
+    // cite les premières lignes en cause pour que l'agent sache quoi corriger.
+    const lignes = Array.isArray(d.erreurs)
+      ? d.erreurs.slice(0, 3).map((e) => `n°${(e.index ?? 0) + 1} : ${e.erreur ?? "refusée"}`)
+      : [];
+    const reste = Array.isArray(d.erreurs) && d.erreurs.length > 3 ? ` (+${d.erreurs.length - 3})` : "";
+    return String(d.message) + (lignes.length ? ` — ${lignes.join(" ; ")}${reste}` : "");
   }
   return (err as { message?: string })?.message ?? "Erreur inconnue";
 }

@@ -536,6 +536,18 @@ export default function HomeScreen() {
               },
             ],
           );
+        } else if (
+          // APP-22 : campagne inconnue/inactive/non affectée, créneau ou classe
+          // hors affectation. La séance reste sur le téléphone ; le tuteur sait
+          // pourquoi le serveur la refuse et qui contacter.
+          detail && typeof detail === "object" && typeof detail.code === "string" &&
+          (detail.code.startsWith("CAMPAGNE_") || detail.code === "CRENEAU_INVALIDE" || detail.code === "CLASSE_NON_AFFECTEE")
+        ) {
+          Alert.alert(
+            "Séance non reconnue par le serveur",
+            `${detail.message ?? "Cette séance ne correspond pas à votre affectation."}\n\n` +
+            "Elle reste enregistrée sur le téléphone. Prévenez votre superviseur ou l'administrateur.",
+          );
         }
         // Échec réseau : on garde l'ID local, la séance sera envoyée plus tard (/complete).
       });

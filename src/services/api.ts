@@ -248,7 +248,13 @@ export const rapportJournalierApi = {
     `${API_URL}/app/rapports/journalier/${server_id}/photo/${index}`,
   list: (page = 0, limit = 20) =>
     api.get("/app/rapports/journalier", { params: { skip: page * limit, limit } }),
-  delete: (server_id: string) => api.delete(`/app/rapports/journalier/${server_id}`),
+  /** APP-31 : un rapport envoyé ne se supprime plus. Annulation motivée : le
+   *  rapport reste en base (statut « annule ») et sort des indicateurs. */
+  annuler: (server_id: string, motif: string) =>
+    api.post(`/app/rapports/journalier/${server_id}/annuler`, { motif }),
+  /** APP-31 : correction motivée — nouvelle version, l'ancienne est conservée. */
+  corriger: (server_id: string, d: Record<string, unknown> & { motif: string }) =>
+    api.put(`/app/rapports/journalier/${server_id}`, d),
 };
 
 // ── Superviseur ───────────────────────────────────────────────────────────────

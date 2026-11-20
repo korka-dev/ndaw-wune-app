@@ -107,6 +107,11 @@ function RapportCard({
               {synced ? "Envoyé" : "En cours"}
             </Text>
           </View>
+          {item.statut === "annule" && (
+            <View style={[s.badge, { backgroundColor: C.dangerSoft }]}>
+              <Text style={[s.badgeTxt, { color: C.danger }]}>Annulé</Text>
+            </View>
+          )}
         </View>
       </View>
 

@@ -3,7 +3,7 @@
  */
 import React, { useEffect, useState } from "react";
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, Image,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, Image, TextInput, ActivityIndicator,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -12,7 +12,9 @@ import { fr } from "date-fns/locale";
 
 import { rs, rf } from "../utils/responsive";
 import { C } from "../utils/theme";
-import { getRapportJournalierById } from "../services/db";
+import { getRapportJournalierById, setRapportJournalierStatut } from "../services/db";
+import { rapportJournalierApi } from "../services/api";
+import { errorMessage } from "../services/queue";
 import { useStore } from "../store/useStore";
 import { getSecure } from "../services/secureStorage";
 import AppHeader from "../components/AppHeader";
@@ -52,6 +54,11 @@ export default function RapportDetailScreen() {
   useEffect(() => { getSecure("access_token").then(setToken).catch(() => {}); }, []);
   const [profileOpen, setProfileOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  // APP-31 : annulation motivée (le rapport reste sur le serveur, statut « annulé »).
+  const [motif, setMotif] = useState<string | null>(null);
+  const [annulant, setAnnulant] = useState(false);
+  const [annulErreur, setAnnulErreur] = useState<string | null>(null);
+  const [, setRefresh] = useState(0);
 
   const handleManualSync = async () => {
     if (syncing || !isOnline) return;
@@ -90,6 +97,27 @@ export default function RapportDetailScreen() {
   }
 
   const synced = item.synced === 1;
+  const annule = item.statut === "annule";
+
+  const annuler = async () => {
+    if (!item.server_id) return;
+    if (!motif || motif.trim().length < 3) {
+      setAnnulErreur("Indiquez le motif de l'annulation (3 caractères minimum).");
+      return;
+    }
+    setAnnulant(true);
+    setAnnulErreur(null);
+    try {
+      const { data } = await rapportJournalierApi.annuler(item.server_id, motif.trim());
+      setRapportJournalierStatut(item.id, data?.statut ?? "annule", data?.statut_motif ?? motif.trim(), data?.version ?? null);
+      setMotif(null);
+      setRefresh((n) => n + 1);
+    } catch (e) {
+      setAnnulErreur(errorMessage(e));
+    } finally {
+      setAnnulant(false);
+    }
+  };
 
   let diffs: string[] = [];
   try { diffs = JSON.parse(item.difficultes); } catch {}
@@ -126,6 +154,19 @@ export default function RapportDetailScreen() {
         contentContainerStyle={s.scroll}
         showsVerticalScrollIndicator={false}
       >
+
+        {/* Statut serveur (APP-31) */}
+        {(annule || item.statut === "corrige") && (
+          <View style={[s.statutBox, annule ? s.statutAnnule : s.statutCorrige]}>
+            <Text style={[s.statutTitre, { color: annule ? C.danger : C.warn }]}>
+              {annule ? "Rapport annulé" : `Rapport corrigé${item.version ? ` (version ${item.version})` : ""}`}
+            </Text>
+            {!!item.statut_motif && <Text style={s.statutMotif}>Motif : {item.statut_motif}</Text>}
+            {annule && (
+              <Text style={s.statutMotif}>Il reste consultable mais ne compte plus dans le suivi.</Text>
+            )}
+          </View>
+        )}
 
         {/* Lieu */}
         <Text style={s.sectionLabel}>Lieu</Text>
@@ -219,6 +260,43 @@ export default function RapportDetailScreen() {
           );
         })()}
 
+        {/* Annuler un rapport envoyé (motif obligatoire, APP-31) */}
+        {synced && !!item.server_id && !annule && (
+          motif === null ? (
+            <TouchableOpacity style={s.annulerBtn} onPress={() => setMotif("")} disabled={!isOnline}>
+              <Feather name="x-circle" size={rf(15)} color={isOnline ? C.danger : C.textMuted} />
+              <Text style={[s.annulerTxt, !isOnline && { color: C.textMuted }]}>
+                {isOnline ? "Annuler ce rapport" : "Annulation possible avec une connexion"}
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={s.annulerBox}>
+              <Text style={s.sectionLabel}>Pourquoi annuler ce rapport ?</Text>
+              <TextInput
+                value={motif}
+                onChangeText={setMotif}
+                placeholder="Ex. : rapport envoyé pour la mauvaise date"
+                placeholderTextColor={C.textMuted}
+                style={s.motifInput}
+                multiline
+                maxLength={500}
+              />
+              <Text style={s.statutMotif}>
+                Le rapport n'est pas effacé : il est marqué « annulé » et ne compte plus dans le suivi.
+              </Text>
+              {!!annulErreur && <Text style={s.annulErr}>{annulErreur}</Text>}
+              <View style={{ flexDirection: "row", gap: rs(10), marginTop: rs(10) }}>
+                <TouchableOpacity style={[s.confirmBtn, annulant && { opacity: 0.6 }]} onPress={annuler} disabled={annulant}>
+                  {annulant ? <ActivityIndicator color="#fff" /> : <Text style={s.confirmTxt}>Confirmer l'annulation</Text>}
+                </TouchableOpacity>
+                <TouchableOpacity style={s.retourBtn} onPress={() => { setMotif(null); setAnnulErreur(null); }}>
+                  <Text style={s.retourTxt}>Retour</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )
+        )}
+
         <View style={{ height: rs(32) }} />
       </ScrollView>
 
@@ -258,6 +336,22 @@ const s = StyleSheet.create({
 
   /* Contenu */
   scroll: { padding: rs(16) },
+
+  /* Statut / annulation (APP-31) */
+  statutBox:     { borderRadius: rs(12), padding: rs(12), marginBottom: rs(12) },
+  statutAnnule:  { backgroundColor: C.dangerSoft },
+  statutCorrige: { backgroundColor: C.warnSoft },
+  statutTitre:   { fontSize: rf(14.5), fontWeight: "800" },
+  statutMotif:   { fontSize: rf(13), color: C.textMuted, marginTop: rs(4), lineHeight: rf(18) },
+  annulerBtn:    { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: rs(8), marginTop: rs(20), paddingVertical: rs(12), borderRadius: rs(12), borderWidth: 1, borderColor: C.border },
+  annulerTxt:    { fontSize: rf(14), fontWeight: "700", color: C.danger },
+  annulerBox:    { marginTop: rs(20) },
+  motifInput:    { minHeight: rs(70), borderWidth: 1, borderColor: C.border, borderRadius: rs(10), padding: rs(10), fontSize: rf(14), color: C.text, backgroundColor: C.surface, textAlignVertical: "top" },
+  annulErr:      { fontSize: rf(13), color: C.danger, marginTop: rs(6) },
+  confirmBtn:    { flex: 1, backgroundColor: C.danger, borderRadius: rs(10), paddingVertical: rs(12), alignItems: "center" },
+  confirmTxt:    { color: "#fff", fontSize: rf(14), fontWeight: "800" },
+  retourBtn:     { paddingVertical: rs(12), paddingHorizontal: rs(14), borderRadius: rs(10), backgroundColor: C.surfaceAlt },
+  retourTxt:     { fontSize: rf(14), fontWeight: "700", color: C.text },
 
   sectionLabel: {
     fontSize:      rf(12),

@@ -5,7 +5,7 @@
  *   1. Vue initiale = 'menu'
  *   2. Cliquer "Rapport" passe view → 'rapport'
  *   3. resetForm() depuis le formulaire retourne view → 'menu'
- *   4. "Rapports pédagogiques" n'est pas cliquable (pas de onPress)
+ *   4. Aucune carte « Bientôt » (APP-47 : fonction non disponible retirée)
  *   5. La page menu se rend sans erreur (smoke test)
  *   6. La page rapport se rend sans erreur après transition
  */
@@ -91,20 +91,15 @@ describe("SupRapportsScreen — vue initiale (menu)", () => {
     expect(texts.some((t) => t === "Rapport")).toBe(true);
   });
 
-  test("la vue initiale contient 'Rapports pédagogiques'", () => {
+  // APP-47 (lot L2) : la carte « Rapports pédagogiques — Bientôt » a été
+  // retirée — aucune fonction annoncée sans être disponible.
+  test("la vue initiale n'annonce plus de fonction « Bientôt »", () => {
     let root: ReturnType<typeof create>;
     act(() => { root = create(<SupRapportsScreen />); });
 
     const texts = getAllTexts(root!);
-    expect(texts.some((t) => t.includes("Rapports pédagogiques") || t.includes("pédagogiques"))).toBe(true);
-  });
-
-  test("la vue initiale contient le badge 'Bientôt'", () => {
-    let root: ReturnType<typeof create>;
-    act(() => { root = create(<SupRapportsScreen />); });
-
-    const texts = getAllTexts(root!);
-    expect(texts.some((t) => t.includes("Bientôt"))).toBe(true);
+    expect(texts.some((t) => t.includes("pédagogiques"))).toBe(false);
+    expect(texts.some((t) => t.includes("Bientôt"))).toBe(false);
   });
 
   test("la vue menu N'affiche PAS 'Mes rapports' (contenu rapport caché)", () => {
@@ -208,31 +203,5 @@ describe("SupRapportsScreen — retour au menu", () => {
     // Le menu doit réapparaître
     const texts = getAllTexts(root!);
     expect(texts.some((t) => t.includes("Sélectionnez"))).toBe(true);
-  });
-});
-
-describe("SupRapportsScreen — 'Rapports pédagogiques' non disponible", () => {
-  test("'Rapports pédagogiques' N'a PAS de handler onPress (carte désactivée)", () => {
-    let root: ReturnType<typeof create>;
-    act(() => { root = create(<SupRapportsScreen />); });
-
-    // La card "Rapports pédagogiques" doit être un View, pas un TouchableOpacity
-    const texts = root!.root.findAllByType(Text);
-    const pedaNode = texts.find((t) =>
-      String(t.props.children ?? "").includes("pédagogiques"),
-    );
-    expect(pedaNode).toBeDefined();
-
-    // Remonter au parent direct et vérifier qu'il s'agit d'un View (pas TouchableOpacity)
-    // Le View parent ne doit pas avoir de onPress
-    const allTouchables = root!.root.findAllByType(TouchableOpacity);
-    const hasPedaClickable = allTouchables.some((tb) => {
-      try {
-        return tb.findAll((n) =>
-          n.type === Text && String(n.props.children ?? "").includes("pédagogiques"),
-        ).length > 0;
-      } catch { return false; }
-    });
-    expect(hasPedaClickable).toBe(false);
   });
 });

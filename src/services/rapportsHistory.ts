@@ -64,6 +64,9 @@ export async function hydrateRapportsFromServer(): Promise<number> {
             : null,
           reponses_questions:      r.reponses_questions ?? null,
           created_at:              String(r.created_at ?? new Date().toISOString()),
+          statut:                  r.statut ?? "soumis",
+          statut_motif:            r.statut_motif ?? null,
+          version:                 r.version != null ? Number(r.version) : null,
         });
         importes++;
       }

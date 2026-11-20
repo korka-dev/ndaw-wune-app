@@ -167,6 +167,18 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    // APP-31 : statut du rapport côté serveur (soumis / corrige / annule),
+    // version et motif, pour l'afficher dans l'historique du tuteur.
+    version: 9,
+    up: (db) => {
+      for (const col of ["statut TEXT", "statut_motif TEXT", "version INTEGER"]) {
+        try {
+          db.execSync(`ALTER TABLE rapports_journalier ADD COLUMN ${col}`);
+        } catch { /* colonne déjà présente */ }
+      }
+    },
+  },
 ];
 
 const CURRENT_DB_VERSION = MIGRATIONS.reduce((max, m) => Math.max(max, m.version), 0);
@@ -535,6 +547,9 @@ export interface RapportJournalierLocal {
   photos_classe:           string | null;  // JSON array d'URIs locales (jusqu'à 3 photos)
   reponses_questions:      string | null;  // JSON {question_id: réponse} — questions dynamiques configurées par l'admin
   server_id?:              string | null;  // UUID du rapport côté serveur (après synchronisation)
+  statut?:                 "soumis" | "corrige" | "annule" | null;  // APP-31 (null = jamais relu du serveur)
+  statut_motif?:           string | null;
+  version?:                number | null;
   synced:                  number;   // 0/1
   created_at:              string;
 }
@@ -575,6 +590,14 @@ export function markRapportJournalierSynced(id: string, server_id?: string): voi
   getDB().runSync(
     `UPDATE rapports_journalier SET synced = 1, server_id = ? WHERE id = ?`,
     [server_id ?? null, id],
+  );
+}
+
+/** Reporte en local le statut renvoyé par le serveur (annulation, APP-31). */
+export function setRapportJournalierStatut(id: string, statut: string, motif: string | null, version: number | null): void {
+  getDB().runSync(
+    `UPDATE rapports_journalier SET statut = ?, statut_motif = ?, version = ? WHERE id = ?`,
+    [statut, motif, version, id],
   );
 }
 
@@ -622,6 +645,9 @@ export function upsertRapportJournalierFromServer(r: {
   photos_classe:           string | null;
   reponses_questions:      string | null;
   created_at:              string;
+  statut?:                 string | null;
+  statut_motif?:           string | null;
+  version?:                number | null;
 }): void {
   const db = getDB();
   let existant = db.getFirstSync<{ id: string }>(
@@ -663,14 +689,14 @@ export function upsertRapportJournalierFromServer(r: {
          difficultes = ?, autres_difficultes = ?, description_difficultes = ?,
          directeur_venu = ?, besoin_appui = ?, domaines_appui = ?,
          has_observations = ?, commentaires = ?, photo_classe = ?, photos_classe = ?,
-         reponses_questions = ?, synced = ?
+         reponses_questions = ?, statut = ?, statut_motif = ?, version = ?, synced = ?
        WHERE server_id = ?`,
       [
         r.date_rapport, r.nb_absences, r.absents, r.semaine, r.jour_cours,
         r.difficultes, r.autres_difficultes, r.description_difficultes,
         r.directeur_venu, r.besoin_appui, r.domaines_appui,
         r.has_observations, r.commentaires, r.photo_classe, r.photos_classe,
-        r.reponses_questions, 1, r.server_id,
+        r.reponses_questions, r.statut ?? null, r.statut_motif ?? null, r.version ?? null, 1, r.server_id,
       ],
     );
     return;
@@ -683,8 +709,8 @@ export function upsertRapportJournalierFromServer(r: {
       autres_difficultes, description_difficultes,
       directeur_venu, besoin_appui, domaines_appui,
       has_observations, commentaires, soumis_en_offline, photo_classe, photos_classe,
-      reponses_questions, server_id, synced, created_at, owner_id
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      reponses_questions, server_id, synced, created_at, owner_id, statut, statut_motif, version
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       `srv_${r.server_id}`, r.date_rapport, r.ief, r.commune, r.ecole, r.superviseur, r.nom_tuteur,
       r.nb_absences, r.absents, r.semaine, r.jour_cours, r.difficultes,
@@ -692,7 +718,7 @@ export function upsertRapportJournalierFromServer(r: {
       r.directeur_venu, r.besoin_appui, r.domaines_appui,
       r.has_observations, r.commentaires, r.soumis_en_offline,
       r.photo_classe, r.photos_classe, r.reponses_questions, r.server_id, 1, r.created_at,
-      _localOwner,
+      _localOwner, r.statut ?? null, r.statut_motif ?? null, r.version ?? null,
     ],
   );
 }
