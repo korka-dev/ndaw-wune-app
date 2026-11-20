@@ -8,6 +8,8 @@
  *   - access_token   : JWT d'accès (60 min)
  *   - refresh_token  : JWT de rafraîchissement (30 jours)
  *   - user_role      : rôle de l'utilisateur (chaîne)
+ *   - must_change_password : "1" tant que le mot de passe temporaire n'est pas
+ *                     changé (APP-08) — survit au redémarrage de l'app
  *
  * Limitations de SecureStore :
  *   - Valeur max ~2048 bytes (amplement suffisant pour des JWTs HS256)
@@ -16,7 +18,7 @@
  */
 import * as SecureStore from "expo-secure-store";
 
-export type SecureKey = "access_token" | "refresh_token" | "user_role";
+export type SecureKey = "access_token" | "refresh_token" | "user_role" | "must_change_password";
 
 export async function setSecure(key: SecureKey, value: string): Promise<void> {
   await SecureStore.setItemAsync(key, value);
@@ -39,5 +41,6 @@ export async function clearAuthTokens(): Promise<void> {
     SecureStore.deleteItemAsync("access_token"),
     SecureStore.deleteItemAsync("refresh_token"),
     SecureStore.deleteItemAsync("user_role"),
+    SecureStore.deleteItemAsync("must_change_password"),
   ]);
 }

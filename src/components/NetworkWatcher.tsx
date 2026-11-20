@@ -22,7 +22,8 @@ import { router } from "expo-router";
 import { useStore } from "../store/useStore";
 import { scheduleSessionAlerts, updateCachedSegments } from "../services/notifications";
 import { syncRessourcesOffline } from "../services/ressources";
-import { onAuthFailure } from "../services/authEvents";
+import { onAuthFailure, onPasswordChangeRequired } from "../services/authEvents";
+import { setSecure } from "../services/secureStorage";
 
 const NETWORK_CHECK_MS = 15_000;   // 15 s — vérification connectivité
 const SYNC_INTERVAL_MS = 30_000;   // 30 s — sync données quand online
@@ -72,6 +73,13 @@ export default function NetworkWatcher() {
         mustChangePassword: false,
       });
       router.replace("/login");
+    });
+
+    // APP-08 : l'API exige le changement du mot de passe temporaire.
+    onPasswordChangeRequired(() => {
+      setSecure("must_change_password", "1").catch(() => {});
+      useStore.setState({ mustChangePassword: true });
+      router.replace("/change-password");
     });
 
     // ── 1. AppState — sync quand l'app revient au premier plan ────────────────
@@ -125,7 +133,8 @@ export default function NetworkWatcher() {
       clearInterval(netTimer);
       clearInterval(syncTimer);
       appStateSub.remove();
-      onAuthFailure(null);  // évite la fuite si NetworkWatcher démonte (ex: logout)
+      onAuthFailure(null);
+      onPasswordChangeRequired(null);  // évite la fuite si NetworkWatcher démonte (ex: logout)
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

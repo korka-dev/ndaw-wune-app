@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { authApi } from "../services/api";
-import { setSecure, getSecure, clearAuthTokens } from "../services/secureStorage";
+import { setSecure, getSecure, deleteSecure, clearAuthTokens } from "../services/secureStorage";
 import { fetchAndCache, fetchAndCacheSupervisor, getCached, clearCache, SyncPayload } from "../services/cache";
 import { clearSessionLocalData, setLocalOwner } from "../services/db";
 import { flushQueue } from "../services/queue";
@@ -110,6 +110,9 @@ export const useStore = create<AppStore>((set, get) => ({
       await setSecure("refresh_token", data.refresh_token);
 
       const mustChange = data.must_change_password ?? false;
+      // APP-08 : mémorisé pour que l'app rouvre l'écran de changement au redémarrage.
+      if (mustChange) await setSecure("must_change_password", "1");
+      else await deleteSecure("must_change_password").catch(() => {});
       set({ token: data.access_token, loading: false, mustChangePassword: mustChange });
 
       if (!mustChange) {

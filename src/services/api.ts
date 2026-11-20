@@ -1,7 +1,12 @@
 import axios from "axios";
 import Constants from "expo-constants";
 import { getSecure, setSecure, clearAuthTokens } from "./secureStorage";
-import { dispatchAuthFailure } from "./authEvents";
+import {
+  dispatchAuthFailure,
+  dispatchPasswordChangeRequired,
+  dispatchUpdateRequired,
+} from "./authEvents";
+import { APP_VERSION, isPasswordChangeRequiredError, isUpdateRequiredError } from "./appVersion";
 
 /**
  * URL de base de l'API.
@@ -24,6 +29,8 @@ export const api = axios.create({ baseURL: API_URL, timeout: 15000 });
 api.interceptors.request.use(async (config) => {
   const token = await getSecure("access_token");
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  // APP-46 : l'API peut refuser (426) une version trop ancienne.
+  config.headers["X-App-Version"] = APP_VERSION;
   return config;
 });
 
@@ -62,7 +69,7 @@ async function performSharedRefresh(): Promise<{ access_token: string; refresh_t
       if (!refresh) throw new SessionInvalide("Aucun refresh token disponible.");
       const { data } = await axios.post(`${API_URL}/auth/refresh`, {
         refresh_token: refresh,
-      }, { timeout: 15000 });
+      }, { timeout: 15000, headers: { "X-App-Version": APP_VERSION } });
       await setSecure("access_token",  data.access_token);
       await setSecure("refresh_token", data.refresh_token);
       return data;
@@ -78,7 +85,24 @@ api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config;
-    if (error.response?.status === 401 && !original._retry) {
+
+    // APP-46 : version trop ancienne → écran de mise à jour (file conservée).
+    if (isUpdateRequiredError(error)) {
+      const d = error.response?.data ?? {};
+      dispatchUpdateRequired({
+        minVersion:    d.min_version ?? null,
+        latestVersion: d.latest_version ?? null,
+      });
+      return Promise.reject(error);
+    }
+
+    // APP-08 : compte non activé → changement du mot de passe temporaire.
+    if (isPasswordChangeRequiredError(error)) {
+      dispatchPasswordChangeRequired();
+      return Promise.reject(error);
+    }
+
+    if (error.response?.status === 401 && original && !original._retry) {
       original._retry = true;
       try {
         const data = await performSharedRefresh();
@@ -128,6 +152,11 @@ export const authApi = {
 };
 
 // ── Synchronisation offline ───────────────────────────────────────────────────
+export const versionApi = {
+  /** Politique de version publiée par l'API (publique). */
+  policy: () => api.get<{ min_version: string | null; latest_version: string | null }>("/app-version"),
+};
+
 export const syncApi = {
   sync:       () => api.get("/app/sync"),
   invalidate: () => api.post("/app/sync/invalidate"),

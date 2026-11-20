@@ -13,7 +13,7 @@ import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { api } from "../services/api";
 import { clearCache } from "../services/cache";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { clearAuthTokens } from "../services/secureStorage";
 import { rs, rf } from "../utils/responsive";
 import { C } from "../utils/theme";
 import AredLogo from "../components/AredLogo";
@@ -39,7 +39,10 @@ export default function ChangePasswordScreen() {
         new_password:     newPwd,
         confirm_password: confPwd,
       });
-      await AsyncStorage.multiRemove(["access_token", "refresh_token"]);
+      // Les jetons sont dans SecureStore (pas AsyncStorage) : l'ancien
+      // multiRemove ne les effaçait pas. Le serveur les a de toute façon
+      // invalidés au changement de mot de passe (APP-08).
+      await clearAuthTokens();
       await clearCache();
       Alert.alert(
         "Mot de passe modifié",

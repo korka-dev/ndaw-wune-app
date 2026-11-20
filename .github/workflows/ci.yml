@@ -1,0 +1,27 @@
+# Barrière de livraison de l'application mobile (rapport V2, APP-44 / APP-12).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Typage
+        run: npx tsc --noEmit -p .
+      - name: Tests (file hors ligne, synchronisation, sessions)
+        run: npx jest --ci
+      - name: Audit des dépendances (informatif — résiduel Expo SDK, voir l'inventaire API docs/AUDIT_DEPENDANCES.md)
+        run: npm audit --audit-level=critical

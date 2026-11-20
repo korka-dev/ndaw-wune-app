@@ -16,3 +16,31 @@ export function onAuthFailure(cb: AuthFailureCallback | null): void {
 export function dispatchAuthFailure(): void {
   _callback?.();
 }
+
+// ── Mot de passe temporaire à changer (APP-08) ────────────────────────────────
+let _pwdCallback: (() => void) | null = null;
+
+export function onPasswordChangeRequired(cb: (() => void) | null): void {
+  _pwdCallback = cb;
+}
+
+export function dispatchPasswordChangeRequired(): void {
+  _pwdCallback?.();
+}
+
+// ── Version trop ancienne (APP-46) ────────────────────────────────────────────
+export interface UpdateRequiredPayload {
+  minVersion:    string | null;
+  latestVersion: string | null;
+}
+
+const _updateListeners = new Set<(info: UpdateRequiredPayload) => void>();
+
+export function onUpdateRequired(cb: (info: UpdateRequiredPayload) => void): () => void {
+  _updateListeners.add(cb);
+  return () => { _updateListeners.delete(cb); };
+}
+
+export function dispatchUpdateRequired(info: UpdateRequiredPayload): void {
+  _updateListeners.forEach((cb) => cb(info));
+}

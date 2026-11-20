@@ -19,6 +19,7 @@
  * Le mapping offline-id → server-uuid est persisté dans AsyncStorage.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { isPasswordChangeRequiredError, isUpdateRequiredError } from "./appVersion";
 import { seancesApi, rapportsApi, rapportJournalierApi, superviseurApi } from "./api";
 import {
   getPendingActions,
@@ -171,6 +172,14 @@ async function _flushQueueInner(): Promise<number> {
       }
 
       const isNetworkError = !err?.response;
+
+      // APP-46 / APP-08 : version trop ancienne ou mot de passe temporaire à
+      // changer. Ce n'est pas une erreur de la saisie : on arrête le flush SANS
+      // pénalité ni archivage. Tout repartira après la mise à jour / l'activation.
+      if (isUpdateRequiredError(err) || isPasswordChangeRequiredError(err)) {
+        console.warn(`[Queue] Envoi suspendu (${err?.response?.data?.detail}) — file conservée`);
+        break;
+      }
 
       // FastAPI 422 renvoie detail comme un array d'objets — on les sérialise proprement
       const rawDetail = err?.response?.data?.detail;

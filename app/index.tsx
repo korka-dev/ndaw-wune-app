@@ -8,12 +8,14 @@ export default function Index() {
   const [ready,    setReady]    = useState(false);
   const [hasToken, setHasToken] = useState(false);
   const [role,     setRole]     = useState<string | null>(null);
+  const [mustChange, setMustChange] = useState(false);
 
   useEffect(() => {
     async function init() {
-      const [token, storedRole] = await Promise.all([
+      const [token, storedRole, mustChangeFlag] = await Promise.all([
         getSecure("access_token"),
         getSecure("user_role"),
+        getSecure("must_change_password"),
       ]);
 
       if (token) {
@@ -24,6 +26,7 @@ export default function Index() {
 
       setHasToken(!!token);
       setRole(storedRole);
+      setMustChange(mustChangeFlag === "1");
       setReady(true);
     }
     init();
@@ -34,6 +37,9 @@ export default function Index() {
   if (__DEV__) return <Redirect href="/welcome" />;
 
   if (!hasToken) return <Redirect href="/welcome" />;
+
+  // APP-08 : mot de passe temporaire pas encore changé → aucun accès aux écrans.
+  if (mustChange) return <Redirect href="/change-password" />;
 
   // Redirect based on role
   if (role === "superviseur") return <Redirect href="/(supervisor-tabs)/presences" />;

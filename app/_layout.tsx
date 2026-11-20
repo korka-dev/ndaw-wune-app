@@ -5,6 +5,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import * as SplashScreen from "expo-splash-screen";
 import NetworkWatcher from "../src/components/NetworkWatcher";
 import UpdateModal from "../src/components/UpdateModal";
+import AppUpdateRequired from "../src/components/AppUpdateRequired";
 import { initDB } from "../src/services/db";
 import {
   setupNotifications,
@@ -78,6 +79,7 @@ export default function RootLayout() {
       />
       <NetworkWatcher />
       <UpdateModal />
+      <AppUpdateRequired />
       <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="welcome" />
