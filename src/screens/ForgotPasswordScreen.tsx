@@ -1,200 +1,72 @@
 /**
- * Écran Mot de passe oublié — formulaire direct
- * Numéro de téléphone + nouveau mot de passe + confirmation → reset immédiat
+ * Écran Mot de passe oublié.
+ *
+ * La réinitialisation en libre-service est fermée (rapport V2, APP-01) : elle
+ * changeait le mot de passe de n'importe quel compte à partir du seul numéro
+ * de téléphone. Le tuteur ou le superviseur contacte désormais son superviseur
+ * ou l'administrateur, qui lui attribue un mot de passe temporaire depuis le
+ * dashboard (changement imposé à la connexion suivante).
  */
-import React, { useState, useRef } from "react";
-import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, ActivityIndicator, Alert,
-  KeyboardAvoidingView, Platform,
-} from "react-native";
+import React from "react";
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { authApi } from "../services/api";
 import { rs, rf } from "../utils/responsive";
 import { C } from "../utils/theme";
 import AredLogo from "../components/AredLogo";
 import BackButton from "../components/BackButton";
 
-/* ── Formatage numéro sénégalais (identique LoginScreen) ─────────────────── */
-function formatPhone(raw: string): string {
-  const digits = raw.replace(/\D/g, "").slice(0, 9);
-  if (!digits.length) return "";
-  const p1 = digits.slice(0, 2);
-  const p2 = digits.slice(2, 5);
-  const p3 = digits.slice(5, 7);
-  const p4 = digits.slice(7, 9);
-  return [p1, p2, p3, p4].filter(Boolean).join(" ");
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
-   Écran principal
-══════════════════════════════════════════════════════════════════════════ */
 export default function ForgotPasswordScreen() {
   const router = useRouter();
 
-  const [phone,    setPhone]    = useState("");
-  const [newPwd,   setNewPwd]   = useState("");
-  const [confPwd,  setConfPwd]  = useState("");
-  const [showNew,  setShowNew]  = useState(false);
-  const [showConf, setShowConf] = useState(false);
-  const [loading,  setLoading]  = useState(false);
-
-  const confRef   = useRef<TextInput>(null);
-  const newPwdRef = useRef<TextInput>(null);
-
-  const rawPhone   = phone.replace(/\s/g, "");
-  const isFormOk   = rawPhone.length >= 9 && newPwd.length > 0 && newPwd === confPwd;
-
-  const handleReset = async () => {
-    if (!isFormOk) return;
-    setLoading(true);
-    try {
-      await authApi.resetPassword(rawPhone, newPwd, confPwd);
-      Alert.alert(
-        "Mot de passe réinitialisé",
-        "Votre mot de passe a été mis à jour avec succès.\nVous pouvez vous connecter.",
-        [{ text: "Se connecter", onPress: () => router.replace("/login") }],
-      );
-    } catch (err: any) {
-      if (!err?.response) {
-        Alert.alert(
-          "Serveur injoignable",
-          `Impossible de joindre le serveur.\nVérifiez votre connexion Wi-Fi.\n\n(${err?.message ?? "Network Error"})`,
-        );
-      } else {
-        const detail = err?.response?.data?.detail ?? "Une erreur est survenue. Réessayez.";
-        Alert.alert("Erreur", detail);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <SafeAreaView style={s.root} edges={["top", "bottom"]}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-      >
-        {/* Bouton retour */}
-        <BackButton onPress={() => router.back()} style={{ alignSelf: "flex-start" }} />
+      <BackButton onPress={() => router.back()} style={{ alignSelf: "flex-start" }} />
 
-        <ScrollView
-          contentContainerStyle={s.scroll}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {/* En-tête */}
-          <View style={s.header}>
-            <AredLogo size={70} />
-            <Text style={s.title}>Réinitialiser le mot de passe</Text>
-            <Text style={s.subtitle}>
-              Entrez votre numéro de téléphone et choisissez{"\n"}un nouveau mot de passe.
+      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
+        <View style={s.header}>
+          <AredLogo size={70} />
+          <Text style={s.title}>Mot de passe oublié</Text>
+          <Text style={s.subtitle}>
+            Pour protéger vos données et celles des élèves, le mot de passe ne
+            peut pas être réinitialisé depuis l'application.
+          </Text>
+        </View>
+
+        <View style={s.card}>
+          <View style={s.stepRow}>
+            <Feather name="phone-call" size={rf(20)} color={C.primary} />
+            <Text style={s.stepTxt}>
+              Contactez votre superviseur ou l'administrateur du programme.
             </Text>
           </View>
-
-          {/* ── Numéro de téléphone ── */}
-          <View style={s.fieldWrap}>
-            <Text style={s.label}>Numéro de téléphone</Text>
-            <View style={s.phoneRow}>
-              <View style={s.countryPrefix}>
-                <Text style={s.countryFlag}>🇸🇳</Text>
-                <Text style={s.countryCode}>+221</Text>
-              </View>
-              <View style={s.separator} />
-              <TextInput
-                style={s.phoneInput}
-                placeholder="77 000 00 00"
-                value={phone}
-                onChangeText={t => setPhone(formatPhone(t))}
-                keyboardType="phone-pad"
-                placeholderTextColor={C.textMuted}
-                returnKeyType="next"
-                onSubmitEditing={() => newPwdRef.current?.focus()}
-                autoCorrect={false}
-              />
-            </View>
+          <View style={s.stepRow}>
+            <Feather name="key" size={rf(20)} color={C.primary} />
+            <Text style={s.stepTxt}>
+              Il vous communiquera un mot de passe temporaire.
+            </Text>
           </View>
-
-          {/* ── Nouveau mot de passe ── */}
-          <View style={s.fieldWrap}>
-            <Text style={s.label}>Nouveau mot de passe</Text>
-            <View style={s.pwdRow}>
-              <TextInput
-                ref={newPwdRef}
-                style={s.pwdInput}
-                value={newPwd}
-                onChangeText={setNewPwd}
-                secureTextEntry={!showNew}
-                placeholder="Nouveau mot de passe"
-                placeholderTextColor={C.textMuted}
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="next"
-                onSubmitEditing={() => confRef.current?.focus()}
-              />
-              <TouchableOpacity
-                onPress={() => setShowNew(v => !v)}
-                style={s.eyeBtn}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              >
-                <Feather name={showNew ? "eye-off" : "eye"} size={rf(20)} color={C.textMuted} />
-              </TouchableOpacity>
-            </View>
-
+          <View style={s.stepRow}>
+            <Feather name="lock" size={rf(20)} color={C.primary} />
+            <Text style={s.stepTxt}>
+              À la connexion, l'application vous demandera d'en choisir un nouveau.
+            </Text>
           </View>
+        </View>
 
-          {/* ── Confirmation ── */}
-          <View style={s.fieldWrap}>
-            <Text style={s.label}>Confirmer le mot de passe</Text>
-            <View style={s.pwdRow}>
-              <TextInput
-                ref={confRef}
-                style={s.pwdInput}
-                value={confPwd}
-                onChangeText={setConfPwd}
-                secureTextEntry={!showConf}
-                placeholder="Répétez le mot de passe"
-                placeholderTextColor={C.textMuted}
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="done"
-                onSubmitEditing={handleReset}
-              />
-              <TouchableOpacity
-                onPress={() => setShowConf(v => !v)}
-                style={s.eyeBtn}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-              >
-                <Feather name={showConf ? "eye-off" : "eye"} size={rf(20)} color={C.textMuted} />
-              </TouchableOpacity>
-            </View>
-            {confPwd.length > 0 && newPwd !== confPwd && (
-              <Text style={s.errorText}>Les mots de passe ne correspondent pas.</Text>
-            )}
-          </View>
+        <Text style={s.note}>
+          Vos saisies non envoyées restent conservées sur ce téléphone en attendant.
+        </Text>
 
-          {/* ── Bouton ── */}
-          <TouchableOpacity
-            style={[s.btn, (!isFormOk || loading) && s.btnDisabled]}
-            onPress={handleReset}
-            disabled={!isFormOk || loading}
-            activeOpacity={0.85}
-          >
-            {loading
-              ? <ActivityIndicator color="#fff" />
-              : <Text style={s.btnTxt}>Réinitialiser le mot de passe</Text>
-            }
-          </TouchableOpacity>
-
-          {/* Retour connexion */}
-          <TouchableOpacity onPress={() => router.back()} style={s.backLink}>
-            <Text style={s.backLinkTxt}>← Retour à la connexion</Text>
-          </TouchableOpacity>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        <TouchableOpacity
+          style={s.btn}
+          onPress={() => router.replace("/login")}
+          activeOpacity={0.85}
+        >
+          <Text style={s.btnTxt}>Retour à la connexion</Text>
+        </TouchableOpacity>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -213,6 +85,15 @@ const s = StyleSheet.create({
   header:   { alignItems: "center", marginTop: rs(4), marginBottom: rs(32) },
   title:    { marginTop: rs(12), fontSize: rf(24), fontWeight: "800", color: C.text, textAlign: "center" },
   subtitle: { marginTop: rs(6), fontSize: rf(15), color: C.textMuted, textAlign: "center", lineHeight: rf(22) },
+
+  /* Carte d'explication */
+  card: {
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
+    borderRadius: rs(16), padding: rs(18), gap: rs(14),
+  },
+  stepRow: { flexDirection: "row", alignItems: "flex-start", gap: rs(12) },
+  stepTxt: { flex: 1, fontSize: rf(16), color: C.text, lineHeight: rf(23) },
+  note:    { marginTop: rs(16), fontSize: rf(14), color: C.textMuted, textAlign: "center" },
 
   /* Champs */
   fieldWrap: { marginBottom: rs(16) },

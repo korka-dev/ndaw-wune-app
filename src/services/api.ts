@@ -117,14 +117,6 @@ export const authApi = {
   changePassword: (new_password: string) =>
     api.post("/auth/change-password", { new_password }),
 
-  /**
-   * Réinitialisation de mot de passe sans authentification.
-   * Utilisé depuis l'écran "Mot de passe oublié".
-   * Envoie : identifier (téléphone), new_password, confirm_password.
-   */
-  resetPassword: (identifier: string, new_password: string, confirm_password: string) =>
-    api.post("/auth/reset-password", { identifier, new_password, confirm_password }),
-
   /** Déconnexion : révoque le token d'accès côté serveur. */
   /** Envoie aussi le refresh_token pour qu'il soit révoqué côté serveur, pas
    *  seulement le token d'accès — sinon un refresh token volé survivrait au logout. */
