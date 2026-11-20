@@ -177,6 +177,7 @@ export const seancesApi = {
     matiere?: string | null;
     planning_segment_id?: string | null;
     nb_eleves_total?: number | null;
+    client_seance_id?: string | null;   // identifiant local stable (APP-16/18)
   }) => api.post("/app/seances/start", d),
 
   /** Enregistre une mise en pause (fire-and-forget, offline-queued si hors ligne). */
@@ -199,6 +200,13 @@ export const seancesApi = {
   }) => api.post(`/app/seances/${id}/finish`, d),
 
   active: () => api.get("/app/seances/active"),
+
+  /** Séance faite hors ligne envoyée en une fois (idempotente, APP-16/18). */
+  complete: (d: Record<string, unknown>) => api.post("/app/seances/complete", d),
+
+  /** Clôture d'une séance oubliée, sans durée mesurée (APP-21). */
+  recover: (id: string, motif?: string | null) =>
+    api.post(`/app/seances/${id}/cloturer-oubli`, { motif: motif ?? null }),
   list:   () => api.get("/app/seances"),
 
   /** Signale un créneau planifié manqué (non démarré après son heure de fin). */
@@ -228,7 +236,16 @@ export const rapportsApi = {
 
 // ── Rapports journaliers (tuteur / superviseur) ───────────────────────────────
 export const rapportJournalierApi = {
-  submit: (d: unknown) => api.post("/app/rapports/journalier", d),
+  /** Clé d'opération (APP-16) : l'identifiant local du rapport, stable entre
+   *  l'envoi direct et les rejeux de la file — un seul rapport côté serveur. */
+  submit: (d: Record<string, unknown>) => {
+    const { local_id, ...body } = d as { local_id?: string } & Record<string, unknown>;
+    const client_op_id = (body.client_op_id as string | undefined) ?? local_id;
+    return api.post("/app/rapports/journalier", client_op_id ? { ...body, client_op_id } : body);
+  },
+  /** URL d'une photo d'un rapport (chargée à la demande avec le jeton, APP-37). */
+  photoUrl: (server_id: string, index: number) =>
+    `${API_URL}/app/rapports/journalier/${server_id}/photo/${index}`,
   list: (page = 0, limit = 20) =>
     api.get("/app/rapports/journalier", { params: { skip: page * limit, limit } }),
   delete: (server_id: string) => api.delete(`/app/rapports/journalier/${server_id}`),

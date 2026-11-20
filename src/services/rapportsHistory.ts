@@ -55,9 +55,13 @@ export async function hydrateRapportsFromServer(): Promise<number> {
           has_observations:        bool01(r.has_observations),
           commentaires:            r.commentaires ?? null,
           soumis_en_offline:       bool01(r.soumis_en_offline),
-          // Les photos sont stockées côté serveur : on conserve l'URL renvoyée.
-          photo_classe:            r.photo_classe_url ?? null,
-          photos_classe:           r.photos_classe_url ?? null,
+          // APP-37 : la liste n'apporte plus les photos (base64 de plusieurs Mo).
+          // On garde l'adresse de chaque photo, chargée à l'ouverture du rapport.
+          photo_classe:            null,
+          photos_classe:           Number(r.nb_photos ?? 0) > 0
+            ? JSON.stringify(Array.from({ length: Number(r.nb_photos) },
+                (_, i) => rapportJournalierApi.photoUrl(String(r.id), i)))
+            : null,
           reponses_questions:      r.reponses_questions ?? null,
           created_at:              String(r.created_at ?? new Date().toISOString()),
         });

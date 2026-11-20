@@ -342,19 +342,6 @@ export default function SupRapportsScreen() {
             <Feather name="chevron-right" size={rf(20)} color={C.brand} />
           </TouchableOpacity>
 
-          {/* ── Rapport pédagogiques — non disponible ── */}
-          <View style={[styles.menuCard, styles.menuCardDisabled]}>
-            <View style={[styles.menuCardIcon, { backgroundColor: C.surfaceAlt }]}>
-              <Feather name="book-open" size={rf(22)} color={C.textMuted} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.menuCardTitle, { color: C.textMuted }]}>Rapports pédagogiques</Text>
-              <Text style={styles.menuCardSub}>Suivi pédagogique des enseignants</Text>
-            </View>
-            <View style={styles.comingSoonBadge}>
-              <Text style={styles.comingSoonTxt}>Bientôt</Text>
-            </View>
-          </View>
         </ScrollView>
 
         <ProfileSheet visible={profileOpen} onClose={() => setProfileOpen(false)} />

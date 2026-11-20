@@ -15,15 +15,17 @@
  *   - Appels API (seancesApi, rapportsApi, etc.) → jest.mock
  */
 
-import { initDB, enqueueAction, getPendingActions, getFailedActions, markActionFailed, setLocalOwner } from "../services/db";
+import { initDB, enqueueAction, getPendingActions, getFailedActions, markActionFailed, markActionDeferred, setLocalOwner } from "../services/db";
 import { flushQueue, MAX_ATTEMPTS } from "../services/queue";
 
 // ── Mocks des APIs ────────────────────────────────────────────────────────────
 
 jest.mock("../services/api", () => ({
   seancesApi: {
-    start:  jest.fn(),
-    finish: jest.fn(),
+    start:    jest.fn(),
+    finish:   jest.fn(),
+    complete: jest.fn(),
+    active:   jest.fn(),
   },
   rapportsApi: {
     submit: jest.fn(),
@@ -49,6 +51,7 @@ function resetMocks() {
   jest.clearAllMocks();
   (seancesApi.start  as jest.Mock).mockResolvedValue({ data: { id: SERVER_UUID } });
   (seancesApi.finish as jest.Mock).mockResolvedValue({ data: {} });
+  (seancesApi.complete as jest.Mock).mockResolvedValue({ data: { id: SERVER_UUID } });
   (rapportsApi.submit as jest.Mock).mockResolvedValue({ data: {} });
   (rapportJournalierApi.submit as jest.Mock).mockResolvedValue({ data: {} });
 }
@@ -134,7 +137,7 @@ describe("flushQueue — cas nominaux", () => {
 });
 
 describe("flushQueue — réconciliation ID offline → UUID serveur", () => {
-  test("FINISH_SEANCE avec ID offline : crée la séance puis la termine", async () => {
+  test("FINISH_SEANCE avec ID offline : envoyée en une fois avec son identifiant local (APP-16/18)", async () => {
     enqueueAction("FINISH_SEANCE", {
       seance_id:     OFFLINE_ID,
       finished_at:   "2026-05-23T11:00:00Z",
@@ -150,15 +153,17 @@ describe("flushQueue — réconciliation ID offline → UUID serveur", () => {
     const count = await flushQueue();
 
     expect(count).toBe(1);
-    // 1. start() doit avoir été appelé avec le payload d'origine
-    expect(seancesApi.start).toHaveBeenCalledWith(expect.objectContaining({
-      classe:      "CE2",
-      session_id:  "sess-001",
+    // Un seul appel /complete : démarrage + clôture, identifiant local stable
+    expect(seancesApi.complete).toHaveBeenCalledWith(expect.objectContaining({
+      classe:           "CE2",
+      session_id:       "sess-001",
+      duree_minutes:    60,
+      client_seance_id: OFFLINE_ID,
     }));
-    // 2. finish() doit utiliser le vrai UUID retourné par le serveur
-    expect(seancesApi.finish).toHaveBeenCalledWith(SERVER_UUID, expect.objectContaining({
-      duree_minutes: 60,
-    }));
+    // Jamais de réutilisation de la séance active du serveur (ancien bug APP-18)
+    expect(seancesApi.start).not.toHaveBeenCalled();
+    expect(seancesApi.active).not.toHaveBeenCalled();
+    expect(seancesApi.finish).not.toHaveBeenCalled();
     expect(getPendingActions()).toHaveLength(0);
   });
 
@@ -287,6 +292,7 @@ describe("flushQueue — gestion des erreurs", () => {
 
   test("backoff exponentiel : une action pas encore due n'est pas rejouée", async () => {
     (seancesApi.finish as jest.Mock).mockResolvedValue({ data: {} });
+  (seancesApi.complete as jest.Mock).mockResolvedValue({ data: { id: SERVER_UUID } });
 
     const id = enqueueAction("FINISH_SEANCE", { seance_id: SERVER_UUID, finished_at: "2026-05-23T10:00:00Z", duree_minutes: 30 });
     // Simuler un échec récent avec un prochain essai programmé dans 10 minutes
@@ -303,6 +309,7 @@ describe("flushQueue — gestion des erreurs", () => {
 
   test("backoff exponentiel : une action dont le créneau est passé est rejouée", async () => {
     (seancesApi.finish as jest.Mock).mockResolvedValue({ data: {} });
+  (seancesApi.complete as jest.Mock).mockResolvedValue({ data: { id: SERVER_UUID } });
 
     const id = enqueueAction("FINISH_SEANCE", { seance_id: SERVER_UUID, finished_at: "2026-05-23T10:00:00Z", duree_minutes: 30 });
     // Le créneau de backoff est déjà passé
@@ -319,5 +326,58 @@ describe("flushQueue — gestion des erreurs", () => {
     const count = await flushQueue();
     expect(count).toBe(0);
     expect(seancesApi.finish).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("Rapport V2 — lot L2", () => {
+  const httpErr = (status: number, detail: unknown = "x") => ({ response: { status, data: { detail } }, message: "err" });
+
+  test("APP-16 : le rapport journalier part avec son identifiant local comme clé d'opération", async () => {
+    enqueueAction("SUBMIT_RAPPORT_JOURNALIER", { local_id: "rj-42", date_rapport: "2026-11-20" });
+    await flushQueue();
+    expect(rapportJournalierApi.submit).toHaveBeenCalledWith(expect.objectContaining({ client_op_id: "rj-42" }));
+  });
+
+  test("APP-16 : une panne serveur (503) ne compte pas d'échec et n'archive rien", async () => {
+    (rapportJournalierApi.submit as jest.Mock).mockRejectedValue(httpErr(503));
+    enqueueAction("SUBMIT_RAPPORT_JOURNALIER", { local_id: "rj-1" });
+    for (let i = 0; i < MAX_ATTEMPTS + 2; i++) {
+      await flushQueue();
+      // Simuler le temps qui passe : le nouvel essai devient dû
+      const item = getPendingActions()[0];
+      if (item) markActionDeferred(item.id, item.last_error ?? "", new Date(0).toISOString());
+    }
+    expect(rapportJournalierApi.submit).toHaveBeenCalledTimes(MAX_ATTEMPTS + 2);
+    expect(getPendingActions()).toHaveLength(1);
+    expect(getPendingActions()[0].attempts).toBe(0);
+    expect(getFailedActions()).toHaveLength(0);
+  });
+
+  test("APP-16 : un conflit explicite est archivé tout de suite, pour arbitrage", async () => {
+    (rapportJournalierApi.submit as jest.Mock).mockRejectedValue(
+      httpErr(409, { code: "IDEMPOTENCY_CONFLICT", message: "Clé déjà utilisée" }),
+    );
+    enqueueAction("SUBMIT_RAPPORT_JOURNALIER", { local_id: "rj-2" });
+    await flushQueue();
+    expect(getPendingActions()).toHaveLength(0);
+    const failed = getFailedActions();
+    expect(failed).toHaveLength(1);
+    expect(failed[0].last_error).toContain("Conflit");
+  });
+
+  test("APP-17/20 : aucune action d'un autre compte n'est envoyée", async () => {
+    enqueueAction("SUBMIT_RAPPORT_JOURNALIER", { local_id: "a-1" });
+    setLocalOwner("autre-compte");
+    enqueueAction("SUBMIT_RAPPORT_JOURNALIER", { local_id: "b-1" });
+    await flushQueue();
+    expect(rapportJournalierApi.submit).toHaveBeenCalledTimes(1);
+    expect(rapportJournalierApi.submit).toHaveBeenCalledWith(expect.objectContaining({ client_op_id: "b-1" }));
+  });
+
+  test("APP-17 : deux synchronisations simultanées n'envoient qu'une fois", async () => {
+    enqueueAction("SUBMIT_RAPPORT_JOURNALIER", { local_id: "rj-3" });
+    await Promise.all([flushQueue(), flushQueue(), flushQueue()]);
+    expect(rapportJournalierApi.submit).toHaveBeenCalledTimes(1);
   });
 });

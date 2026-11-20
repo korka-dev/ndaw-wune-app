@@ -84,6 +84,11 @@ export const useStore = create<AppStore>((set, get) => ({
         // directement pour que user ne soit pas null après un redémarrage.
         try {
           const { data: me } = await authApi.me();
+          // APP-20 : le cache hors ligne d'un autre compte n'est jamais montré.
+          try {
+            const cached = await getCached();
+            if (cached?.profile?.id && String(cached.profile.id) !== String(me.id)) await clearCache();
+          } catch {}
           set({ user: me });
           console.log("[Store] Profil récupéré via /auth/me (pas de cache)");
         } catch {
@@ -118,6 +123,11 @@ export const useStore = create<AppStore>((set, get) => ({
       if (!mustChange) {
         try {
           const { data: me } = await authApi.me();
+          // APP-20 : le cache hors ligne d'un autre compte n'est jamais montré.
+          try {
+            const cached = await getCached();
+            if (cached?.profile?.id && String(cached.profile.id) !== String(me.id)) await clearCache();
+          } catch {}
           set({ user: me });
           await setSecure("user_role", me.role);
         } catch (meErr) {

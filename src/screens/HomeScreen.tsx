@@ -477,37 +477,68 @@ export default function HomeScreen() {
       session_id:          sessionId,
       date_seance:         startedAt,
       started_at:          startedAt,
+      client_seance_id:    localId,   // identifiant stable (APP-16/18)
     };
     AsyncStorage.setItem(`start_payload_${localId}`, JSON.stringify(_startPayload)).catch(() => {});
 
     // ── 2. Enregistrer sur le serveur en arrière-plan ───────────────────────
     if (isOnline) {
-      seancesApi
-        .start({
-          classe:               classeVal,
-          matiere:              matiereVal,
-          planning_segment_id:  activeSeg.id ?? null,
-          session_id:           sessionId,
-          date_seance:          startedAt,   // date du jour (ISO 8601)
-          started_at:           startedAt,
-        })
-        .then(({ data }) => {
-          // Remplacer l'ID local par l'ID réel du serveur si la séance est toujours active
-          const current = useStore.getState().activeSeance;
-          if (current?.id === localId) {
-            setActiveSeance({
-              ...current,
-              id:         data.id,
-              started_at: data.started_at ?? startedAt,
-            });
-            // start_payload ne sert qu'à la réconciliation offline → inutile une fois le serverUUID obtenu
-            AsyncStorage.removeItem(`start_payload_${localId}`).catch(() => {});
-          }
-        })
-        .catch(() => {
-          // Échec réseau : on garde l'ID local, la séance sera réconciliée plus tard
-        });
+      registerStartOnServer(_startPayload, localId);
     }
+  };
+
+  /**
+   * Enregistre le démarrage sur le serveur. En cas de séance restée ouverte
+   * (409 SEANCE_ACTIVE, APP-21), la nouvelle séance CONTINUE sur le téléphone
+   * et le tuteur choisit : clôturer l'ancienne comme oubliée (tracé, sans durée)
+   * ou plus tard. Elle n'est jamais confondue avec la nouvelle (APP-18).
+   */
+  const registerStartOnServer = (startPayload: Record<string, any>, localId: string) => {
+    seancesApi
+      .start(startPayload as any)
+      .then(({ data }) => {
+        // Remplacer l'ID local par l'ID réel du serveur si la séance est toujours active
+        const current = useStore.getState().activeSeance;
+        if (current?.id === localId) {
+          setActiveSeance({
+            ...current,
+            id:         data.id,
+            started_at: data.started_at ?? startPayload.started_at,
+          });
+          // start_payload ne sert qu'à la réconciliation offline → inutile une fois le serverUUID obtenu
+          AsyncStorage.removeItem(`start_payload_${localId}`).catch(() => {});
+        }
+      })
+      .catch((err) => {
+        const detail = err?.response?.data?.detail;
+        if (err?.response?.status === 409 && detail?.code === "SEANCE_ACTIVE" && detail.active?.id) {
+          const a = detail.active;
+          const quand = a.started_at
+            ? new Date(a.started_at).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
+            : "date inconnue";
+          Alert.alert(
+            "Ancienne séance restée ouverte",
+            `Une séance (classe ${a.classe ?? "?"}, démarrée le ${quand}) n'a jamais été arrêtée.\n\n` +
+            "Votre nouvelle séance continue normalement sur le téléphone. " +
+            "Voulez-vous clôturer l'ancienne comme oubliée ? Aucune durée ne lui sera attribuée.",
+            [
+              { text: "Plus tard", style: "cancel" },
+              {
+                text: "Clôturer l'ancienne",
+                onPress: () => {
+                  seancesApi.recover(a.id, "Clôturée depuis l'app au démarrage d'une nouvelle séance")
+                    .then(() => registerStartOnServer(startPayload, localId))
+                    .catch(() => Alert.alert(
+                      "Clôture impossible",
+                      "Le serveur n'a pas pu être joint. La nouvelle séance reste enregistrée sur le téléphone et sera envoyée plus tard.",
+                    ));
+                },
+              },
+            ],
+          );
+        }
+        // Échec réseau : on garde l'ID local, la séance sera envoyée plus tard (/complete).
+      });
   };
 
 
@@ -635,7 +666,14 @@ export default function HomeScreen() {
               contenu:          "Séance complétée avec succès.",
               soumis_en_offline: true,
             });
-          } catch {}
+          } catch (e) {
+            // APP-47 : jamais d'échec muet — sans enregistrement local, la séance serait perdue.
+            Alert.alert(
+              "Enregistrement impossible",
+              "La fin de séance n'a pu être ni envoyée ni enregistrée sur le téléphone. " +
+              "Notez l'heure de fin et prévenez votre superviseur.",
+            );
+          }
         });
     } else {
       // Hors-ligne ou séance locale → queue directement avec payload de démarrage
@@ -661,7 +699,14 @@ export default function HomeScreen() {
           contenu:           "Séance complétée avec succès.",
           soumis_en_offline: true,
         });
-      } catch {}
+      } catch (e) {
+        // APP-47 : jamais d'échec muet — sans enregistrement local, la séance serait perdue.
+        Alert.alert(
+          "Enregistrement impossible",
+          "La fin de séance n'a pu être ni envoyée ni enregistrée sur le téléphone. " +
+          "Notez l'heure de fin et prévenez votre superviseur.",
+        );
+      }
     }
   };
 
@@ -699,7 +744,13 @@ export default function HomeScreen() {
         });
       } else if (activeSeance) {
         const localId = `offline-${Date.now()}`;
-        enqueueAction("FINISH_SEANCE", { seance_id: activeSeance.id, finished_at: finishedAt, duree_minutes: dureeMinutes });
+        const spRaw = activeSeance.id.startsWith("offline-")
+          ? await AsyncStorage.getItem(`start_payload_${activeSeance.id}`).catch(() => null)
+          : null;
+        enqueueAction("FINISH_SEANCE", {
+          seance_id: activeSeance.id, finished_at: finishedAt, duree_minutes: dureeMinutes,
+          start_payload: spRaw ? JSON.parse(spRaw) : undefined,
+        });
         enqueueAction("SUBMIT_RAPPORT", {
           local_rapport_id: localId, seance_id: activeSeance.id,
           contenu: commentaire.trim() || `Présences: ${presences}. Bilan: ${bilan}.`,

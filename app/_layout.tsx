@@ -111,6 +111,10 @@ export default function RootLayout() {
           options={{ animation: "slide_from_right" }}
         />
         <Stack.Screen
+          name="sync-center"
+          options={{ animation: "slide_from_right" }}
+        />
+        <Stack.Screen
           name="remarques"
           options={{ animation: "slide_from_bottom" }}
         />

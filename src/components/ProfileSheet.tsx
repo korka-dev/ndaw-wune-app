@@ -21,6 +21,7 @@ import RemplacementSheet from "./RemplacementSheet";
 import RemplacantsListSheet from "./RemplacantsListSheet";
 import Constants from "expo-constants";
 import { useStore } from "../store/useStore";
+import { countUnsentForOwner, getFailedActions } from "../services/db";
 import { openAppGuide } from "./AppGuide";
 import { C } from "../utils/theme";
 import { rs, rf } from "../utils/responsive";
@@ -112,8 +113,20 @@ export default function ProfileSheet({ visible, onClose }: Props) {
     }
   };
 
+  // APP-19 : la déconnexion annonce exactement ce qui reste sur le téléphone.
+  let nonEnvoyes = 0;
+  let aVerifier = 0;
+  try { nonEnvoyes = countUnsentForOwner(); aVerifier = getFailedActions().length; } catch {}
+
   const handleLogout = () => {
-    Alert.alert("Déconnexion", "Voulez-vous vous déconnecter ?", [
+    const detail = nonEnvoyes > 0 || aVerifier > 0
+      ? `\n\n${nonEnvoyes > 0 ? `${nonEnvoyes} saisie(s) pas encore envoyée(s)` : ""}` +
+        `${nonEnvoyes > 0 && aVerifier > 0 ? " et " : ""}` +
+        `${aVerifier > 0 ? `${aVerifier} saisie(s) à vérifier` : ""}` +
+        " resteront sur ce téléphone, à votre nom. Elles partiront à votre prochaine connexion ; " +
+        "aucune autre personne ne pourra les voir ni les envoyer."
+      : "";
+    Alert.alert("Déconnexion", `Voulez-vous vous déconnecter ?${detail}`, [
       { text: "Annuler", style: "cancel" },
       {
         text: "Se déconnecter",
@@ -245,6 +258,28 @@ export default function ProfileSheet({ visible, onClose }: Props) {
                 </TouchableOpacity>
               </View>
             )}
+
+            {/* ── Centre de synchronisation ── */}
+            <View style={s.menuCard}>
+              <TouchableOpacity
+                style={s.menuRow}
+                activeOpacity={0.6}
+                onPress={() => { onClose(); setTimeout(() => router.push("/sync-center"), 320); }}
+              >
+                <View style={s.menuIconBox}>
+                  <Feather name="upload-cloud" size={rf(22)} color={nonEnvoyes + aVerifier > 0 ? C.danger : C.brand} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.menuLabel}>Synchronisation</Text>
+                  <Text style={s.menuSub}>
+                    {nonEnvoyes + aVerifier === 0
+                      ? "Tout est envoyé"
+                      : `${nonEnvoyes} en attente${aVerifier > 0 ? ` · ${aVerifier} à vérifier` : ""}`}
+                  </Text>
+                </View>
+                <Feather name="chevron-right" size={rf(20)} color="#AAA" />
+              </TouchableOpacity>
+            </View>
 
             {/* ── Aide ── */}
             <View style={s.menuCard}>

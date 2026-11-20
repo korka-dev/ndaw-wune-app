@@ -23,8 +23,10 @@ import { isPasswordChangeRequiredError, isUpdateRequiredError } from "./appVersi
 import { seancesApi, rapportsApi, rapportJournalierApi, superviseurApi } from "./api";
 import {
   getPendingActions,
+  getLocalOwner,
   deleteAction,
   markActionFailed,
+  markActionDeferred,
   resetFailedActions as resetFailedActionsDB,
   markRapportSynced,
   markRapportJournalierSynced,
@@ -61,6 +63,44 @@ function computeNextRetryAt(attempts: number): string {
 function isDueForRetry(item: QueueItem): boolean {
   if (!item.next_retry_at) return true;
   return new Date(item.next_retry_at).getTime() <= Date.now();
+}
+
+// ── Classement des erreurs (APP-16) ───────────────────────────────────────────
+//
+//   network   : pas de réponse → arrêt du flush, rien n'est compté
+//   temporary : 408 / 429 / 5xx → nouvelle tentative plus tard, SANS compter
+//               d'échec (une panne serveur n'archive jamais une saisie)
+//   conflict  : 409 explicite (même clé, autre contenu ; séance déjà clôturée
+//               avec d'autres valeurs) → archivée tout de suite, visible et
+//               rejouable depuis le centre de synchronisation
+//   refused   : autre 4xx (données refusées) → tentatives comptées puis archive
+
+export type ErrorKind = "network" | "temporary" | "conflict" | "refused";
+
+const CONFLICT_CODES = new Set(["IDEMPOTENCY_CONFLICT", "SEANCE_DEJA_CLOTUREE"]);
+
+export function classifyError(err: unknown): ErrorKind {
+  const r = (err as { response?: { status?: number; data?: { detail?: unknown } } })?.response;
+  if (!r) return "network";
+  const st = r.status ?? 0;
+  if (st === 408 || st === 429 || st >= 500) return "temporary";
+  const detail = r.data?.detail as { code?: string } | undefined;
+  if (st === 409 && detail && typeof detail === "object" && CONFLICT_CODES.has(detail.code ?? "")) {
+    return "conflict";
+  }
+  return "refused";
+}
+
+export function errorMessage(err: unknown): string {
+  const rawDetail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  if (Array.isArray(rawDetail)) {
+    return rawDetail.map((e: any) => (typeof e === "object" ? (e?.msg ?? JSON.stringify(e)) : String(e))).join("; ");
+  }
+  if (typeof rawDetail === "string") return rawDetail;
+  if (rawDetail && typeof rawDetail === "object" && "message" in rawDetail) {
+    return String((rawDetail as { message: unknown }).message);
+  }
+  return (err as { message?: string })?.message ?? "Erreur inconnue";
 }
 
 const OFFLINE_ID_MAP_KEY = "offline_seance_id_map";
@@ -106,8 +146,16 @@ async function _flushQueueInner(): Promise<number> {
 
   console.log(`[Queue] Flush — ${pending.length} action(s) en attente`);
   let synced = 0;
+  const owner = getLocalOwner();
 
   for (const item of pending) {
+    // APP-17/20 : si le compte change pendant l'envoi (déconnexion, autre
+    // utilisateur), on s'arrête — aucune action n'est envoyée sous une autre identité.
+    if (!owner || getLocalOwner() !== owner || (item.owner_id && item.owner_id !== owner)) {
+      console.warn("[Queue] Changement de compte pendant l'envoi — arrêt du flush");
+      break;
+    }
+
     if (item.attempts >= MAX_ATTEMPTS) {
       console.warn(`[Queue] Action ${item.id} (${item.action}) archivée après ${item.attempts} tentatives`);
       // Archiver avant de supprimer — visible dans l'écran Profil sous "Erreurs de sync"
@@ -123,7 +171,7 @@ async function _flushQueueInner(): Promise<number> {
 
     // Backoff exponentiel : une action déjà en échec attend son créneau avant
     // d'être rejouée, pour ne pas marteler le serveur à chaque flush (30 s).
-    if (item.attempts > 0 && !isDueForRetry(item)) {
+    if (!isDueForRetry(item)) {
       console.log(`[Queue] Action ${item.id} (${item.action}) en attente de backoff — prochaine tentative à ${item.next_retry_at}`);
       continue;
     }
@@ -171,8 +219,6 @@ async function _flushQueueInner(): Promise<number> {
         continue;
       }
 
-      const isNetworkError = !err?.response;
-
       // APP-46 / APP-08 : version trop ancienne ou mot de passe temporaire à
       // changer. Ce n'est pas une erreur de la saisie : on arrête le flush SANS
       // pénalité ni archivage. Tout repartira après la mise à jour / l'activation.
@@ -181,23 +227,32 @@ async function _flushQueueInner(): Promise<number> {
         break;
       }
 
-      // FastAPI 422 renvoie detail comme un array d'objets — on les sérialise proprement
-      const rawDetail = err?.response?.data?.detail;
-      const errMsg: string = Array.isArray(rawDetail)
-        ? rawDetail.map((e: any) => (typeof e === "object" ? (e?.msg ?? JSON.stringify(e)) : String(e))).join("; ")
-        : typeof rawDetail === "string"
-          ? rawDetail
-          : (err?.message ?? "Erreur inconnue");
-
+      const errMsg = errorMessage(err);
       const httpStatus = err?.response?.status ?? "réseau";
 
-      if (isNetworkError) {
-        console.warn(`[Queue] Erreur réseau — arrêt du flush`);
-        break;
-      } else {
-        const nextRetryAt = computeNextRetryAt(item.attempts + 1);
-        markActionFailed(item.id, errMsg, nextRetryAt);
-        console.warn(`[Queue] ❌ ${item.action} (id ${item.id}) [HTTP ${httpStatus}] échoué : ${errMsg} — prochaine tentative à ${nextRetryAt}`);
+      switch (classifyError(err)) {
+        case "network":
+          console.warn(`[Queue] Erreur réseau — arrêt du flush`);
+          return synced;
+        case "temporary":
+          markActionDeferred(item.id, `Serveur indisponible (HTTP ${httpStatus}) — nouvel essai automatique`, computeNextRetryAt(item.attempts + 1));
+          console.warn(`[Queue] ⏸ ${item.action} (id ${item.id}) [HTTP ${httpStatus}] incident temporaire — arrêt du flush`);
+          return synced;
+        case "conflict":
+          archiveFailedAction({
+            action:     item.action,
+            payload:    item.payload,
+            attempts:   item.attempts + 1,
+            last_error: `Conflit : ${errMsg}`,
+          });
+          deleteAction(item.id);
+          console.warn(`[Queue] ⚠ ${item.action} (id ${item.id}) conflit — archivé pour arbitrage : ${errMsg}`);
+          break;
+        default: {
+          const nextRetryAt = computeNextRetryAt(item.attempts + 1);
+          markActionFailed(item.id, errMsg, nextRetryAt);
+          console.warn(`[Queue] ❌ ${item.action} (id ${item.id}) [HTTP ${httpStatus}] refusé : ${errMsg} — prochaine tentative à ${nextRetryAt}`);
+        }
       }
     }
   }
@@ -228,26 +283,19 @@ async function processAction(item: QueueItem): Promise<void> {
             throw err;
           }
 
-          let resolvedServerId: string;
-          try {
-            console.log(`[Queue] start_payload envoyé →`, JSON.stringify(payload.start_payload));
-            const { data: started } = await seancesApi.start(payload.start_payload);
-            resolvedServerId = started.id;
-          } catch (startErr: any) {
-            if (startErr?.response?.status === 409) {
-              // Une séance est déjà active sur le serveur → on récupère son ID
-              // pour continuer la réconciliation (finish + rapport).
-              console.warn(`[Queue] start 409 — récupération de la séance active existante`);
-              const { data: active } = await seancesApi.active();
-              if (!active?.id) throw startErr; // pas de séance active trouvée, on remonte l'erreur
-              resolvedServerId = active.id;
-            } else {
-              throw startErr;
-            }
-          }
+          // APP-16/18 : la séance hors ligne est envoyée en une fois, avec son
+          // identifiant local stable. Le serveur la crée une seule fois (rejeu
+          // sans doublon) et ne la confond JAMAIS avec une autre séance active.
+          const { start_payload, ...finish } = body as Record<string, unknown> & { start_payload?: object };
+          const { data: done } = await seancesApi.complete({
+            ...payload.start_payload,
+            ...finish,
+            client_seance_id: seance_id,
+          });
+          const resolvedServerId: string = done.id;
 
           await setOfflineIdMapping(seance_id, resolvedServerId);
-          idMap[seance_id] = resolvedServerId;
+          return; // séance créée ET clôturée par /complete
         }
 
         await seancesApi.finish(idMap[seance_id], body);
@@ -282,7 +330,9 @@ async function processAction(item: QueueItem): Promise<void> {
 
     case "SUBMIT_RAPPORT_JOURNALIER": {
       const { local_id, ...body } = payload;
-      const res = await rapportJournalierApi.submit(body);
+      // Clé d'opération = identifiant local du rapport (APP-16), y compris pour
+      // les actions mises en file par une version précédente de l'app.
+      const res = await rapportJournalierApi.submit({ ...body, client_op_id: body.client_op_id ?? local_id ?? `queue-${item.id}-${item.created_at}` });
       if (local_id) markRapportJournalierSynced(local_id, res?.data?.id);
       break;
     }

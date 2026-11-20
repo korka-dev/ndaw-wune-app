@@ -9,15 +9,23 @@ Ceci est l'application mobile pour le projet NDAW-WUNE, développée avec [React
 
 ## Installation
 
-1. Assurez-vous d'être dans le dossier `app-mobile` :
+1. Placez-vous à la racine de ce dépôt (`ndaw-wune-app`, celui qui contient
+   `package.json` et `app.json`) :
    ```bash
-   cd app-mobile
+   git clone git@github.com:korka-dev/ndaw-wune-app.git
+   cd ndaw-wune-app
    ```
 
-2. Installez les dépendances du projet (en utilisant l'indicateur `--legacy-peer-deps` pour éviter les conflits liés aux dépendances paires) :
+2. Installez exactement les versions verrouillées (`package-lock.json`) :
    ```bash
-   npm install --legacy-peer-deps
+   npm ci
    ```
+
+3. Indiquez l'API à utiliser dans `.env.local` (jamais committé) :
+   ```bash
+   echo "EXPO_PUBLIC_API_URL=http://<ip-de-votre-poste>:8000/api/v1" > .env.local
+   ```
+   Pour les versions de recette et de production, voir `BUILD.md`.
 
 ## Lancer l'application
 
@@ -48,6 +56,26 @@ Une fois le serveur démarré, un **QR Code** s'affichera dans votre terminal.
      ```bash
      npm run ios
      ```
+
+## Vérifier avant de livrer
+
+```bash
+npx tsc --noEmit -p .
+npx jest
+```
+
+La CI GitHub (`.github/workflows/ci.yml`) rejoue ces deux contrôles et l'audit
+des dépendances à chaque pull request.
+
+## Synchronisation hors ligne
+
+- Toute saisie est d'abord enregistrée sur le téléphone (SQLite), rattachée à
+  son auteur, puis envoyée par la file `src/services/queue.ts`.
+- Chaque envoi porte un identifiant stable (`client_op_id`, `client_seance_id`) :
+  un renvoi après coupure ne crée jamais de doublon côté serveur.
+- **Profil → Synchronisation** montre ce qui attend, ce qui a été refusé
+  (Réessayer / Supprimer) et la date du dernier envoi. La déconnexion ne supprime
+  jamais les saisies non envoyées.
 
 ## Structure du projet
 

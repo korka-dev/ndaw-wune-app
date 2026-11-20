@@ -1,7 +1,7 @@
 /**
  * Écran Détail d'un rapport journalier — page dédiée (pas de modal)
  */
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Image,
 } from "react-native";
@@ -14,6 +14,7 @@ import { rs, rf } from "../utils/responsive";
 import { C } from "../utils/theme";
 import { getRapportJournalierById } from "../services/db";
 import { useStore } from "../store/useStore";
+import { getSecure } from "../services/secureStorage";
 import AppHeader from "../components/AppHeader";
 import ProfileSheet from "../components/ProfileSheet";
 import BackButton from "../components/BackButton";
@@ -46,6 +47,9 @@ export default function RapportDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { user, isOnline, syncOffline } = useStore();
+  // Jeton courant (relu à l'ouverture : il a pu être renouvelé) pour les photos.
+  const [token, setToken] = useState<string | null>(null);
+  useEffect(() => { getSecure("access_token").then(setToken).catch(() => {}); }, []);
   const [profileOpen, setProfileOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
@@ -202,7 +206,10 @@ export default function RapportDetailScreen() {
                 {uris.map((uri, i) => (
                   <Image
                     key={i}
-                    source={{ uri }}
+                    // APP-37 : photo servie par l'API à la demande, avec le jeton.
+                    source={uri.startsWith("http") && token
+                      ? { uri, headers: { Authorization: `Bearer ${token}` } }
+                      : { uri }}
                     style={uris.length === 1 ? s.photoFull : s.photoThumb}
                     resizeMode="cover"
                   />

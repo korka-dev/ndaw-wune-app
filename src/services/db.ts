@@ -28,6 +28,7 @@ export interface QueueItem {
   last_error:    string | null; // dernier message d'erreur
   next_retry_at: string | null; // ISO 8601 — ne pas rejouer avant cette date (backoff exponentiel)
   created_at:    string;        // ISO 8601
+  owner_id?:     string | null; // auteur de la saisie (APP-20)
 }
 
 export interface FailedQueueItem {
@@ -147,6 +148,19 @@ const MIGRATIONS: Migration[] = [
     version: 7,
     up: (db) => {
       for (const table of ["offline_queue", "rapports_journalier", "failed_queue"]) {
+        try {
+          db.execSync(`ALTER TABLE ${table} ADD COLUMN owner_id TEXT`);
+        } catch { /* colonne déjà présente */ }
+      }
+    },
+  },
+  {
+    // APP-20 : le pointage superviseur et les caches de rapports appartiennent
+    // aussi à leur auteur. Les anciennes lignes (sans auteur) restent visibles
+    // uniquement dans la quarantaine du centre de synchronisation.
+    version: 8,
+    up: (db) => {
+      for (const table of ["supervisor_presence_local", "supervisor_teachers_cache", "rapports_cache"]) {
         try {
           db.execSync(`ALTER TABLE ${table} ADD COLUMN owner_id TEXT`);
         } catch { /* colonne déjà présente */ }
@@ -369,6 +383,59 @@ export function markActionFailed(id: number, error: string, nextRetryAt: string)
 }
 
 /**
+ * Incident temporaire (serveur indisponible, 5xx, 429) : on programme une
+ * nouvelle tentative SANS compter d'échec — une panne serveur ne doit jamais
+ * conduire à archiver une saisie (APP-16).
+ */
+export function markActionDeferred(id: number, error: string, nextRetryAt: string): void {
+  getDB().runSync(
+    `UPDATE offline_queue SET last_error = ?, next_retry_at = ? WHERE id = ?`,
+    [error, nextRetryAt, id],
+  );
+}
+
+/** Remet une action archivée dans la file (bouton « Réessayer » du centre de synchronisation). */
+export function requeueFailedAction(failedId: number): boolean {
+  if (!_localOwner) return false;
+  const row = getDB().getFirstSync<FailedQueueItem & { owner_id: string | null }>(
+    `SELECT * FROM failed_queue WHERE id = ? AND owner_id = ?`, [failedId, _localOwner]);
+  if (!row) return false;
+  getDB().runSync(
+    `INSERT INTO offline_queue (action, payload, owner_id) VALUES (?, ?, ?)`,
+    [row.action, row.payload, _localOwner],
+  );
+  getDB().runSync(`DELETE FROM failed_queue WHERE id = ? AND owner_id = ?`, [failedId, _localOwner]);
+  return true;
+}
+
+/** Supprime UNE action archivée du compte connecté (après confirmation explicite). */
+export function deleteFailedAction(failedId: number): void {
+  if (!_localOwner) return;
+  getDB().runSync(`DELETE FROM failed_queue WHERE id = ? AND owner_id = ?`, [failedId, _localOwner]);
+}
+
+/**
+ * Saisies sans auteur identifié (anciennes versions de l'app) : jamais envoyées
+ * ni affichées sous un compte. Leur nombre est montré dans le centre de
+ * synchronisation (quarantaine visible, APP-20).
+ */
+export function countQuarantined(): number {
+  const q = getDB().getFirstSync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM offline_queue WHERE owner_id IS NULL`);
+  const r = getDB().getFirstSync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM rapports_journalier WHERE owner_id IS NULL AND synced = 0`);
+  return (q?.n ?? 0) + (r?.n ?? 0);
+}
+
+/** Saisies non envoyées d'AUTRES comptes sur ce téléphone (sans détail). */
+export function countOtherOwnersUnsent(): number {
+  if (!_localOwner) return 0;
+  const q = getDB().getFirstSync<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM offline_queue WHERE owner_id IS NOT NULL AND owner_id != ?`, [_localOwner]);
+  return q?.n ?? 0;
+}
+
+/**
  * Réinitialise le compteur de tentatives de toutes les actions échouées.
  * Utile après une panne serveur résolue — permet de rejouer les actions bloquées.
  * @param maxAttempts seuil à partir duquel une action est considérée bloquée (doit correspondre à MAX_ATTEMPTS dans queue.ts)
@@ -397,8 +464,8 @@ export function upsertRapportCache(rapport: Omit<RapportCache, "created_at">): v
   db.runSync(
     `INSERT OR REPLACE INTO rapports_cache
        (id, seance_id, classe, matiere, date_seance,
-        contenu, points_positifs, difficultes, synced)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        contenu, points_positifs, difficultes, synced, owner_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       rapport.id,
       rapport.seance_id,
@@ -409,6 +476,7 @@ export function upsertRapportCache(rapport: Omit<RapportCache, "created_at">): v
       rapport.points_positifs ?? null,
       rapport.difficultes ?? null,
       rapport.synced,
+      _localOwner,
     ],
   );
 }
@@ -428,7 +496,8 @@ export function markRapportSynced(id: string): void {
  */
 export function getCachedRapports(): RapportCache[] {
   return getDB().getAllSync<RapportCache>(
-    `SELECT * FROM rapports_cache ORDER BY date_seance DESC`,
+    `SELECT * FROM rapports_cache WHERE owner_id = ? ORDER BY date_seance DESC`,
+    [_localOwner],
   );
 }
 
@@ -580,6 +649,14 @@ export function upsertRapportJournalierFromServer(r: {
   }
 
   if (existant) {
+    // APP-37 : les photos prises sur CE téléphone (fichiers locaux) restent
+    // affichables hors ligne ; on ne les remplace pas par les adresses serveur.
+    const local = db.getFirstSync<{ photo_classe: string | null; photos_classe: string | null }>(
+      `SELECT photo_classe, photos_classe FROM rapports_journalier WHERE server_id = ?`, [r.server_id]);
+    const garderPhotos = !!local && /file:|content:/.test(`${local.photos_classe ?? ""}${local.photo_classe ?? ""}`);
+    if (garderPhotos) {
+      r = { ...r, photo_classe: local!.photo_classe, photos_classe: local!.photos_classe };
+    }
     db.runSync(
       `UPDATE rapports_journalier SET
          date_rapport = ?, nb_absences = ?, absents = ?, semaine = ?, jour_cours = ?,
@@ -664,16 +741,17 @@ export function upsertSupervisorTeachers(
   const db = getDB();
   for (const t of teachers) {
     db.runSync(
-      `INSERT OR REPLACE INTO supervisor_teachers_cache (teacher_id, teacher_nom, teacher_cls, cached_at)
-       VALUES (?, ?, ?, datetime('now'))`,
-      [t.id, t.nom, t.cls],
+      `INSERT OR REPLACE INTO supervisor_teachers_cache (teacher_id, teacher_nom, teacher_cls, owner_id, cached_at)
+       VALUES (?, ?, ?, ?, datetime('now'))`,
+      [t.id, t.nom, t.cls, _localOwner],
     );
   }
 }
 
 export function getSupervisorTeachersCache(): SupervisorTeacherCache[] {
   return getDB().getAllSync<SupervisorTeacherCache>(
-    `SELECT * FROM supervisor_teachers_cache ORDER BY teacher_nom ASC`,
+    `SELECT * FROM supervisor_teachers_cache WHERE owner_id = ? ORDER BY teacher_nom ASC`,
+    [_localOwner],
   );
 }
 
@@ -706,12 +784,13 @@ export function upsertSupervisorPresence(entry: {
 }): void {
   getDB().runSync(
     `INSERT INTO supervisor_presence_local
-       (date_jour, teacher_id, teacher_nom, teacher_cls, present, motif, synced, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+       (date_jour, teacher_id, teacher_nom, teacher_cls, present, motif, synced, owner_id, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
      ON CONFLICT(date_jour, teacher_id) DO UPDATE SET
        present    = excluded.present,
        motif      = excluded.motif,
        synced     = excluded.synced,
+       owner_id   = excluded.owner_id,
        updated_at = excluded.updated_at`,
     [
       entry.date_jour,
@@ -721,21 +800,22 @@ export function upsertSupervisorPresence(entry: {
       entry.present === null ? null : (entry.present ? 1 : 0),
       entry.motif ?? null,
       entry.synced ?? 0,
+      _localOwner,
     ],
   );
 }
 
 export function getSupervisorPresenceForDate(dateJour: string): SupervisorPresenceLocal[] {
   return getDB().getAllSync<SupervisorPresenceLocal>(
-    `SELECT * FROM supervisor_presence_local WHERE date_jour = ? ORDER BY teacher_nom ASC`,
-    [dateJour],
+    `SELECT * FROM supervisor_presence_local WHERE date_jour = ? AND owner_id = ? ORDER BY teacher_nom ASC`,
+    [dateJour, _localOwner],
   );
 }
 
 export function markSupervisorPresenceSynced(dateJour: string): void {
   getDB().runSync(
-    `UPDATE supervisor_presence_local SET synced = 1 WHERE date_jour = ?`,
-    [dateJour],
+    `UPDATE supervisor_presence_local SET synced = 1 WHERE date_jour = ? AND owner_id = ?`,
+    [dateJour, _localOwner],
   );
 }
 

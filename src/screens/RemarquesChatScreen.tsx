@@ -114,8 +114,13 @@ export default function RemarquesChatScreen() {
       pushBot("✅ Votre signalement a bien été transmis à l'équipe Ndaw Wune. Merci !\n\nVous pouvez signaler un autre problème si besoin.");
     } catch {
       // Hors-ligne ou erreur → file d'attente offline (renvoyé automatiquement)
-      try { enqueueAction("SUBMIT_REMARQUE", payload); } catch { /* silencieux */ }
-      pushBot("📥 Vous êtes hors-ligne : votre signalement a été enregistré et sera envoyé automatiquement dès le retour de la connexion.\n\nVous pouvez signaler un autre problème si besoin.");
+      try {
+        enqueueAction("SUBMIT_REMARQUE", payload);
+        pushBot("📥 Votre signalement n'a pas pu partir tout de suite : il est enregistré sur le téléphone et sera envoyé automatiquement (voir Profil → Synchronisation).\n\nVous pouvez signaler un autre problème si besoin.");
+      } catch {
+        // APP-47 : jamais d'échec muet.
+        pushBot("⚠️ Votre signalement n'a pas pu être envoyé ni enregistré. Réessayez dans un instant ou prévenez votre superviseur.");
+      }
     } finally {
       setSending(false);
       setStep("done");
