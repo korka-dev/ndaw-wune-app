@@ -29,7 +29,7 @@
 
 import * as Speech from "expo-speech";
 import { Platform, Vibration, AppState } from "react-native";
-import { Audio } from "expo-av";
+import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 import Constants, { ExecutionEnvironment } from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
@@ -896,19 +896,23 @@ export async function cancelPauseAlert(): Promise<void> {
    Notification immédiate — fin de segment (utilisée par le timer séance)
    ════════════════════════════════════════════════════════════════ */
 export async function playAlarmSound(): Promise<void> {
+  // expo-audio remplace expo-av (non maintenu, retiré des SDK récents).
+  // Lecture au premier plan : en arrière-plan, c'est le son de la
+  // notification planifiée qui prévient le tuteur.
   try {
-    await Audio.setAudioModeAsync({
-      playsInSilentModeIOS:       true,
-      staysActiveInBackground:    true,
-      playThroughEarpieceAndroid: false,
+    await setAudioModeAsync({
+      playsInSilentMode:          true,
+      shouldPlayInBackground:     false,
+      shouldRouteThroughEarpiece: false,
     });
-    const { sound } = await Audio.Sound.createAsync(
-      require("../../assets/sounds/finactivite.mp3"),
-    );
-    await sound.playAsync();
-    sound.setOnPlaybackStatusUpdate(status => {
-      if (status.isLoaded && status.didJustFinish) sound.unloadAsync();
+    const player = createAudioPlayer(require("../../assets/sounds/finactivite.mp3"));
+    const abonnement = player.addListener("playbackStatusUpdate", (status) => {
+      if (status.didJustFinish) {
+        abonnement.remove();
+        player.remove();
+      }
     });
+    player.play();
   } catch (e) {
     console.warn("[AlarmSound] Erreur lecture :", e);
   }

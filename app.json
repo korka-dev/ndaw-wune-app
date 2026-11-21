@@ -88,7 +88,8 @@
         {
           "faceIDPermission": "Ndaw Wune utilise Face ID pour verrouiller l'accès à l'application."
         }
-      ]
+      ],
+      "expo-audio"
     ],
     "scheme": "ared-ndawune",
     "runtimeVersion": {
