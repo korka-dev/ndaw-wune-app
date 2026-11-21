@@ -131,11 +131,59 @@ nouveau build natif (point 2), jamais pour un simple `eas update`.
 
 ---
 
-## 4. Vulnérabilités npm (postcss / ws)
+## 4. Vulnérabilités npm
 
-Ne jamais lancer `npm audit fix --force` — cela upgraderait Expo et casserait l'app.
+Ne jamais lancer `npm audit fix --force` : il changerait la version d'Expo
+hors de la procédure ci-dessous. Après la montée en SDK 58, `npm audit
+--omit=dev` ne signale plus que 3 alertes « moderate » dans l'outillage de
+build (`minimatch` via `@expo/fingerprint`), absentes du bundle de l'app.
 
-Les dépendances `postcss` et `ws` sont déjà patchées via `overrides` dans `package.json`. Un simple `npm install` suffit.
+---
+
+## 5. Montée Expo SDK 54 → 58 (version 1.1.0)
+
+La branche `lot-L5-expo-sdk` passe le projet de **SDK 54 (RN 0.81)** à
+**SDK 58 (RN 0.88, React 19.3, TypeScript 6)**, une version à la fois
+(55, 56, 57, 58). Changements :
+
+- **Son de fin d'activité** : `expo-av` remplacé par `expo-audio` (le module
+  n'est plus maintenu). Le son est joué au premier plan ; en arrière-plan,
+  c'est la notification planifiée qui sonne.
+- **Splash** : configuration déplacée dans le plugin `expo-splash-screen`.
+- **Barre d'état** : `backgroundColor` / `translucent` supprimés. Android
+  est « edge-to-edge » depuis le SDK 54 ; les marges viennent des safe areas.
+- **Dépendances devenues explicites** : `@expo/vector-icons`, `expo-asset`,
+  `expo-system-ui` (applique le thème clair sur Android),
+  `@expo/config-plugins` (requis par le plugin `react-native-pdf`, seul
+  avertissement restant d'`expo-doctor`), `@react-native/jest-preset` et
+  `react-test-renderer` (tests).
+- **TypeScript 6** (mode strict par défaut) et **RN 0.88** (composants en
+  fonctions) : les refs utilisent `ComponentRef<typeof View>` ;
+  `StyleSheet.absoluteFillObject` devient `StyleSheet.absoluteFill`.
+
+### Mise en service : un NOUVEL APK est obligatoire
+
+Le code natif change : **aucune mise à jour OTA ne peut faire passer un
+APK SDK 54 en SDK 58.** La version passe à **1.1.0** ; avec
+`runtimeVersion.policy = "appVersion"`, les OTA de la 1.1.0 ne sont jamais
+envoyées aux APK 1.0.0, qui continuent à recevoir celles de la 1.0.0.
+
+1. `npm ci`, puis `npm run verifier:bundle -- --export`.
+2. `eas build --profile preview --platform android`, puis installation sur
+   le **téléphone de référence**. Recette : connexion ; synchronisation et
+   file d'attente (saisies hors ligne conservées depuis la 1.0.0 installée
+   par-dessus) ; démarrage et fin de séance avec le **son d'alarme** ;
+   notifications vocales ; ouverture d'une ressource **PDF** ; photo du
+   rapport ; évaluation d'un élève (superviseur) ; verrou biométrique ; mise à jour OTA.
+3. Diffusion de l'APK 1.1.0 aux tuteurs et superviseurs.
+4. Une fois tous les terminaux en 1.1.0 : `MIN_APP_VERSION=1.1.0` côté API.
+   Les retardataires voient l'écran de mise à jour ; leur file d'attente est
+   conservée et envoyée après installation.
+5. Publication Play Store : renseigner `android.versionCode` (supérieur au
+   dernier publié) dans `app.json` avant `eas build --profile production`.
+
+Retour arrière : réinstaller l'APK 1.0.0 (SDK 54), qui continue de recevoir
+les OTA de la branche 1.0.0.
 
 ---
 

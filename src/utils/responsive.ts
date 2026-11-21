@@ -12,7 +12,7 @@
  *   width:    wp(90)      // 90 % de la largeur écran
  */
 
-import { Dimensions, PixelRatio, Platform } from "react-native";
+import { Dimensions, PixelRatio, Platform, type ScaledSize } from "react-native";
 
 /** Largeur de référence (iPhone SE / petits Androids) */
 const BASE_W = 375;
@@ -20,7 +20,7 @@ const BASE_W = 375;
 let screenW = Dimensions.get("window").width;
 let screenH = Dimensions.get("window").height;
 
-Dimensions.addEventListener("change", ({ window }) => {
+Dimensions.addEventListener("change", ({ window }: { window: ScaledSize }) => {
   screenW = window.width;
   screenH = window.height;
 });

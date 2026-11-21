@@ -61,7 +61,7 @@ export default function TabsLayout() {
         options={{
           title: "Accueil",
           tabBarIcon: ({ color, size }) => (
-            <Feather name="home" size={size ?? 22} color={color} />
+            <Feather name="home" size={size ?? 22} color={color as string} />
           ),
         }}
       />
@@ -71,7 +71,7 @@ export default function TabsLayout() {
           href: timerOnly ? null : undefined,
           title: "Rapports",
           tabBarIcon: ({ color, size }) => (
-            <Feather name="send" size={size ?? 22} color={color} />
+            <Feather name="send" size={size ?? 22} color={color as string} />
           ),
         }}
       />
@@ -81,7 +81,7 @@ export default function TabsLayout() {
           href: timerOnly ? null : undefined,
           title: "Évaluations",
           tabBarIcon: ({ color, size }) => (
-            <Feather name="award" size={size ?? 22} color={color} />
+            <Feather name="award" size={size ?? 22} color={color as string} />
           ),
         }}
       />
@@ -91,7 +91,7 @@ export default function TabsLayout() {
           href: timerOnly ? null : undefined,
           title: "Ressources",
           tabBarIcon: ({ color, size }) => (
-            <Feather name="book-open" size={size ?? 22} color={color} />
+            <Feather name="book-open" size={size ?? 22} color={color as string} />
           ),
         }}
       />

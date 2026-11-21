@@ -9,14 +9,14 @@
  * Si la cible n'est pas montée (contenu conditionnel), la visite
  * retombe sur une zone approximative de l'écran.
  */
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, type ComponentRef } from "react";
 import { View, ViewStyle, StyleProp } from "react-native";
 
 export type TargetRect = { x: number; y: number; w: number; h: number };
 
-const nodes = new Map<string, View>();
+const nodes = new Map<string, ComponentRef<typeof View>>();
 
-function register(id: string, node: View | null) {
+function register(id: string, node: ComponentRef<typeof View> | null) {
   if (node) nodes.set(id, node);
   else nodes.delete(id);
 }
@@ -47,7 +47,7 @@ interface Props {
 }
 
 export default function TourTarget({ id, children, style }: Props) {
-  const ref = useRef<View>(null);
+  const ref = useRef<ComponentRef<typeof View>>(null);
 
   useEffect(() => {
     register(id, ref.current);

@@ -51,7 +51,7 @@ export default function SupervisorTabsLayout() {
         options={{
           title: "Accueil",
           tabBarIcon: ({ color, size }) => (
-            <Feather name="home" size={size ?? 22} color={color} />
+            <Feather name="home" size={size ?? 22} color={color as string} />
           ),
         }}
       />
@@ -60,7 +60,7 @@ export default function SupervisorTabsLayout() {
         options={{
           title: "Évaluation",
           tabBarIcon: ({ color, size }) => (
-            <Feather name="list" size={size ?? 22} color={color} />
+            <Feather name="list" size={size ?? 22} color={color as string} />
           ),
         }}
       />
@@ -69,7 +69,7 @@ export default function SupervisorTabsLayout() {
         options={{
           title: "Difficultés",
           tabBarIcon: ({ color, size }) => (
-            <Feather name="alert-triangle" size={size ?? 22} color={color} />
+            <Feather name="alert-triangle" size={size ?? 22} color={color as string} />
           ),
         }}
       />
@@ -78,7 +78,7 @@ export default function SupervisorTabsLayout() {
         options={{
           title: "Rapports",
           tabBarIcon: ({ color, size }) => (
-            <Feather name="send" size={size ?? 22} color={color} />
+            <Feather name="send" size={size ?? 22} color={color as string} />
           ),
         }}
       />

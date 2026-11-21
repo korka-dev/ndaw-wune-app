@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   View, Text, Modal, TouchableOpacity, StyleSheet,
-  ActivityIndicator, AppState, AppStateStatus,
+  ActivityIndicator, AppState,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Updates from "expo-updates";
@@ -45,7 +45,7 @@ export default function UpdateModal() {
 
   // Au retour depuis l'arrière-plan — un tuteur laisse souvent l'app ouverte
   // plusieurs jours sans jamais la relancer vraiment.
-  const appState = useRef<AppStateStatus>(AppState.currentState);
+  const appState = useRef<string>(AppState.currentState ?? "active");
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
       const cameToForeground = appState.current.match(/inactive|background/) && next === "active";

@@ -2,7 +2,7 @@
  * Écran de connexion — Compatible Android 7+ / iOS 15.1+.
  * Numéro formaté automatiquement · Icône œil Feather
  */
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, type ComponentRef } from "react";
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, KeyboardAvoidingView, Platform,
@@ -40,7 +40,7 @@ export default function LoginScreen() {
   const [phone,    setPhone]    = useState("");
   const [password, setPassword] = useState("");
   const [showPwd,  setShowPwd]  = useState(false);
-  const pwdRef = useRef<TextInput>(null);
+  const pwdRef = useRef<ComponentRef<typeof TextInput>>(null);
 
   const handlePhoneChange = (text: string) => {
     setPhone(formatPhone(text));

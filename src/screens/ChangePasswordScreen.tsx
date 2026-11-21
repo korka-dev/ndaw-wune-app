@@ -2,7 +2,7 @@
  * Écran Nouveau mot de passe.
  * Structure et styles identiques à LoginScreen.
  */
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, type ComponentRef } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   ScrollView, ActivityIndicator, Alert,
@@ -21,7 +21,7 @@ import BackButton from "../components/BackButton";
 
 export default function ChangePasswordScreen() {
   const router  = useRouter();
-  const confRef = useRef<TextInput>(null);
+  const confRef = useRef<ComponentRef<typeof TextInput>>(null);
 
   const [newPwd,   setNewPwd]   = useState("");
   const [confPwd,  setConfPwd]  = useState("");

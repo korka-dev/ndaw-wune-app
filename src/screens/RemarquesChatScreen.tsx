@@ -8,7 +8,7 @@
  *   2. Description libre
  *   3. Confirmation puis envoi (offline → mis en file et envoyé plus tard)
  */
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, type ComponentRef } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   TextInput, KeyboardAvoidingView, Platform, ActivityIndicator,
@@ -57,7 +57,7 @@ export default function RemarquesChatScreen() {
   const [input, setInput] = useState("");
   const [pendingMessage, setPendingMessage] = useState("");
   const [sending, setSending] = useState(false);
-  const scrollRef = useRef<ScrollView>(null);
+  const scrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
 
   useEffect(() => { trackUsage("remarques").catch(() => {}); }, []);
 

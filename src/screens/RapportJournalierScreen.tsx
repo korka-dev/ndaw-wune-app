@@ -2,7 +2,7 @@
  * NWN-AS 2025-2026 — Rapport Journalier du Tuteur
  * Formulaire étape par étape (6 étapes).
  */
-import React, { useState, useCallback, useRef, useEffect } from "react";
+import React, { useState, useCallback, useRef, useEffect, type ComponentRef } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   ScrollView, ActivityIndicator, Alert, Image,
@@ -133,7 +133,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
   );
 
   // ── Scroll vers le champ actif (étape 2) ─────────────────────────────
-  const step2ScrollRef = useRef<ScrollView>(null);
+  const step2ScrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
   const scrollToInput = useCallback(() => {
     // Les TextInputs sont toujours en bas de la liste → scrollToEnd suffit
     setTimeout(() => step2ScrollRef.current?.scrollToEnd({ animated: true }), 150);

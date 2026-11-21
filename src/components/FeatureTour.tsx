@@ -13,7 +13,7 @@
  *
  * Relance manuelle : appeler startFeatureTour() (bouton du profil).
  */
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, type ComponentRef } from "react";
 import {
   View, Text, TouchableOpacity, StyleSheet, Animated,
   ScrollView, useWindowDimensions, LayoutChangeEvent,
@@ -412,7 +412,7 @@ export default function FeatureTour({ role, tabCount }: Props) {
 
   /* Rect mesuré de la cible réelle de l'étape courante (coordonnées fenêtre) */
   const [targetRect, setTargetRect] = useState<TargetRect | null>(null);
-  const rootRef    = useRef<View>(null);
+  const rootRef    = useRef<ComponentRef<typeof View>>(null);
   const measureSeq = useRef(0);
 
   /**
