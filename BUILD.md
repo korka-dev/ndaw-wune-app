@@ -73,7 +73,7 @@ Organisation en place pour l'éviter :
 | Fichier | Contenu | Chargé par |
 |---|---|---|
 | `.env.development.local` | URL LAN de dev (`http://192.168.x.x:8000/api/v1`) | `expo start` uniquement |
-| `.env.production` | `https://api.ndawwune.cloud/api/v1` | `eas update`, `expo export`, `eas build` |
+| `.env.production` | URL de l'API de production (identique aux profils `preview` et `production` d'`eas.json`) | `eas update`, `expo export`, `eas build` |
 
 **Ne jamais recréer de `.env.local`** : il serait chargé aussi bien en
 développement qu'en production.
@@ -85,12 +85,15 @@ l'ancienne URL (le log affiche pourtant le bon fichier chargé — trompeur).
 ### Vérifier le bundle AVANT de publier
 
 ```bash
-npx expo export --platform android --clear --output-dir /tmp/dist-check
-B=$(python3 -c "import json;print(json.load(open('/tmp/dist-check/metadata.json'))['fileMetadata']['android']['bundle'])")
-grep -aoE 'https?://[a-zA-Z0-9._:-]+/api/v1' "/tmp/dist-check/$B" | sort -u
+npm run verifier:bundle -- --export
 ```
 
-La seule URL affichée doit être `https://api.ndawwune.cloud/api/v1`.
+Le script (APP-42) refuse la publication si un `.env.local` traîne, si
+`.env.production` et `eas.json` divergent, ou si le bundle exporté appelle une
+autre API que celle de `.env.production`. Changement de domaine (serveur
+ARED) : voir `Backend/ndaw-wune-api/docs/DEPLOIEMENT_ARED.md` — les APK déjà
+installés gardent l'URL inscrite dans leur bundle tant qu'ils n'ont pas reçu
+la mise à jour OTA : l'ancien domaine doit rester servi pendant la transition.
 
 ### En cas de mauvaise publication
 

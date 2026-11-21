@@ -7,6 +7,7 @@ import {
   dispatchUpdateRequired,
 } from "./authEvents";
 import { APP_VERSION, isPasswordChangeRequiredError, isUpdateRequiredError } from "./appVersion";
+import { corpsSignalement, doitSignaler, nouvelIdRequete } from "./support";
 
 /**
  * URL de base de l'API.
@@ -15,8 +16,8 @@ import { APP_VERSION, isPasswordChangeRequiredError, isUpdateRequiredError } fro
  *   2. Extra dans app.json (legacy)
  *   3. Fallback développement local
  *
- * En production, définir EXPO_PUBLIC_API_URL=https://api.ndawwune.cloud/api/v1
- * dans le fichier .env ou via les variables d'environnement EAS Build.
+ * En production : EXPO_PUBLIC_API_URL de .env.production, identique aux profils
+ * d'eas.json (contrôle : npm run verifier:bundle, APP-42).
  */
 const API_URL: string =
   (process.env.EXPO_PUBLIC_API_URL as string | undefined) ??
@@ -31,6 +32,8 @@ api.interceptors.request.use(async (config) => {
   if (token) config.headers.Authorization = `Bearer ${token}`;
   // APP-46 : l'API peut refuser (426) une version trop ancienne.
   config.headers["X-App-Version"] = APP_VERSION;
+  // APP-45 : référence de requête, reprise dans les journaux de l'API.
+  config.headers["X-Request-ID"] = nouvelIdRequete();
   return config;
 });
 
@@ -85,6 +88,13 @@ api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config;
+
+    // APP-45 : panne serveur signalée au support (sans attendre, sans bloquer).
+    if (doitSignaler(error)) {
+      axios.post(`${API_URL}/client-errors`, corpsSignalement(error, APP_VERSION), {
+        timeout: 5000, headers: { "X-App-Version": APP_VERSION },
+      }).catch(() => {});
+    }
 
     // APP-46 : version trop ancienne → écran de mise à jour (file conservée).
     if (isUpdateRequiredError(error)) {

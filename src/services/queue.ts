@@ -20,6 +20,7 @@
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { isPasswordChangeRequiredError, isUpdateRequiredError } from "./appVersion";
+import { referenceRequete } from "./support";
 import { seancesApi, rapportsApi, rapportJournalierApi, superviseurApi } from "./api";
 import {
   getPendingActions,
@@ -92,6 +93,14 @@ export function classifyError(err: unknown): ErrorKind {
 }
 
 export function errorMessage(err: unknown): string {
+  // APP-45 : une panne serveur affiche la référence à transmettre au support.
+  const st = (err as { response?: { status?: number } })?.response?.status ?? 0;
+  const ref = st >= 500 ? referenceRequete(err) : undefined;
+  const msg = messageBrut(err);
+  return ref ? `${msg} (réf. ${ref})` : msg;
+}
+
+function messageBrut(err: unknown): string {
   const rawDetail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
   if (Array.isArray(rawDetail)) {
     return rawDetail.map((e: any) => (typeof e === "object" ? (e?.msg ?? JSON.stringify(e)) : String(e))).join("; ");
