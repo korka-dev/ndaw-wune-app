@@ -239,6 +239,9 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
     );
   }, []);
 
+  // Identifiants des absents encore présents dans la liste de la classe
+  const absentIdsConnus = absentIds.filter(id => elevesDisponibles.some(el => el.id === id));
+
   // Chaîne de noms pour la soumission
   const absentsStr = absentIds
     .map(id => {
@@ -401,6 +404,10 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
           ? JSON.stringify(photos.filter(p => p.base64).map(p => `data:image/jpeg;base64,${p.base64}`))
           : null,
         reponses_questions: Object.keys(reponses).length > 0 ? JSON.stringify(reponses) : null,
+        // Lot L4 (D3.3) : identifiants des absents (table individuelle côté
+        // serveur) et heure de saisie sur le téléphone (retard de transmission).
+        absents_ids: nb > 0 && absentIdsConnus.length > 0 && absentIdsConnus.length <= nb ? absentIdsConnus : null,
+        submitted_at: new Date().toISOString(),
       };
 
       if (isOnline) {
