@@ -71,12 +71,9 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      {/* ── StatusBar visible sur Android : icônes sombres sur fond clair ── */}
-      <StatusBar
-        style="dark"
-        backgroundColor="#FAF7F1"
-        translucent={false}
-      />
+      {/* Icônes sombres sur fond clair. Android est toujours « edge-to-edge »
+          (SDK 54+) : la marge sous la barre d'état vient des safe areas. */}
+      <StatusBar style="dark" />
       <NetworkWatcher />
       <UpdateModal />
       <AppUpdateRequired />

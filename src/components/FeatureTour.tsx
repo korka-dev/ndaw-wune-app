@@ -755,7 +755,7 @@ export default function FeatureTour({ role, tabCount }: Props) {
 /* ── Styles ───────────────────────────────────────────────────── */
 const s = StyleSheet.create({
   root: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     zIndex: 1000,
     elevation: 24,
   },

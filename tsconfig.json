@@ -1,5 +1,10 @@
 {
-  "compilerOptions": {},
+  "compilerOptions": {
+    "types": [
+      "jest",
+      "node"
+    ]
+  },
   "extends": "expo/tsconfig.base",
   "include": [
     "**/*.ts",

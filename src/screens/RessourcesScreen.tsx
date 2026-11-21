@@ -475,7 +475,8 @@ export default function RessourcesScreen() {
       }
       await saveDownloads({ ...downloads, [doc.id]: localUri });
     } catch (err: any) {
-      resumable?.pauseAsync().catch(() => {});
+      // Affecté dans l'exécuteur de la promesse : TypeScript 6 ne le voit pas.
+      (resumable as ReturnType<typeof FileSystem.createDownloadResumable> | null)?.pauseAsync().catch(() => {});
       await FileSystem.deleteAsync(localUri, { idempotent: true }).catch(() => {});
       const isStall = (err as Error)?.message === "stall";
       Alert.alert(
@@ -771,7 +772,7 @@ const vw = StyleSheet.create({
   image:      { flex: 1, backgroundColor: "#000" },
   pdf:        { flex: 1, width: "100%" },
   overlay:    {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: "center", justifyContent: "center",
     backgroundColor: C.bg, zIndex: 10, gap: rs(12),
   },

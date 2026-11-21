@@ -530,9 +530,9 @@ export function speakAlert(message: string): void {
    ════════════════════════════════════════════════════════════════ */
 export interface PlanningSegment {
   id:          string;
-  titre?:      string;
-  matiere?:    string;
-  classe?:     string;
+  titre?:      string | null;
+  matiere?:    string | null;
+  classe?:     string | null;
   /** 0=Lundi, 1=Mardi, 2=Mercredi, 3=Jeudi, 4=Vendredi, 5=Samedi, 6=Dimanche */
   jour:        number;
   heure_debut: string; // "HH:MM" ou "HH:MM:SS"

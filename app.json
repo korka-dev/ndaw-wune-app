@@ -6,11 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/ared-icon.png",
     "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/splash-logo.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#FFFFFF"
-    },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/ared-adaptive-icon.png",
@@ -18,17 +13,6 @@
       },
       "package": "sn.aroka.ared.ndawune",
       "permissions": [
-        "android.permission.RECORD_AUDIO",
-        "android.permission.POST_NOTIFICATIONS",
-        "android.permission.SCHEDULE_EXACT_ALARM",
-        "android.permission.USE_EXACT_ALARM",
-        "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
-        "android.permission.RECEIVE_BOOT_COMPLETED",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.INTERNET",
-        "android.permission.USE_BIOMETRIC",
-        "android.permission.USE_FINGERPRINT",
         "android.permission.RECORD_AUDIO",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.SCHEDULE_EXACT_ALARM",
@@ -53,7 +37,15 @@
     },
     "plugins": [
       "expo-router",
-      "expo-splash-screen",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-logo.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF",
+          "imageWidth": 200
+        }
+      ],
       "expo-font",
       "@config-plugins/react-native-pdf",
       [
@@ -89,7 +81,9 @@
           "faceIDPermission": "Ndaw Wune utilise Face ID pour verrouiller l'accès à l'application."
         }
       ],
-      "expo-audio"
+      "expo-audio",
+      "expo-status-bar",
+      "expo-asset"
     ],
     "scheme": "ared-ndawune",
     "runtimeVersion": {
