@@ -65,6 +65,15 @@ export default function SupervisorTabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="visites"
+        options={{
+          title: "Visites",
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="clipboard" size={size ?? 22} color={color as string} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="difficultes"
         options={{
           title: "Difficultés",

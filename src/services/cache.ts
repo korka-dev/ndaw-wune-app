@@ -17,6 +17,9 @@ const SUP_DIFFICULTES_KEY = "ared_supervisor_difficultes";
 const SUP_RAPPORT_QUESTIONS_KEY = "ared_supervisor_rapport_questions";
 const SUP_RAPPORT_LIBELLES_KEY = "ared_supervisor_rapport_libelles";
 const TEACHER_EVALS_KEY   = "ared_teacher_evaluations";
+const SUP_GRILLES_KEY     = "ared_supervisor_grilles_visite";
+const SUP_VISITES_KEY     = "ared_supervisor_visites";
+const SUP_DEMANDES_KEY    = "ared_supervisor_demandes_appui";
 
 export interface SyncPayload {
   synced_at: string;
@@ -27,7 +30,9 @@ export interface SyncPayload {
     school_id: string | null;
     niveau?: string[] | null; classes: string[] | null;
     groupe_recherche?: string | null;       // "traitement" | "controle"
-    app_access?: string;                    // "full" | "timer_only"
+    app_access?: string;                    // "full" | "timer_only" | "no_timer" (accès effectif calculé par le serveur)
+    minuteur_visible?: boolean;             // APP-33 : décidé par le serveur (protocole de recherche)
+    acces_source?: string | null;           // "protocole" | "exception" | "reglage" | "non_assigne"
   };
   school: {
     id: string; name: string;
@@ -111,7 +116,7 @@ export async function getLastSyncDate(): Promise<string | null> {
 }
 
 export async function clearCache(): Promise<void> {
-  await AsyncStorage.multiRemove([SYNC_KEY, SYNC_DATE_KEY, SUP_EVALS_KEY, SUP_ELEVES_KEY, SUP_COMPETENCES_KEY, SUP_DIFFICULTES_KEY, SUP_RAPPORT_QUESTIONS_KEY, SUP_RAPPORT_LIBELLES_KEY, TEACHER_EVALS_KEY]);
+  await AsyncStorage.multiRemove([SYNC_KEY, SYNC_DATE_KEY, SUP_EVALS_KEY, SUP_ELEVES_KEY, SUP_COMPETENCES_KEY, SUP_DIFFICULTES_KEY, SUP_RAPPORT_QUESTIONS_KEY, SUP_RAPPORT_LIBELLES_KEY, TEACHER_EVALS_KEY, SUP_GRILLES_KEY, SUP_VISITES_KEY, SUP_DEMANDES_KEY]);
 }
 
 /** Questions complémentaires (configurées par l'admin) destinées au rapport du superviseur. */
@@ -212,4 +217,46 @@ export async function getCachedTeacherEvaluations(): Promise<TeacherEvalItem[]> 
 
 export async function setCachedTeacherEvaluations(items: TeacherEvalItem[]): Promise<void> {
   await setEncryptedItem(TEACHER_EVALS_KEY, items);
+}
+
+// ── Visites pédagogiques (rapport V2, D2.3 / D9.3) ──────────────────────────
+// Grille, visites envoyées et demandes d'appui mises en cache chiffré pour
+// permettre une saisie hors ligne (l'envoi passe par la file SUBMIT_VISITE).
+
+export interface GrilleItemMobile {
+  id: string; code: string; domaine: string; libelle: string;
+  type: "echelle" | "oui_non" | "outil" | "texte";
+  bareme_max: number | null; ordre: number; aide: string | null; obligatoire: boolean;
+}
+export interface GrilleMobile {
+  id: string; nom: string; version: number; statut: string; description: string | null; items: GrilleItemMobile[];
+}
+export interface VisiteMobile {
+  id: string; teacher_id: string; teacher_nom: string | null; ecole: string | null; classe: string | null;
+  date_visite: string; score_obtenu: number | null; score_max: number | null; nb_items_manquants: number;
+  nb_outils_indisponibles: number; statut: string; demandes: { id: string; titre: string; statut: string }[];
+}
+export interface DemandeMobile {
+  id: string; origine: string; titre: string; description: string | null; domaine: string | null;
+  beneficiaire_nom: string | null; ecole: string | null; responsable_nom: string | null;
+  echeance: string | null; en_retard: boolean; statut: string; created_at: string;
+}
+
+export async function getCachedGrilles(): Promise<GrilleMobile[] | null> {
+  return getEncryptedItem<GrilleMobile[]>(SUP_GRILLES_KEY);
+}
+export async function setCachedGrilles(items: GrilleMobile[]): Promise<void> {
+  await setEncryptedItem(SUP_GRILLES_KEY, items);
+}
+export async function getCachedVisites(): Promise<VisiteMobile[] | null> {
+  return getEncryptedItem<VisiteMobile[]>(SUP_VISITES_KEY);
+}
+export async function setCachedVisites(items: VisiteMobile[]): Promise<void> {
+  await setEncryptedItem(SUP_VISITES_KEY, items);
+}
+export async function getCachedDemandes(): Promise<DemandeMobile[] | null> {
+  return getEncryptedItem<DemandeMobile[]>(SUP_DEMANDES_KEY);
+}
+export async function setCachedDemandes(items: DemandeMobile[]): Promise<void> {
+  await setEncryptedItem(SUP_DEMANDES_KEY, items);
 }

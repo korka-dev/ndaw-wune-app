@@ -34,6 +34,7 @@ const LIBELLES: Record<string, string> = {
   SUBMIT_PRESENCE_CHECK:     "Pointage des tuteurs",
   SUBMIT_EVALUATIONS:        "Évaluations",
   SUBMIT_REMARQUE:           "Remarque",
+  SUBMIT_VISITE:             "Visite pédagogique",
 };
 
 function libelle(action: string): string {

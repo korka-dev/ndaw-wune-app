@@ -6,6 +6,7 @@ import * as SplashScreen from "expo-splash-screen";
 import NetworkWatcher from "../src/components/NetworkWatcher";
 import UpdateModal from "../src/components/UpdateModal";
 import AppUpdateRequired from "../src/components/AppUpdateRequired";
+import AppLockGate from "../src/components/AppLockGate";
 import { initDB } from "../src/services/db";
 import {
   setupNotifications,
@@ -116,6 +117,7 @@ export default function RootLayout() {
           options={{ animation: "slide_from_bottom" }}
         />
       </Stack>
+      <AppLockGate />
     </SafeAreaProvider>
   );
 }

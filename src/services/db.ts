@@ -8,6 +8,7 @@
  * Utilisé via expo-sqlite ~15 (API synchrone openDatabaseSync).
  */
 import * as SQLite from "expo-sqlite";
+import { ouvrirBaseLocale } from "./dbCipher";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -18,7 +19,8 @@ export type QueueAction =
   | "REPORT_MISSED_SEANCE"        // signaler un créneau planifié manqué
   | "SUBMIT_PRESENCE_CHECK"       // pointage de présence des enseignants (superviseur)
   | "SUBMIT_EVALUATIONS"          // évaluations élèves soumises hors-ligne (superviseur)
-  | "SUBMIT_REMARQUE";            // remarque / signalement de problème (hors application)
+  | "SUBMIT_REMARQUE"             // remarque / signalement de problème (hors application)
+  | "SUBMIT_VISITE";              // visite pédagogique (superviseur) — idempotente par client_op_id
 
 export interface QueueItem {
   id:            number;
@@ -221,7 +223,8 @@ let _db: SQLite.SQLiteDatabase | null = null;
 
 function getDB(): SQLite.SQLiteDatabase {
   if (!_db) {
-    _db = SQLite.openDatabaseSync("ared_offline.db");
+    // APP-14 : base chiffrée SQLCipher (clé dans le Keystore), migration de l'ancienne base en clair.
+    _db = ouvrirBaseLocale();
     _db.execSync("PRAGMA journal_mode = WAL;");   // meilleures perfs en écriture
     _db.execSync("PRAGMA foreign_keys = ON;");
   }

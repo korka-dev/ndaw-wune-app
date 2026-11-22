@@ -56,7 +56,9 @@ export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user, syncData, activeSeance, setActiveSeance, isOnline, syncOffline } = useStore();
-  const noTimer = (user as any)?.app_access === "no_timer";
+  // APP-33 : l'affichage du minuteur est décidé par le serveur (protocole de recherche
+  // de la campagne, exceptions tracées). `app_access` reçu est déjà l'accès effectif.
+  const noTimer = (user as any)?.minuteur_visible === false || (user as any)?.app_access === "no_timer";
   const planning = syncData?.planning ?? [];
   const nbSemaines = syncData?.nb_semaines ?? 10;
 

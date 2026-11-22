@@ -16,6 +16,9 @@ export const deleteItemAsync = jest.fn(async (key: string) => {
   store.delete(key);
 });
 
+export const getItem = jest.fn((key: string): string | null => store.get(key) ?? null);
+export const setItem = jest.fn((key: string, value: string) => { store.set(key, value); });
+
 /** Utilitaire de test : réinitialise le store entre les cas de test. */
 export function __resetStore() {
   store.clear();

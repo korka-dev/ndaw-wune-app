@@ -271,6 +271,18 @@ export const rapportJournalierApi = {
 export const superviseurApi = {
   sync: () => api.get("/app/supervisor/sync"),
 
+  // ── Visites pédagogiques et demandes d'appui (rapport V2, D2.3 / D9.3) ──
+  /** Grilles de visite publiées utilisables pour la campagne active. */
+  grillesVisite: () => api.get("/app/supervisor/grilles-visite"),
+  /** Visites envoyées par ce superviseur (les plus récentes d'abord). */
+  mesVisites: (params?: { skip?: number; limit?: number }) => api.get("/app/supervisor/visites", { params }),
+  /** Envoi d'une visite — idempotent par client_op_id (rejeu de la file sans doublon). */
+  envoyerVisite: (body: object) => api.post("/app/supervisor/visites", body),
+  /** Demandes d'appui du périmètre du superviseur (ouvertes par défaut). */
+  demandesAppui: (statut: string = "ouvertes") => api.get("/app/supervisor/demandes-appui", { params: { statut } }),
+  agirDemande: (id: string, body: { statut?: string; commentaire?: string | null }) =>
+    api.patch(`/app/supervisor/demandes-appui/${id}`, body),
+
   /** Enseignants + métadonnées de classes (sans élèves) — chargement initial. */
   eleves: () => api.get("/app/supervisor/eleves"),
 

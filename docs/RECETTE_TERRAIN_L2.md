@@ -31,7 +31,7 @@ Inventaire des données stockées sur le téléphone :
 |---|---|---|
 | Jetons de session, rôle, indicateur d'activation | SecureStore (Keystore Android / Trousseau iOS) | Chiffré par le système |
 | Instantané de synchronisation (élèves, planning, profils) et caches superviseur | AsyncStorage | **Chiffré AES**, clé dans SecureStore (`cryptoStorage.ts`) |
-| File d'envoi, rapports journaliers non envoyés, erreurs, pointages | SQLite `ared_offline.db` | **Non chiffré** ; isolé par auteur (`owner_id`) |
+| File d'envoi, rapports journaliers non envoyés, erreurs, pointages, visites en attente | SQLite `ared_offline_chiffre.db` (v1.2.0) | **Chiffré SQLCipher**, clé 256 bits dans SecureStore (`dbCipher.ts`) ; isolé par auteur (`owner_id`) |
 | Photos de classe prises dans l'app | Fichiers de l'app | Non chiffrés, supprimés à la désinstallation |
 | Ressources pédagogiques téléchargées | `documentDirectory` | Non chiffrées (contenus non nominatifs) |
 
@@ -40,11 +40,25 @@ Ce qui est fait dans le code :
 - un autre compte ne les voit ni ne les envoie ;
 - la purge totale n'existe que sur une action volontaire.
 
-**Décisions ARED attendues** (le code suivra la politique retenue) :
-1. Chiffrer aussi SQLite (SQLCipher, ce qui implique une montée de SDK et une
-   recette complète) ou accepter le risque, compte tenu du verrouillage du
-   téléphone imposé par la politique des appareils.
-2. Exiger un verrou d'ouverture de l'application (code ou biométrie,
-   `expo-local-authentication` est déjà installé) sur les téléphones partagés.
-3. Fixer la durée de conservation des saisies déjà envoyées sur le téléphone.
-4. Interdire ou non la sauvegarde système des données de l'application.
+**Mis en œuvre en v1.2.0 (version prudente retenue)** :
+1. SQLite chiffré par SQLCipher (plugin `expo-sqlite` `useSQLCipher`). Au
+   premier lancement de la v1.2.0, l'ancienne base en clair est recopiée dans
+   la base chiffrée (`sqlcipher_export`) puis supprimée. En cas d'échec, l'app
+   reste sur l'ancienne base (aucune saisie perdue) et retente au lancement
+   suivant. Si le binaire ne contient pas SQLCipher (Expo Go), base en clair.
+2. Verrou applicatif (`AppLockGate`) : après 5 min en arrière-plan, empreinte,
+   visage ou code du téléphone. Aucun verrou si le téléphone n'a aucun moyen
+   d'authentification configuré (on ne bloque jamais l'accès aux saisies).
+3. Sauvegarde système Android désactivée (`android.allowBackup: false`).
+4. Durée de conservation des saisies déjà envoyées : **reste à fixer par ARED**
+   (aucune purge automatique n'est faite tant que la durée n'est pas décidée).
+
+**À vérifier en recette (nouvel APK obligatoire, pas de mise à jour OTA)** :
+- [ ] Mise à jour d'un téléphone v1.1.0 ayant des saisies en attente : elles
+      sont toujours là et partent après mise à jour.
+- [ ] Le fichier `ared_offline.db` n'existe plus après le premier lancement.
+- [ ] Verrou : mettre l'app en arrière-plan 6 min, revenir → écran verrouillé.
+- [ ] Superviseur : onglet « Visites », visite saisie hors ligne puis envoyée
+      au retour du réseau, sans doublon après plusieurs synchronisations.
+- [ ] Protocole minuteur actif (admin) : un tuteur du groupe contrôle ne voit
+      plus le minuteur après synchronisation.

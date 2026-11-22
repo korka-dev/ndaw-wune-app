@@ -2,7 +2,7 @@
   "expo": {
     "name": "ARED NdawWune",
     "slug": "ared-ndawune",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/ared-icon.png",
     "userInterfaceStyle": "light",
@@ -12,6 +12,7 @@
         "backgroundColor": "#FFFFFF"
       },
       "package": "sn.aroka.ared.ndawune",
+      "allowBackup": false,
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.POST_NOTIFICATIONS",
@@ -58,7 +59,8 @@
       [
         "expo-sqlite",
         {
-          "enableFTS": true
+          "enableFTS": true,
+          "useSQLCipher": true
         }
       ],
       [

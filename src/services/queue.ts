@@ -384,6 +384,13 @@ async function processAction(item: QueueItem): Promise<void> {
       break;
     }
 
+    case "SUBMIT_VISITE": {
+      // Idempotent côté serveur : même client_op_id → même visite, sans doublon.
+      // Un 409 (même identifiant, contenu différent) est traité comme un conflit par l'appelant.
+      await superviseurApi.envoyerVisite(payload as object);
+      break;
+    }
+
     case "SUBMIT_REMARQUE": {
       const { remarquesApi } = await import("./api");
       await remarquesApi.submit(payload as { categorie: string; message: string; ecole?: string | null });

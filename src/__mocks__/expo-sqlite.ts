@@ -254,6 +254,8 @@ class MockDatabase {
 const db = new MockDatabase();
 
 export const openDatabaseSync = jest.fn(() => db);
+export const deleteDatabaseSync = jest.fn();
+export const defaultDatabaseDirectory = "file:///mock/SQLite";
 
 /** Réinitialise toutes les tables — à appeler dans beforeEach. */
 export function __resetDB(): void {
