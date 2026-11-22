@@ -589,6 +589,14 @@ function segmentSubtitle(seg: PlanningSegment): string {
  * - Ajoute des informations contextuelles riches dans la notification
  * - Supporte le badge count
  */
+/* RET13 — nombre maximal de rappels de début par jour, fixé par ARED
+   (parametres_terrain.rappels_max_par_jour) : 2 = 30 min + 5 min (défaut),
+   1 = seulement 5 min avant, 0 = aucun rappel. null = pas de limite (2). */
+let _rappelsMax = 2;
+export function configurerRappels(max: number | null | undefined): void {
+  _rappelsMax = max == null ? 2 : Math.max(0, Math.min(2, Math.floor(max)));
+}
+
 export async function scheduleSessionAlerts(
   segments: PlanningSegment[],
   forceReschedule: boolean = false,
@@ -665,7 +673,7 @@ export async function scheduleSessionAlerts(
 
     // ── Rappel 30 minutes avant la première tâche ──────────────────
     const at30 = new Date(startTime.getTime() - 30 * 60 * 1000);
-    if (at30 > now) {
+    if (at30 > now && _rappelsMax >= 2) {
       try {
         await Notifications.scheduleNotificationAsync({
           identifier: `alert-30-${firstSeg.id}-d${dayOffset}`,
@@ -703,7 +711,7 @@ export async function scheduleSessionAlerts(
 
     // ── Rappel 5 minutes avant la première tâche ───────────────────
     const at5 = new Date(startTime.getTime() - 5 * 60 * 1000);
-    if (at5 > now) {
+    if (at5 > now && _rappelsMax >= 1) {
       try {
         await Notifications.scheduleNotificationAsync({
           identifier: `alert-5-${firstSeg.id}-d${dayOffset}`,
@@ -759,7 +767,9 @@ export async function scheduleSessionAlerts(
  * Calcule un hash simple du planning pour détecter les changements.
  */
 function computeSegmentHash(segments: PlanningSegment[]): string {
-  return segments
+  // Le plafond de rappels fait partie de l'empreinte : un changement côté ARED
+  // force une nouvelle planification.
+  return `max${_rappelsMax}|` + segments
     .map(s => `${s.id}:${s.jour}:${s.heure_debut}`)
     .sort()
     .join("|");
@@ -893,6 +903,66 @@ export async function cancelPauseAlert(): Promise<void> {
 }
 
 /* ════════════════════════════════════════════════════════════════
+   Fin d'activité planifiée (RET06) — sonne même écran verrouillé
+   ou application en arrière-plan. Annulée à la pause / à la fin,
+   replanifiée à la reprise.
+   ════════════════════════════════════════════════════════════════ */
+const SEGMENT_END_ID  = "fin-activite-planifiee";
+const SEGMENT_PRE_ID  = "prealerte-activite-planifiee";
+
+export async function scheduleSegmentEndAlert(opts: {
+  endAtMs: number;
+  titre: string;
+  suivant?: string;
+  prealerteSec?: number | null;
+  son?: boolean;
+}): Promise<void> {
+  await cancelSegmentEndAlert();
+  const now = Date.now();
+  const son = opts.son !== false;
+  try {
+    if (opts.endAtMs > now + 1000) {
+      await Notifications.scheduleNotificationAsync({
+        identifier: SEGMENT_END_ID,
+        content: {
+          title: `${opts.titre} — temps écoulé`,
+          body: opts.suivant
+            ? `Ensuite : ${opts.suivant}. Ouvrez l'application pour passer à l'activité suivante.`
+            : "C'était la dernière activité prévue. Ouvrez l'application pour terminer.",
+          sound: son ? SOUND_FIN : undefined,
+          data: { alertType: "fin_activite" },
+          ...(Platform.OS === "android" && { channelId: CHANNEL_FIN }),
+        },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: new Date(opts.endAtMs) },
+      });
+    }
+    const pre = opts.prealerteSec ?? 0;
+    const preAt = opts.endAtMs - pre * 1000;
+    if (pre > 0 && preAt > now + 1000) {
+      const minutes = Math.max(1, Math.round(pre / 60));
+      await Notifications.scheduleNotificationAsync({
+        identifier: SEGMENT_PRE_ID,
+        content: {
+          title: `${opts.titre} — encore ${minutes} min`,
+          body: opts.suivant ? `Ensuite : ${opts.suivant}.` : "Dernière activité prévue.",
+          sound: son ? SOUND_5 : undefined,
+          data: { alertType: "prealerte_activite" },
+          ...(Platform.OS === "android" && { channelId: CHANNEL_ALERTS_5 }),
+        },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: new Date(preAt) },
+      });
+    }
+  } catch (e) {
+    console.warn("[Notif] Erreur scheduleSegmentEndAlert :", e);
+  }
+}
+
+export async function cancelSegmentEndAlert(): Promise<void> {
+  try { await Notifications.cancelScheduledNotificationAsync(SEGMENT_END_ID); } catch {}
+  try { await Notifications.cancelScheduledNotificationAsync(SEGMENT_PRE_ID); } catch {}
+}
+
+/* ════════════════════════════════════════════════════════════════
    Notification immédiate — fin de segment (utilisée par le timer séance)
    ════════════════════════════════════════════════════════════════ */
 export async function playAlarmSound(): Promise<void> {
@@ -952,15 +1022,19 @@ export function addNotificationResponseReceivedListener(
 export async function notifySegmentEnd(
   finishedTitle: string,
   nextTitle?: string,
+  son: boolean = true,
 ): Promise<void> {
   try {
+    // Au premier plan, c'est ce signal qui prévient : on retire la
+    // notification planifiée pour ne pas sonner deux fois.
+    await cancelSegmentEndAlert();
     await Notifications.scheduleNotificationAsync({
       content: {
         title: `${finishedTitle} — terminé ✓`,
         body:  nextTitle
           ? `Prochain : ${nextTitle}`
           : "Bonne journée, c'est fini pour aujourd'hui !",
-        sound: SOUND_FIN,
+        sound: son ? SOUND_FIN : undefined,
         color: "#1a56db",
         badge: 0,
         ...(Platform.OS === "android" && { channelId: CHANNEL_FIN }),
@@ -973,7 +1047,7 @@ export async function notifySegmentEnd(
       : `L'activité "${finishedTitle}" est terminée. C'est fini pour aujourd'hui !`;
     speakAlert(voiceMsg);
     Vibration.vibrate([0, 600, 250, 600, 250, 600]);
-    await playAlarmSound();
+    if (son) await playAlarmSound();
   } catch (e) {
     console.warn("[Notif] Erreur notifySegmentEnd :", e);
   }

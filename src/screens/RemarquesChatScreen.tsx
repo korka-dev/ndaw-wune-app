@@ -31,8 +31,23 @@ const CATEGORIES: { key: string; label: string; icon: keyof typeof Feather.glyph
   { key: "local",    label: "Problème de local",  icon: "home" },
   { key: "eleves",   label: "Problème d'élèves",  icon: "users" },
   { key: "securite", label: "Sécurité",           icon: "shield" },
+  { key: "pedagogie",   label: "Question pédagogique",          icon: "book-open" },
+  { key: "application", label: "Problème avec l'application",   icon: "smartphone" },
   { key: "autre",    label: "Autre problème",     icon: "help-circle" },
 ];
+
+/** RET13 : la question pédagogique va au superviseur (tuteur), le problème
+ *  d'application à l'assistance technique, le reste à l'équipe programme. */
+function destinatairePour(categorie: string | null, role?: string): { code: string; libelle: string } {
+  if (categorie === "pedagogie" && role === "enseignant") return { code: "superviseur", libelle: "votre superviseur" };
+  if (categorie === "application") return { code: "support_technique", libelle: "l'assistance technique" };
+  return { code: "equipe_programme", libelle: "l'équipe Ndaw Wune" };
+}
+
+interface Echange {
+  id: string; categorie: string; message: string; statut: string; created_at: string;
+  destinataire?: string; reponse?: string | null; reponse_le?: string | null; reponse_par_nom?: string | null;
+}
 
 type Step = "categorie" | "message" | "confirm" | "done";
 
@@ -58,6 +73,14 @@ export default function RemarquesChatScreen() {
   const [pendingMessage, setPendingMessage] = useState("");
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
+  // RET13 : échanges précédents et réponses reçues.
+  const [echanges, setEchanges] = useState<Echange[]>([]);
+  const [voirEchanges, setVoirEchanges] = useState(false);
+  useEffect(() => {
+    if (!isOnline) return;
+    remarquesApi.list().then(r => setEchanges(r.data ?? [])).catch(() => {});
+  }, [isOnline]);
+  const nbReponses = echanges.filter(e => !!e.reponse).length;
 
   useEffect(() => { trackUsage("remarques").catch(() => {}); }, []);
 
@@ -91,7 +114,8 @@ export default function RemarquesChatScreen() {
     setInput("");
     setTimeout(() => {
       const catLabel = CATEGORIES.find(c => c.key === categorie)?.label ?? categorie;
-      pushBot(`Récapitulatif :\n• Catégorie : ${catLabel}\n• Description : ${text}\n\nVoulez-vous envoyer ce signalement ?`);
+      const dest = destinatairePour(categorie, user?.role);
+      pushBot(`Récapitulatif :\n• Catégorie : ${catLabel}\n• Destinataire : ${dest.libelle}\n• Description : ${text}\n\nVoulez-vous envoyer ce message ?`);
       setStep("confirm");
     }, 250);
   };
@@ -102,16 +126,20 @@ export default function RemarquesChatScreen() {
     setSending(true);
     pushUser("Oui, envoyer ✓");
 
+    const dest = destinatairePour(categorie, user?.role);
     const payload = {
       categorie: categorie!,
       message:   pendingMessage,
       ecole:     syncData?.school?.name ?? null,
+      destinataire: dest.code,
+      ...(dest.code === "superviseur" && user?.classes?.length ? { contexte_type: "classe", contexte_id: user.classes[0] } : {}),
     };
 
     try {
       if (!isOnline) throw new Error("offline");
       await remarquesApi.submit(payload);
-      pushBot("✅ Votre signalement a bien été transmis à l'équipe Ndaw Wune. Merci !\n\nVous pouvez signaler un autre problème si besoin.");
+      pushBot(`✅ Votre message a bien été reçu et transmis à ${dest.libelle}. La réponse apparaîtra dans « Mes échanges ».\n\nVous pouvez envoyer un autre message si besoin.`);
+      remarquesApi.list().then(r => setEchanges(r.data ?? [])).catch(() => {});
     } catch {
       // Hors-ligne ou erreur → file d'attente offline (renvoyé automatiquement)
       try {
@@ -197,6 +225,26 @@ export default function RemarquesChatScreen() {
               style={[s.bubble, m.from === "bot" ? s.bubbleBot : s.bubbleUser]}
             >
               <Text style={[s.bubbleTxt, m.from === "user" && s.bubbleTxtUser]}>{m.text}</Text>
+            </View>
+          ))}
+
+          {/* RET13 : échanges précédents et réponses */}
+          {echanges.length > 0 && (
+            <TouchableOpacity style={s.chip} onPress={() => setVoirEchanges(v => !v)} activeOpacity={0.75}>
+              <Feather name="inbox" size={rf(14)} color={C.brand} />
+              <Text style={s.chipTxt}>
+                {voirEchanges ? "Masquer mes échanges" : `Mes échanges (${echanges.length})${nbReponses ? ` · ${nbReponses} réponse${nbReponses > 1 ? "s" : ""}` : ""}`}
+              </Text>
+            </TouchableOpacity>
+          )}
+          {voirEchanges && echanges.map(e => (
+            <View key={e.id} style={[s.bubble, s.bubbleBot]}>
+              <Text style={s.bubbleTxt}>
+                {new Date(e.created_at).toLocaleDateString("fr-FR")} — {e.message}
+                {e.reponse
+                  ? `\n\n↳ Réponse${e.reponse_par_nom ? ` de ${e.reponse_par_nom}` : ""} : ${e.reponse}`
+                  : "\n\n↳ En attente de réponse"}
+              </Text>
             </View>
           ))}
 

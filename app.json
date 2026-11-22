@@ -2,7 +2,7 @@
   "expo": {
     "name": "ARED NdawWune",
     "slug": "ared-ndawune",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "orientation": "portrait",
     "icon": "./assets/ared-icon.png",
     "userInterfaceStyle": "light",
@@ -12,6 +12,7 @@
         "backgroundColor": "#FFFFFF"
       },
       "package": "sn.aroka.ared.ndawune",
+      "versionCode": 130,
       "allowBackup": false,
       "permissions": [
         "android.permission.RECORD_AUDIO",

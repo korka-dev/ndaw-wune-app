@@ -788,7 +788,8 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
         return (
           <ScrollView style={s.stepBody} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             {/* Supervision */}
-            <Text style={s.question}>{L("tuteur.directeur_venu_question", "Le directeur / superviseur est-il venu ?")}</Text>
+            <Text style={s.question}>{L("tuteur.directeur_venu_question", "Le directeur ou le superviseur est-il venu dans votre classe aujourd'hui ?")}</Text>
+            <Text style={s.aideQuestion}>Répondez « Oui » seulement s'il est réellement venu. Vos élèves absents se notent à l'étape 1.</Text>
             <View style={s.ouiNonRow}>
               <TouchableOpacity
                 style={[s.ouiNonBtn, directeurVenu === true  && s.ouiNonSel]}
@@ -1108,6 +1109,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
 
+  aideQuestion:  { fontSize: rf(12.5), color: C.textMuted, marginTop: -rs(4), marginBottom: rs(8) },
   /* Brouillon (RET01) et groupes d'absences (RET12) */
   brouillonBox:  { flexDirection: "row", alignItems: "center", gap: rs(8), marginHorizontal: rs(16), marginTop: rs(10), padding: rs(10), borderRadius: rs(10), backgroundColor: C.brandSoft },
   brouillonTxt:  { flex: 1, fontSize: rf(13), color: C.text },

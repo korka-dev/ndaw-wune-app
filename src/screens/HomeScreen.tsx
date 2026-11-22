@@ -30,6 +30,9 @@ import {
   updateCachedSegments,
   schedulePauseAlert,
   cancelPauseAlert,
+  scheduleSegmentEndAlert,
+  cancelSegmentEndAlert,
+  configurerRappels,
   NOTIF_SETUP_MODAL_KEY,
 } from "../services/notifications";
 import NotificationSetupModal from "../components/NotificationSetupModal";
@@ -214,6 +217,7 @@ export default function HomeScreen() {
     useCallback(() => {
       const { syncData: sd } = useStore.getState();
       const segs = sd?.planning ?? [];
+      configurerRappels(sd?.parametres_terrain?.rappels_max_par_jour);
       // Planifier les notifications (skip si planning inchangé < 6h)
       scheduleSessionAlerts(segs).catch(() => {});
       // Activer la re-planification auto quand l'app revient au premier plan
@@ -367,13 +371,41 @@ export default function HomeScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [curMin, activeSeance]);
 
+  // Règles terrain fixées par ARED (son du minuteur, préalerte) — RET06
+  const sonMinuteur  = syncData?.parametres_terrain?.minuteur_son !== false;
+  const prealerteSec = syncData?.parametres_terrain?.minuteur_prealerte_secondes ?? null;
+
+  /* ── Fin d'activité planifiée à l'heure exacte (RET06) ──────────────────
+     Le signal au premier plan vient de l'effet ci-dessous ; celui-ci couvre
+     l'écran verrouillé et l'application en arrière-plan. Replanifié au
+     démarrage, à la reprise et à la réouverture ; annulé en pause et à la fin. */
+  useEffect(() => {
+    if (!activeSeance || isPaused || noTimer || !activeSeg || durSec <= 0 || notifiedEndRef.current) {
+      cancelSegmentEndAlert().catch(() => {});
+      return;
+    }
+    const endAtMs = new Date(activeSeance.started_at).getTime() + totalPausedMs + durSec * 1000;
+    scheduleSegmentEndAlert({
+      endAtMs,
+      titre: segTitle(activeSeg),
+      suivant: nextSeg ? segTitle(nextSeg) : undefined,
+      prealerteSec,
+      son: sonMinuteur,
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSeance?.id, activeSeance?.started_at, isPaused, totalPausedMs, durSec, activeSeg?.id, nextSeg?.id, noTimer, prealerteSec, sonMinuteur]);
+
   /* ── Détection fin de segment → notification (une seule fois par séance) ── */
   useEffect(() => {
     if (activeSeance && remainSec === 0 && elapsed > 0 && !notifiedEndRef.current) {
       notifiedEndRef.current = true;
+      // Fin passée depuis longtemps (app rouverte) : la notification planifiée
+      // a déjà sonné, on ne rejoue pas le signal.
+      if (!noTimer && elapsed - durSec > 10) return;
       notifySegmentEnd(
-        activeSeg ? segTitle(activeSeg) : "Séance en cours",
+        activeSeg ? segTitle(activeSeg) : "Activité en cours",
         nextSeg ? segTitle(nextSeg) : undefined,
+        sonMinuteur,
       );
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -574,12 +606,17 @@ export default function HomeScreen() {
 
   // Bouton "Terminer" → demande confirmation avant d'agir
   const handleFinishPress = () => {
+    const titre = activeSeg ? segTitle(activeSeg) : "cette activité";
+    const reste = remainSec > 0 && !noTimer
+      ? `Il reste encore ${Math.ceil(remainSec / 60)} min prévues pour « ${titre} ».\n\n`
+      : "";
+    const ensuite = nextSeg ? `Ensuite : ${segTitle(nextSeg)}.` : "C'est la dernière activité prévue aujourd'hui.";
     Alert.alert(
-      "Terminer l'activité ?",
-      "Êtes-vous sûr de vouloir terminer cette séance ?",
+      "Terminer cette activité ?",
+      `${reste}Vous allez terminer « ${titre} » (pas toute la journée). ${ensuite}`,
       [
-        { text: "Annuler", style: "cancel" },
-        { text: "Terminer", style: "destructive", onPress: handleFinishSeance },
+        { text: "Continuer l'activité", style: "cancel" },
+        { text: "Terminer l'activité", style: "destructive", onPress: handleFinishSeance },
       ],
       { cancelable: true }
     );
@@ -607,6 +644,7 @@ export default function HomeScreen() {
     // ── 1. Mise à jour locale IMMÉDIATE — ne pas attendre le serveur ────────
     // Annuler l'alerte de pause en cours + nettoyer l'état persisté
     cancelPauseAlert().catch(() => {});
+    cancelSegmentEndAlert().catch(() => {});
     AsyncStorage.removeItem(TIMER_STATE_KEY).catch(() => {});
 
     setActiveSeance(null);
@@ -774,6 +812,7 @@ export default function HomeScreen() {
 
       // Nettoyer l'état du timer
       cancelPauseAlert().catch(() => {});
+      cancelSegmentEndAlert().catch(() => {});
       AsyncStorage.removeItem(TIMER_STATE_KEY).catch(() => {});
       setActiveSeance(null);
       setSeanceStarted(false);
@@ -911,6 +950,9 @@ export default function HomeScreen() {
           <View style={s.progressBg}>
             <View style={[s.progressFill, { width: `${progress * 100}%` as any }]} />
           </View>
+          <Text style={[s.timerSub, { marginTop: rs(8) }]} numberOfLines={2}>
+            {nextSeg ? `Ensuite : ${segTitle(nextSeg)}` : "Dernière activité prévue aujourd'hui"}
+          </Text>
         </View>
       );
     }

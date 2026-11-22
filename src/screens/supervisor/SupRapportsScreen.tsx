@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect } from "react";
 import { trackUsage } from "../../services/usage";
 import { View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet, Modal, ActivityIndicator, Alert, KeyboardAvoidingView, Platform } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { format } from "date-fns";
 import { useStore } from "../../store/useStore";
@@ -36,6 +36,7 @@ const TOTAL_STEPS = 2;
 export default function SupRapportsScreen() {
   useEffect(() => { trackUsage("rapports").catch(() => {}); }, []);
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { user, isOnline, syncOffline } = useStore();
   const [history,    setHistory]    = useState<RapportJournalierLocal[]>([]);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -338,6 +339,30 @@ export default function SupRapportsScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.menuCardTitle}>Rapport</Text>
               <Text style={styles.menuCardSub}>Rapport de votre tournée quotidienne</Text>
+            </View>
+            <Feather name="chevron-right" size={rf(20)} color={C.brand} />
+          </TouchableOpacity>
+
+          {/* ── RET05 : rapport pédagogique = visite avec grille ── */}
+          <TouchableOpacity style={styles.menuCard} onPress={() => router.push("/(supervisor-tabs)/visites" as any)} activeOpacity={0.85}>
+            <View style={[styles.menuCardIcon, { backgroundColor: styles.sendBtnIcon.backgroundColor }]}>
+              <Feather name="clipboard" size={rf(22)} color={C.brand} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.menuCardTitle}>Rapport pédagogique</Text>
+              <Text style={styles.menuCardSub}>Visite de classe avec la grille d'observation (fonctionne hors connexion)</Text>
+            </View>
+            <Feather name="chevron-right" size={rf(20)} color={C.brand} />
+          </TouchableOpacity>
+
+          {/* ── RET05/RET13 : rapports des tuteurs, retours, demandes, messages ── */}
+          <TouchableOpacity style={styles.menuCard} onPress={() => router.push("/sup-suivi" as any)} activeOpacity={0.85}>
+            <View style={[styles.menuCardIcon, { backgroundColor: styles.sendBtnIcon.backgroundColor }]}>
+              <Feather name="users" size={rf(22)} color={C.brand} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.menuCardTitle}>Rapports de mes tuteurs</Text>
+              <Text style={styles.menuCardSub}>Consulter, écrire un retour, valider les demandes, répondre aux messages</Text>
             </View>
             <Feather name="chevron-right" size={rf(20)} color={C.brand} />
           </TouchableOpacity>

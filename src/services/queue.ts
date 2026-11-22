@@ -394,7 +394,8 @@ async function processAction(item: QueueItem): Promise<void> {
 
     case "SUBMIT_REMARQUE": {
       const { remarquesApi } = await import("./api");
-      await remarquesApi.submit(payload as { categorie: string; message: string; ecole?: string | null });
+      await remarquesApi.submit(payload as { categorie: string; message: string; ecole?: string | null;
+        destinataire?: string; contexte_type?: string; contexte_id?: string });
       break;
     }
 

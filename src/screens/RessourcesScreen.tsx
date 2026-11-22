@@ -25,6 +25,7 @@ import {
   Platform,
   Share,
   Linking,
+  TextInput,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -67,6 +68,10 @@ type Document = {
   file_size: number;
   description: string | null;
   resource_type: ResourceType;
+  // RET08 : classement terrain (renseigné par l'équipe programme)
+  activite?: string | null;
+  niveau?: string | null;
+  version?: string | null;
   created_at: string;
 };
 
@@ -244,6 +249,12 @@ function DocCard({
           <Text style={s.sep}>·</Text>
           <Text style={s.cardMeta}>{formatDate(doc.created_at)}</Text>
         </View>
+        {(doc.activite || doc.niveau || doc.version) ? (
+          <Text style={s.cardDesc} numberOfLines={2}>
+            {[doc.activite && `Activité : ${doc.activite}`, doc.niveau && `Niveau : ${doc.niveau}`, doc.version && `Version ${doc.version}`]
+              .filter(Boolean).join("  ·  ")}
+          </Text>
+        ) : null}
         {doc.description ? (
           <Text style={s.cardDesc} numberOfLines={1}>{doc.description}</Text>
         ) : null}
@@ -331,6 +342,8 @@ export default function RessourcesScreen() {
   const [downloading, setDownloading] = useState<string | null>(null);
   const [progress,    setProgress]    = useState<Record<string, number>>({});
   const [activeType,  setActiveType]  = useState<"all" | ResourceType>("all");
+  const [recherche,   setRecherche]   = useState("");
+  const [activiteSel, setActiviteSel] = useState<string | null>(null);
 
   // Viewer
   const [activeDoc,    setActiveDoc]    = useState<Document | null>(null);
@@ -596,9 +609,14 @@ export default function RessourcesScreen() {
 
   const nbOffline = Object.keys(downloads).length;
 
-  const visibleDocs = activeType === "all"
-    ? docs
-    : docs.filter(d => (d.resource_type ?? "document") === activeType);
+  // RET08 : filtre par activité + recherche (titre, activité, niveau, description)
+  const activites = [...new Set(docs.map(d => d.activite?.trim()).filter((a): a is string => !!a))].sort();
+  const q = recherche.trim().toLowerCase();
+  const visibleDocs = docs
+    .filter(d => activeType === "all" || (d.resource_type ?? "document") === activeType)
+    .filter(d => !activiteSel || d.activite?.trim() === activiteSel)
+    .filter(d => !q || [d.title, d.activite, d.niveau, d.description, d.original_filename]
+      .some(v => (v ?? "").toLowerCase().includes(q)));
 
   const typeCounts: Record<"all" | ResourceType, number> = {
     all:      docs.length,
@@ -666,7 +684,8 @@ export default function RessourcesScreen() {
               <Feather name="info" size={rf(11)} color={C.textMuted} />
               <Text style={s.hintTxt}>
                 Appuyez sur <Text style={{ color: C.brand, fontWeight: "700" }}>↓</Text> pour
-                télécharger et consulter hors-ligne.
+                télécharger et consulter hors-ligne. Seuls les petits documents
+                se téléchargent seuls, en Wi-Fi.
               </Text>
             </TourTarget>
           )}
@@ -698,6 +717,28 @@ export default function RessourcesScreen() {
                   </TouchableOpacity>
                 );
               })}
+            </View>
+          )}
+
+          {!loading && docs.length > 0 && (
+            <View style={{ gap: rs(8), marginBottom: rs(10) }}>
+              <TextInput
+                style={s.searchInput}
+                placeholder="Rechercher (titre, activité, niveau…)"
+                placeholderTextColor={C.textMuted}
+                value={recherche}
+                onChangeText={setRecherche}
+              />
+              {activites.length > 0 && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: rs(6) }}>
+                  {[null, ...activites].map(a => (
+                    <TouchableOpacity key={a ?? "_toutes"} onPress={() => setActiviteSel(a)}
+                      style={[s.chip, activiteSel === a && s.chipOn]}>
+                      <Text style={[s.chipTxt, activiteSel === a && s.chipTxtOn]}>{a ?? "Toutes les activités"}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
             </View>
           )}
 
@@ -841,6 +882,11 @@ const s = StyleSheet.create({
   cardMeta:        { fontSize: rf(12), color: C.textMuted },
   sep:             { fontSize: rf(12), color: C.border },
   cardDesc:        { fontSize: rf(12), color: C.textMuted },
+  searchInput:     { borderWidth: 1, borderColor: C.border, borderRadius: rs(10), paddingHorizontal: rs(12), paddingVertical: rs(9), fontSize: rf(14), color: C.text, backgroundColor: C.surface },
+  chip:            { paddingHorizontal: rs(12), paddingVertical: rs(6), borderRadius: rs(16), borderWidth: 1, borderColor: C.border, backgroundColor: C.surface },
+  chipOn:          { backgroundColor: C.brand, borderColor: C.brand },
+  chipTxt:         { fontSize: rf(12), color: C.text, fontWeight: "600" },
+  chipTxtOn:       { color: "#fff" },
 
   // Barre de progression
   progressRow:  { flexDirection: "row", alignItems: "center", gap: rs(8), marginTop: rs(4) },
