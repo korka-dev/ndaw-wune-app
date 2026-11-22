@@ -67,6 +67,10 @@ export async function hydrateRapportsFromServer(): Promise<number> {
           statut:                  r.statut ?? "soumis",
           statut_motif:            r.statut_motif ?? null,
           version:                 r.version != null ? Number(r.version) : null,
+          // RET05 : retour du superviseur sur ce rapport (null si aucun).
+          retour_superviseur:      r.retour_superviseur ?? null,
+          retour_par:              r.retour_par ?? null,
+          retour_le:               r.retour_le ?? null,
         });
         importes++;
       }

@@ -17,7 +17,7 @@
 import React, { useMemo, useState } from "react";
 import {
   View, Text, Modal, TouchableOpacity, StyleSheet,
-  ScrollView, ActivityIndicator, Alert, KeyboardAvoidingView, Platform,
+  ScrollView, ActivityIndicator, Alert, KeyboardAvoidingView, Platform, TextInput,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useStore } from "../store/useStore";
@@ -33,6 +33,8 @@ interface Props {
   onClose: () => void;
 }
 
+const MOTIFS = ["Déménagement", "Abandon", "Changement de classe", "Autre"];
+
 const nomComplet = (e: EleveLocal) => (e.prenom ? `${e.prenom} ${e.nom}` : e.nom);
 const initiales   = (e: EleveLocal) =>
   `${e.nom.charAt(0)}${(e.prenom ?? "").charAt(0)}`.toUpperCase();
@@ -43,6 +45,10 @@ export default function RemplacementSheet({ visible, onClose }: Props) {
   const [choisi,     setChoisi]     = useState<EleveLocal | null>(null);
   const [remplacant, setRemplacant] = useState<EleveLocal | null>(null);
   const [envoi,      setEnvoi]      = useState(false);
+  // RET03 : motif conservé avec la date (choix court, « Autre » à préciser).
+  const [motif,      setMotif]      = useState<string>(MOTIFS[0]);
+  const [motifAutre, setMotifAutre] = useState("");
+  const aValider = syncData?.parametres_terrain?.remplacement_validation === "superviseur";
   const [ajoutOuvert, setAjoutOuvert] = useState(false);
   // Remplaçant tout juste ajouté par le tuteur, pas encore remonté dans
   // syncData.remplacants (le refresh est asynchrone) — on l'ajoute nous-mêmes
@@ -84,23 +90,32 @@ export default function RemplacementSheet({ visible, onClose }: Props) {
       return;
     }
 
+    const motifFinal = motif === "Autre" ? motifAutre.trim() : motif;
+    if (!motifFinal) {
+      Alert.alert("Motif manquant", "Précisez le motif du remplacement.");
+      return;
+    }
     setEnvoi(true);
     try {
-      await remplacementsApi.create({
+      const { data } = await remplacementsApi.create({
         ancien_eleve_id:   choisi.id,
         nouveau_eleve_id:  remplacant.id,
-        motif:             "Remplacement saisi par le tuteur",
+        motif:             motifFinal,
       });
       // La liste des élèves vient de la synchronisation : on la rafraîchit pour
       // que le remplaçant apparaisse tout de suite dans les rapports.
       await syncOffline(true).catch(() => {});
+      const enAttente = data?.statut === "en_attente";
       Alert.alert(
-        "Remplacement enregistré",
-        `${nomComplet(choisi)} a été remplacé par ${nomComplet(remplacant)}.`,
+        enAttente ? "Demande envoyée" : "Remplacement enregistré",
+        enAttente
+          ? `La demande de remplacer ${nomComplet(choisi)} par ${nomComplet(remplacant)} attend la validation de votre superviseur. Vos listes changeront après validation.`
+          : `${nomComplet(choisi)} a été remplacé par ${nomComplet(remplacant)}. Ses présences passées sont conservées.`,
         [{ text: "OK", onPress: fermer }],
       );
-    } catch {
-      Alert.alert("Erreur", "Le remplacement n'a pas pu être enregistré. Réessayez.");
+    } catch (e: any) {
+      const detail = e?.response?.data?.detail;
+      Alert.alert("Remplacement non enregistré", typeof detail === "string" ? detail : "Réessayez.");
     } finally {
       setEnvoi(false);
     }
@@ -220,9 +235,24 @@ export default function RemplacementSheet({ visible, onClose }: Props) {
 
               {remplacants.length > 0 && (
                 <>
+                  <Text style={s.motifTitre}>Motif</Text>
+                  <View style={s.motifs}>
+                    {MOTIFS.map(m => (
+                      <TouchableOpacity key={m} style={[s.motifPuce, motif === m && s.motifPuceOn]} onPress={() => setMotif(m)}>
+                        <Text style={[s.motifTxt, motif === m && s.motifTxtOn]}>{m}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  {motif === "Autre" && (
+                    <TextInput
+                      style={s.motifSaisie} value={motifAutre} onChangeText={setMotifAutre}
+                      placeholder="Précisez le motif" placeholderTextColor={C.textMuted} maxLength={200}
+                    />
+                  )}
                   <Text style={s.avertissement}>
-                    L&apos;ancien élève sortira de vos listes et le remplaçant les rejoindra
-                    immédiatement, dans la même classe.
+                    {aValider
+                      ? "La demande sera validée par votre superviseur. En attendant, vos listes ne changent pas."
+                      : "L'ancien élève sortira de vos listes (ses présences passées sont conservées) et le remplaçant les rejoindra immédiatement, dans la même classe."}
                   </Text>
 
                   <TouchableOpacity
@@ -236,7 +266,7 @@ export default function RemplacementSheet({ visible, onClose }: Props) {
                       : <>
                           <Feather name="check" size={rf(16)} color={!remplacant ? C.textMuted : "#fff"} />
                           <Text style={[s.validerTxt, !remplacant && { color: C.textMuted }]}>
-                            Confirmer le remplacement
+                            {aValider ? "Envoyer la demande" : "Confirmer le remplacement"}
                           </Text>
                         </>}
                   </TouchableOpacity>
@@ -264,6 +294,13 @@ export default function RemplacementSheet({ visible, onClose }: Props) {
 }
 
 const s = StyleSheet.create({
+  motifTitre:  { fontSize: rf(13), fontWeight: "700", color: C.text, marginTop: rs(14), marginBottom: rs(6) },
+  motifs:      { flexDirection: "row", flexWrap: "wrap", gap: rs(8) },
+  motifPuce:   { borderWidth: 1, borderColor: C.border, borderRadius: rs(16), paddingHorizontal: rs(12), paddingVertical: rs(6) },
+  motifPuceOn: { backgroundColor: C.brand, borderColor: C.brand },
+  motifTxt:    { fontSize: rf(13), color: C.text },
+  motifTxtOn:  { color: "#fff", fontWeight: "700" },
+  motifSaisie: { borderWidth: 1, borderColor: C.border, borderRadius: rs(10), padding: rs(10), marginTop: rs(8), color: C.text, fontSize: rf(14) },
   fond:    { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
   feuille: {
     backgroundColor: C.bg,

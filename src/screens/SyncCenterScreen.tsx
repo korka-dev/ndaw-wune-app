@@ -15,6 +15,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
+import { brouillonsDuCompte, depuis } from "../services/brouillons";
 import { useRouter } from "expo-router";
 import BackButton from "../components/BackButton";
 import { useStore } from "../store/useStore";
@@ -61,7 +62,9 @@ function quand(iso: string | null | undefined): string {
 
 export default function SyncCenterScreen() {
   const router = useRouter();
-  const { isOnline, lastSync, syncOffline } = useStore();
+  const { isOnline, lastSync, syncOffline, user } = useStore();
+  // RET01 : saisies commencées et non terminées (brouillons du compte connecté).
+  const [brouillons, setBrouillons] = useState<{ type: string; maj_le: string }[]>([]);
 
   const [pending, setPending]       = useState<QueueItem[]>([]);
   const [failed, setFailed]         = useState<FailedQueueItem[]>([]);
@@ -76,10 +79,11 @@ export default function SyncCenterScreen() {
       setFailed(getFailedActions());
       setQuarantine(countQuarantined());
       setOthers(countOtherOwnersUnsent());
+      brouillonsDuCompte(user?.id).then(bs => setBrouillons(bs.map(b => ({ type: b.type, maj_le: b.maj_le })))).catch(() => {});
     } catch (e) {
       setMessage("Lecture des données locales impossible. Redémarrez l'application.");
     }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => { reload(); }, [reload]);
 
@@ -157,6 +161,22 @@ export default function SyncCenterScreen() {
               : <Text style={s.primaryTxt}>Synchroniser maintenant</Text>}
           </TouchableOpacity>
         </View>
+
+        {/* ── Brouillons (RET01) ── */}
+        {brouillons.length > 0 && (
+          <View style={s.card}>
+            <Text style={s.section}>À terminer sur le téléphone ({brouillons.length})</Text>
+            {brouillons.map(b => (
+              <View key={b.type} style={s.item}>
+                <Text style={s.itemTitle}>
+                  {b.type === "rapport_journalier" ? "Rapport journalier commencé"
+                    : b.type === "evaluation" ? "Évaluation commencée" : "Rapport commencé"}
+                </Text>
+                <Text style={s.muted}>Enregistré {depuis(b.maj_le)} — pas encore envoyé : terminez-le depuis son écran.</Text>
+              </View>
+            ))}
+          </View>
+        )}
 
         {/* ── En attente ── */}
         {pending.length > 0 && (

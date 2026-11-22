@@ -361,13 +361,14 @@ async function processAction(item: QueueItem): Promise<void> {
 
     case "SUBMIT_EVALUATIONS": {
       // Idempotent côté serveur (upsert par eleve/competence/date) — re-soumission sans risque
-      const { evaluations } = payload as {
+      const { evaluations, absents } = payload as {
         evaluations: {
           eleve_id: string; competence: string; resultat: string;
           date_eval: string; commentaire?: string;
         }[];
+        absents?: { eleve_id: string; date_eval: string }[];   // RET04
       };
-      await superviseurApi.submitEvaluations(evaluations);
+      await superviseurApi.submitEvaluations(evaluations, absents ?? []);
       break;
     }
 

@@ -7,7 +7,8 @@
  * remplacement ici — juste consulter et enrichir la liste ; le remplacement
  * lui-même se fait depuis « Remplacer un élève ».
  */
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { remplacementsApi } from "../services/api";
 import { View, Text, Modal, TouchableOpacity, StyleSheet, ScrollView } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useStore } from "../store/useStore";
@@ -27,7 +28,16 @@ const initiales   = (e: EleveLocal) =>
   `${e.nom.charAt(0)}${(e.prenom ?? "").charAt(0)}`.toUpperCase();
 
 export default function RemplacantsListSheet({ visible, onClose }: Props) {
-  const { syncData, syncOffline } = useStore();
+  const { syncData, syncOffline, isOnline } = useStore();
+  // RET03 : historique daté des remplacements (motif, statut, décision).
+  const [historique, setHistorique] = useState<{
+    id: string; ancien_eleve_nom: string | null; nouveau_eleve_nom: string; motif: string;
+    statut: string; date_remplacement: string; motif_refus?: string | null;
+  }[] | null>(null);
+  useEffect(() => {
+    if (!visible || !isOnline) return;
+    remplacementsApi.historique().then(r => setHistorique(r.data ?? [])).catch(() => setHistorique(null));
+  }, [visible, isOnline]);
   const [ajoutOuvert, setAjoutOuvert] = useState(false);
   const [ajoutesLocalement, setAjoutesLocalement] = useState<EleveLocal[]>([]);
 
@@ -98,6 +108,22 @@ export default function RemplacantsListSheet({ visible, onClose }: Props) {
                 </View>
               ))
             )}
+            <Text style={[s.groupeTitre, { marginTop: rs(8) }]}>Historique des remplacements</Text>
+            {historique === null ? (
+              <Text style={s.videTxt}>{isOnline ? "Chargement…" : "Disponible avec une connexion."}</Text>
+            ) : historique.length === 0 ? (
+              <Text style={s.videTxt}>Aucun remplacement enregistré.</Text>
+            ) : historique.map(h => (
+              <View key={h.id} style={[s.ligne, { alignItems: "flex-start" }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.ligneNom}>{h.ancien_eleve_nom ?? "—"} → {h.nouveau_eleve_nom}</Text>
+                  <Text style={s.videTxt}>
+                    {new Date(h.date_remplacement).toLocaleDateString("fr-FR")} · {h.motif} ·{" "}
+                    {h.statut === "en_attente" ? "en attente de validation" : h.statut === "refuse" ? `refusé${h.motif_refus ? ` (${h.motif_refus})` : ""}` : "appliqué"}
+                  </Text>
+                </View>
+              </View>
+            ))}
             <View style={{ height: rs(20) }} />
           </ScrollView>
         </View>

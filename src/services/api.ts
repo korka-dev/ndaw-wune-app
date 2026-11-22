@@ -304,7 +304,8 @@ export const superviseurApi = {
     resultat:    string;   // "acquis" | "en_cours" | "a_aider"
     date_eval:   string;   // YYYY-MM-DD
     commentaire?: string;
-  }[]) => api.post("/app/supervisor/evaluations", { evaluations }),
+  }[], absents: { eleve_id: string; date_eval: string }[] = []) =>
+    api.post("/app/supervisor/evaluations", { evaluations, absents }),
 
   /** Pointage de présence des enseignants déjà enregistré pour une date (par défaut aujourd'hui). */
   getPresenceCheck: (date_jour?: string) =>
@@ -393,6 +394,8 @@ export const remplacementsApi = {
     nouveau_eleve_id: string;
     motif: string;
   }) => api.post("/app/remplacements", d),
+  /** RET03 : historique des remplacements du tuteur (statut, motif, décision). */
+  historique: () => api.get("/app/remplacements"),
 };
 
 // ── Remplaçants (vivier — vue enseignant) ─────────────────────────────────────

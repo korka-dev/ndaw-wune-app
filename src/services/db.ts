@@ -181,6 +181,18 @@ const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    // Retours terrain (RET02, RET05) : date de réception confirmée par le
+    // serveur (distincte de la date d'activité) et retour du superviseur.
+    version: 10,
+    up: (db) => {
+      for (const col of ["recu_le TEXT", "retour_superviseur TEXT", "retour_par TEXT", "retour_le TEXT"]) {
+        try {
+          db.execSync(`ALTER TABLE rapports_journalier ADD COLUMN ${col}`);
+        } catch { /* colonne déjà présente */ }
+      }
+    },
+  },
 ];
 
 const CURRENT_DB_VERSION = MIGRATIONS.reduce((max, m) => Math.max(max, m.version), 0);
@@ -551,6 +563,10 @@ export interface RapportJournalierLocal {
   reponses_questions:      string | null;  // JSON {question_id: réponse} — questions dynamiques configurées par l'admin
   server_id?:              string | null;  // UUID du rapport côté serveur (après synchronisation)
   statut?:                 "soumis" | "corrige" | "annule" | null;  // APP-31 (null = jamais relu du serveur)
+  recu_le?:                string | null;  // RET02 : réception confirmée par le serveur (ISO)
+  retour_superviseur?:     string | null;  // RET05 : retour écrit du superviseur
+  retour_par?:             string | null;
+  retour_le?:              string | null;
   statut_motif?:           string | null;
   version?:                number | null;
   synced:                  number;   // 0/1
@@ -591,8 +607,8 @@ export function insertRapportJournalier(r: Omit<RapportJournalierLocal, "created
  */
 export function markRapportJournalierSynced(id: string, server_id?: string): void {
   getDB().runSync(
-    `UPDATE rapports_journalier SET synced = 1, server_id = ? WHERE id = ?`,
-    [server_id ?? null, id],
+    `UPDATE rapports_journalier SET synced = 1, server_id = ?, recu_le = COALESCE(recu_le, ?) WHERE id = ?`,
+    [server_id ?? null, new Date().toISOString(), id],
   );
 }
 
@@ -651,6 +667,9 @@ export function upsertRapportJournalierFromServer(r: {
   statut?:                 string | null;
   statut_motif?:           string | null;
   version?:                number | null;
+  retour_superviseur?:     string | null;
+  retour_par?:             string | null;
+  retour_le?:              string | null;
 }): void {
   const db = getDB();
   let existant = db.getFirstSync<{ id: string }>(
@@ -692,14 +711,16 @@ export function upsertRapportJournalierFromServer(r: {
          difficultes = ?, autres_difficultes = ?, description_difficultes = ?,
          directeur_venu = ?, besoin_appui = ?, domaines_appui = ?,
          has_observations = ?, commentaires = ?, photo_classe = ?, photos_classe = ?,
-         reponses_questions = ?, statut = ?, statut_motif = ?, version = ?, synced = ?
+         reponses_questions = ?, statut = ?, statut_motif = ?, version = ?, synced = ?,
+         recu_le = ?, retour_superviseur = ?, retour_par = ?, retour_le = ?
        WHERE server_id = ?`,
       [
         r.date_rapport, r.nb_absences, r.absents, r.semaine, r.jour_cours,
         r.difficultes, r.autres_difficultes, r.description_difficultes,
         r.directeur_venu, r.besoin_appui, r.domaines_appui,
         r.has_observations, r.commentaires, r.photo_classe, r.photos_classe,
-        r.reponses_questions, r.statut ?? null, r.statut_motif ?? null, r.version ?? null, 1, r.server_id,
+        r.reponses_questions, r.statut ?? null, r.statut_motif ?? null, r.version ?? null, 1,
+        r.created_at, r.retour_superviseur ?? null, r.retour_par ?? null, r.retour_le ?? null, r.server_id,
       ],
     );
     return;
@@ -712,8 +733,9 @@ export function upsertRapportJournalierFromServer(r: {
       autres_difficultes, description_difficultes,
       directeur_venu, besoin_appui, domaines_appui,
       has_observations, commentaires, soumis_en_offline, photo_classe, photos_classe,
-      reponses_questions, server_id, synced, created_at, owner_id, statut, statut_motif, version
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      reponses_questions, server_id, synced, created_at, owner_id, statut, statut_motif, version,
+      recu_le, retour_superviseur, retour_par, retour_le
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       `srv_${r.server_id}`, r.date_rapport, r.ief, r.commune, r.ecole, r.superviseur, r.nom_tuteur,
       r.nb_absences, r.absents, r.semaine, r.jour_cours, r.difficultes,
@@ -722,6 +744,7 @@ export function upsertRapportJournalierFromServer(r: {
       r.has_observations, r.commentaires, r.soumis_en_offline,
       r.photo_classe, r.photos_classe, r.reponses_questions, r.server_id, 1, r.created_at,
       _localOwner, r.statut ?? null, r.statut_motif ?? null, r.version ?? null,
+      r.created_at, r.retour_superviseur ?? null, r.retour_par ?? null, r.retour_le ?? null,
     ],
   );
 }
