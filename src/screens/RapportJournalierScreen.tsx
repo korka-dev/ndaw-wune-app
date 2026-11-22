@@ -25,6 +25,20 @@ import {
   enqueueAction,
 } from "../services/db";
 import { rapportJournalierApi } from "../services/api";
+import {
+  lireBrouillon, enregistrerBrouillon, supprimerBrouillon,
+  conserverPhoto, relirePhoto, depuis,
+} from "../services/brouillons";
+
+/** Contenu enregistré dans le brouillon (RET01) — les photos par chemin seulement. */
+interface BrouillonRapport {
+  step: number; dateRapport: string; hasAbsences: boolean | null; absentIds: string[];
+  semaine: number | null; jourCours: number | null;
+  difficultes: string[]; autresDifficultes: string; descriptionDifficultes: string;
+  directeurVenu: boolean | null; besoinAppui: boolean | null; domainesAppui: string;
+  hasObservations: boolean | null; commentaires: string;
+  reponses: Record<string, string>; photos: string[];
+}
 
 // ── Constantes ─────────────────────────────────────────────────────────────
 
@@ -102,6 +116,7 @@ interface Props {
 
 export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
   const { syncData, isOnline, syncOffline } = useStore();
+  const ownerId = useStore(st => st.user?.id ?? null);
   const profile = syncData?.profile;
   const school  = syncData?.school;
 
@@ -214,7 +229,43 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
 
   const [loading,   setLoading]   = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  // RET02 : ce que l'écran annonce doit correspondre à ce qui s'est réellement
+  // passé — « reçu par le serveur » seulement si le serveur a répondu.
+  const [recu,      setRecu]      = useState(false);
   const submittingRef = useRef(false); // verrou synchrone anti double-tap
+  const envoyeRef = useRef(false);      // le rapport est enregistré : plus de brouillon
+
+  // RET11 : photo obligatoire ou non selon la règle fixée par ARED (serveur).
+  const photoObligatoire = syncData?.parametres_terrain?.photo_rapport_obligatoire !== false;
+
+  // ── Brouillon (RET01) : restauré à l'ouverture, enregistré au fil de la saisie ──
+  const [brouillonPret, setBrouillonPret] = useState(false);
+  const [brouillonRestaure, setBrouillonRestaure] = useState<string | null>(null);
+  useEffect(() => {
+    let annule = false;
+    (async () => {
+      const b = await lireBrouillon<BrouillonRapport>("rapport_journalier", ownerId);
+      if (annule) return;
+      if (b) {
+        const d = b.donnees;
+        setStep(Math.min(Math.max(d.step || 1, 1), TOTAL_STEPS));
+        setDateRapport(d.dateRapport || new Date().toLocaleDateString("fr-FR"));
+        setHasAbsences(d.hasAbsences); setAbsentIds(d.absentIds ?? []);
+        setSemaine(d.semaine); setJourCours(d.jourCours);
+        setDifficultes(d.difficultes ?? []); setAutresDifficultes(d.autresDifficultes ?? "");
+        setDescriptionDifficultes(d.descriptionDifficultes ?? "");
+        setDirecteurVenu(d.directeurVenu); setBesoinAppui(d.besoinAppui); setDomainesAppui(d.domainesAppui ?? "");
+        setHasObservations(d.hasObservations); setCommentaires(d.commentaires ?? "");
+        setReponses(d.reponses ?? {});
+        const relues = (await Promise.all((d.photos ?? []).map(relirePhoto))).filter(Boolean) as { uri: string; base64: string }[];
+        if (!annule) setPhotos(relues);
+        setBrouillonRestaure(b.maj_le);
+      }
+      if (!annule) setBrouillonPret(true);
+    })().catch(() => setBrouillonPret(true));
+    return () => { annule = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownerId]);
 
   // ── Dérivés ────────────────────────────────────────────────────────────
   const nb        = absentIds.length;   // calculé depuis les coches, pas d'état séparé
@@ -267,10 +318,13 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
       allowsMultipleSelection: true, selectionLimit: remaining,
     });
     if (!result.canceled && result.assets.length > 0) {
-      const picked = result.assets.slice(0, remaining).map(a => ({ uri: a.uri, base64: a.base64 ?? null }));
+      const picked = await Promise.all(result.assets.slice(0, remaining).map(async a => ({
+        uri: ownerId ? await conserverPhoto("rapport_journalier", ownerId, a.uri) : a.uri,
+        base64: a.base64 ?? null,
+      })));
       setPhotos(prev => [...prev, ...picked].slice(0, MAX_PHOTOS));
     }
-  }, [photos.length]);
+  }, [photos.length, ownerId]);
 
   const openCamera = useCallback(async () => {
     if (photos.length >= MAX_PHOTOS) return;
@@ -286,13 +340,45 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
     });
     if (!result.canceled && result.assets.length > 0) {
       const asset = result.assets[0];
-      setPhotos(prev => [...prev, { uri: asset.uri, base64: asset.base64 ?? null }].slice(0, MAX_PHOTOS));
+      const uri = ownerId ? await conserverPhoto("rapport_journalier", ownerId, asset.uri) : asset.uri;
+      setPhotos(prev => [...prev, { uri, base64: asset.base64 ?? null }].slice(0, MAX_PHOTOS));
     }
-  }, [photos.length]);
+  }, [photos.length, ownerId]);
 
   const removePhoto = useCallback((index: number) => {
     setPhotos(prev => prev.filter((_, i) => i !== index));
   }, []);
+
+  // Enregistrement du brouillon (différé de 600 ms pour ne pas écrire à chaque lettre).
+  useEffect(() => {
+    if (!brouillonPret || submitted) return;
+    const vide = step === 1 && hasAbsences === null && semaine === null && jourCours === null
+      && difficultes.length === 0 && photos.length === 0 && !commentaires && directeurVenu === null;
+    if (vide) return;
+    const t = setTimeout(() => {
+      if (submittingRef.current || envoyeRef.current) return; // jamais recréé après l'envoi
+      enregistrerBrouillon<BrouillonRapport>("rapport_journalier", ownerId, {
+        step, dateRapport, hasAbsences, absentIds, semaine, jourCours,
+        difficultes, autresDifficultes, descriptionDifficultes,
+        directeurVenu, besoinAppui, domainesAppui, hasObservations, commentaires,
+        reponses, photos: photos.map(p => p.uri),
+      }).catch(() => {});
+    }, 600);
+    return () => clearTimeout(t);
+  }, [brouillonPret, submitted, ownerId, step, dateRapport, hasAbsences, absentIds, semaine, jourCours,
+      difficultes, autresDifficultes, descriptionDifficultes, directeurVenu, besoinAppui,
+      domainesAppui, hasObservations, commentaires, reponses, photos]);
+
+  const effacerBrouillon = () => {
+    Alert.alert("Effacer le brouillon ?", "La saisie en cours sera perdue.", [
+      { text: "Annuler", style: "cancel" },
+      { text: "Effacer", style: "destructive", onPress: () => {
+          supprimerBrouillon("rapport_journalier", ownerId).catch(() => {});
+          setBrouillonRestaure(null);
+          resetForm();
+        } },
+    ]);
+  };
 
   const toggleDiff = useCallback((val: string) => {
     setDifficultes(prev => {
@@ -328,7 +414,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
         }
         return null;
       case 4: // Photos
-        if (photos.length === 0) return "Au moins une photo de la classe est obligatoire.";
+        if (photoObligatoire && photos.length === 0) return "Au moins une photo de la classe est obligatoire.";
         return null;
       default:
         return null;
@@ -410,6 +496,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
         submitted_at: new Date().toISOString(),
       };
 
+      let recuServeur = false;
       if (isOnline) {
         try {
           // On conserve l'id renvoyé par le serveur : il permet de supprimer le
@@ -417,18 +504,25 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
           // retéléchargé après une reconnexion.
           const res = await rapportJournalierApi.submit(apiBody);
           markRapportJournalierSynced(localId, res?.data?.id);
+          recuServeur = !!res?.data?.id;
         }
         catch { enqueueAction("SUBMIT_RAPPORT_JOURNALIER", apiBody); }
       } else {
         enqueueAction("SUBMIT_RAPPORT_JOURNALIER", apiBody);
       }
+      // Le rapport est désormais en base locale (et en file s'il n'est pas reçu) :
+      // le brouillon n'a plus lieu d'être.
+      envoyeRef.current = true;
+      supprimerBrouillon("rapport_journalier", ownerId).catch(() => {});
+      setBrouillonRestaure(null);
+      setRecu(recuServeur);
 
       if (onSuccess) {
         Alert.alert(
-          "Rapport soumis !",
-          isOnline
-            ? "Votre rapport a été transmis."
-            : "Hors-ligne — envoi automatique à la reconnexion.",
+          recuServeur ? "Rapport reçu par le serveur" : "Rapport enregistré sur le téléphone",
+          recuServeur
+            ? "Le serveur a confirmé la réception. Vous le retrouvez dans l'historique, statut « Reçu »."
+            : "Il n'est pas encore reçu par le serveur : il part automatiquement dès que le réseau revient. Suivez-le dans l'historique (statut « En attente d'envoi »).",
           [{ text: "OK", onPress: onSuccess }],
         );
       } else {
@@ -454,6 +548,8 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
     setPhotos([]);
     setReponses({});
     setSubmitted(false);
+    setRecu(false);
+    envoyeRef.current = false;
   };
 
   // ── Vue succès ────────────────────────────────────────────────────────
@@ -463,9 +559,11 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
         {appHeader}
         <View style={s.successWrap}>
           <Feather name="check-circle" size={rf(60)} color={C.success} />
-          <Text style={s.successTitle}>Rapport soumis !</Text>
+          <Text style={s.successTitle}>{recu ? "Rapport reçu par le serveur" : "Rapport enregistré sur le téléphone"}</Text>
           <Text style={s.successSub}>
-            {isOnline ? "Votre rapport a été transmis." : "Hors-ligne — envoi automatique à la reconnexion."}
+            {recu
+              ? "Le serveur a confirmé la réception."
+              : "En attente d'envoi : il part automatiquement dès que le réseau revient."}
           </Text>
           <TouchableOpacity style={s.newBtn} onPress={resetForm} activeOpacity={0.85}>
             <Feather name="plus" size={rf(16)} color="#fff" style={{ marginRight: rs(6) }} />
@@ -592,13 +690,14 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
                 <Text style={[s.question, { marginTop: rs(16) }]}>{L("tuteur.absents_select_label", "Sélectionnez les élèves absents")}</Text>
                 {elevesDisponibles.length > 0 ? (
                   <>
-                    {elevesDisponibles.map(eleve => (
-                      <Check
-                        key={eleve.id}
-                        label={nomEleve(eleve)}
-                        checked={absentIds.includes(eleve.id)}
-                        onPress={() => toggleAbsent(eleve.id)}
-                      />
+                    {/* RET12 : absents et présents classés séparément */}
+                    <Text style={s.groupeAbs}>Absents ({elevesDisponibles.filter(e => absentIds.includes(e.id)).length})</Text>
+                    {elevesDisponibles.filter(e => absentIds.includes(e.id)).map(eleve => (
+                      <Check key={eleve.id} label={nomEleve(eleve)} checked onPress={() => toggleAbsent(eleve.id)} />
+                    ))}
+                    <Text style={s.groupePres}>Présents ({elevesDisponibles.filter(e => !absentIds.includes(e.id)).length}) — touchez un élève pour le marquer absent</Text>
+                    {elevesDisponibles.filter(e => !absentIds.includes(e.id)).map(eleve => (
+                      <Check key={eleve.id} label={nomEleve(eleve)} checked={false} onPress={() => toggleAbsent(eleve.id)} />
                     ))}
                     <View style={s.absentsBadge}>
                       <Feather
@@ -689,7 +788,8 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
         return (
           <ScrollView style={s.stepBody} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             {/* Supervision */}
-            <Text style={s.question}>{L("tuteur.directeur_venu_question", "Le directeur / superviseur est-il venu ?")}</Text>
+            <Text style={s.question}>{L("tuteur.directeur_venu_question", "Le directeur ou le superviseur est-il venu dans votre classe aujourd'hui ?")}</Text>
+            <Text style={s.aideQuestion}>Répondez « Oui » seulement s'il est réellement venu. Vos élèves absents se notent à l'étape 1.</Text>
             <View style={s.ouiNonRow}>
               <TouchableOpacity
                 style={[s.ouiNonBtn, directeurVenu === true  && s.ouiNonSel]}
@@ -878,7 +978,7 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
               {L("tuteur.photos_label", "Ajoutez des photos de la classe")}
             </Text>
             <Text style={[s.photoHint, { textAlign: "center", marginBottom: rs(20) }]}>
-              {photos.length}/{MAX_PHOTOS} photo{photos.length > 1 ? "s" : ""} — au moins 1 requise
+              {photos.length}/{MAX_PHOTOS} photo{photos.length > 1 ? "s" : ""} — {photoObligatoire ? "au moins 1 requise" : "facultatives"}
             </Text>
 
             {photos.length > 0 && (
@@ -941,6 +1041,16 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
         )}
       </View>
 
+      {brouillonRestaure && (
+        <View style={s.brouillonBox}>
+          <Feather name="save" size={rf(14)} color={C.brand} />
+          <Text style={s.brouillonTxt}>Brouillon repris (enregistré {depuis(brouillonRestaure)}).</Text>
+          <TouchableOpacity onPress={effacerBrouillon} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={s.brouillonLien}>Effacer</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* ── Barre de progression ── */}
       <View style={s.progressWrap}>
         <View style={s.progressBar}>
@@ -972,9 +1082,9 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
-              style={[s.nextBtn, s.submitBtn, (loading || photos.length === 0) && s.submitDis]}
+              style={[s.nextBtn, s.submitBtn, (loading || (photoObligatoire && photos.length === 0)) && s.submitDis]}
               onPress={handleSubmit}
-              disabled={loading || photos.length === 0}
+              disabled={loading || (photoObligatoire && photos.length === 0)}
               activeOpacity={0.85}
             >
               {loading
@@ -998,6 +1108,14 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
 
 const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
+
+  aideQuestion:  { fontSize: rf(12.5), color: C.textMuted, marginTop: -rs(4), marginBottom: rs(8) },
+  /* Brouillon (RET01) et groupes d'absences (RET12) */
+  brouillonBox:  { flexDirection: "row", alignItems: "center", gap: rs(8), marginHorizontal: rs(16), marginTop: rs(10), padding: rs(10), borderRadius: rs(10), backgroundColor: C.brandSoft },
+  brouillonTxt:  { flex: 1, fontSize: rf(13), color: C.text },
+  brouillonLien: { fontSize: rf(13), fontWeight: "700", color: C.danger },
+  groupeAbs:     { fontSize: rf(13), fontWeight: "800", color: C.danger, marginTop: rs(10), marginBottom: rs(4) },
+  groupePres:    { fontSize: rf(13), fontWeight: "700", color: C.textMuted, marginTop: rs(14), marginBottom: rs(4) },
 
   /* Barre titre */
   topBar:  { flexDirection: "row", alignItems: "center", paddingHorizontal: rs(16), paddingVertical: rs(12), backgroundColor: C.surface, borderBottomWidth: 1, borderBottomColor: C.border },

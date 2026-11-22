@@ -2,12 +2,12 @@ import React, { useState, useEffect, useCallback } from "react";
 import { trackUsage } from "../services/usage";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  ActivityIndicator, RefreshControl, Modal,
+  ActivityIndicator, RefreshControl, Modal, TextInput, Alert,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useStore } from "../store/useStore";
-import { teacherEvalApi, syncApi } from "../services/api";
+import { teacherEvalApi, syncApi, propositionsGroupeApi } from "../services/api";
 import {
   getCachedTeacherEvaluations, setCachedTeacherEvaluations,
   getCachedEvaluationCompetences,
@@ -67,6 +67,12 @@ function groupByCompetence(
   }));
 }
 
+interface Proposition {
+  id: string; eleve_id: string; domaine: string; ancien_groupe: string | null;
+  nouveau_groupe: string; motif: string; statut: string; motif_refus?: string | null; created_at: string;
+}
+const STATUT_PROP: Record<string, string> = { proposee: "En attente de décision", validee: "Validée", refusee: "Refusée" };
+
 // ── Composant ─────────────────────────────────────────────────────────────────
 
 export default function EvaluationResultatsScreen() {
@@ -87,6 +93,63 @@ export default function EvaluationResultatsScreen() {
 
   // Détail modal par compétence
   const [detailGroup, setDetailGroup] = useState<CompetenceGroup | null>(null);
+
+  // ── RET07 : vue par élève (groupes, historique, proposition de groupe) ──
+  const syncData = useStore(st => st.syncData);
+  const propositionActive = syncData?.parametres_terrain?.proposition_groupe_active !== false;
+  const [vue, setVue] = useState<"competence" | "eleve">("competence");
+  const [eleveChoisi, setEleveChoisi] = useState<string | null>(null);
+  const [propositions, setPropositions] = useState<Proposition[]>([]);
+  const [propDomaine, setPropDomaine] = useState<"lecture" | "maths">("lecture");
+  const [propGroupe, setPropGroupe] = useState("");
+  const [propMotif, setPropMotif] = useState("");
+  const [propEnvoi, setPropEnvoi] = useState(false);
+
+  const chargerPropositions = useCallback(async () => {
+    try { setPropositions(((await propositionsGroupeApi.mes()).data ?? []) as Proposition[]); } catch {}
+  }, []);
+  useEffect(() => { if (isOnline) chargerPropositions(); }, [isOnline, chargerPropositions]);
+
+  const elevesSync = syncData?.eleves ?? [];
+  const elevesParId = new Map<string, { id: string; nom: string; prenom: string | null; classe: string;
+    groupe_lecture?: string | null; groupe_maths?: string | null }>();
+  for (const e of elevesSync) elevesParId.set(e.id, e);
+  for (const ev of evals) if (!elevesParId.has(ev.eleve_id)) {
+    elevesParId.set(ev.eleve_id, { id: ev.eleve_id, nom: ev.nom, prenom: ev.prenom, classe: ev.classe });
+  }
+  const listeEleves = [...elevesParId.values()].sort((a, b) =>
+    a.classe.localeCompare(b.classe) || a.nom.localeCompare(b.nom));
+  const eleveSel = eleveChoisi ? elevesParId.get(eleveChoisi) ?? null : null;
+  const histoireSel = eleveChoisi
+    ? evals.filter(e => e.eleve_id === eleveChoisi).sort((a, b) => b.date_eval.localeCompare(a.date_eval))
+    : [];
+  const propsSel = eleveChoisi ? propositions.filter(p => p.eleve_id === eleveChoisi) : [];
+
+  const ouvrirEleve = (id: string) => {
+    setEleveChoisi(id); setPropDomaine("lecture"); setPropGroupe(""); setPropMotif("");
+  };
+
+  const envoyerProposition = async () => {
+    if (!eleveSel || propEnvoi) return;
+    if (!isOnline) {
+      Alert.alert("Hors connexion", "La proposition doit être envoyée avec du réseau, pour que l'équipe programme la reçoive.");
+      return;
+    }
+    setPropEnvoi(true);
+    try {
+      await propositionsGroupeApi.proposer({
+        eleve_id: eleveSel.id, domaine: propDomaine,
+        nouveau_groupe: propGroupe.trim(), motif: propMotif.trim(),
+      });
+      setPropGroupe(""); setPropMotif("");
+      await chargerPropositions();
+      Alert.alert("Proposition envoyée",
+        "L'équipe programme va l'examiner. Le groupe actuel reste en place tant qu'elle n'est pas validée.");
+    } catch (e: any) {
+      const d = e?.response?.data?.detail;
+      Alert.alert("Envoi impossible", typeof d === "string" ? d : "Le serveur n'a pas pu être joint. Réessayez plus tard.");
+    } finally { setPropEnvoi(false); }
+  };
 
   // ── Chargement ────────────────────────────────────────────────────────────
 
@@ -187,6 +250,45 @@ export default function EvaluationResultatsScreen() {
           </Text>
         </View>
 
+        <View style={styles.toggleRow}>
+          {([["competence", "Par compétence"], ["eleve", "Par élève"]] as const).map(([k, lbl]) => (
+            <TouchableOpacity key={k} style={[styles.toggleBtn, vue === k && styles.toggleBtnOn]} onPress={() => setVue(k)}>
+              <Text style={[styles.toggleTxt, vue === k && styles.toggleTxtOn]}>{lbl}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {vue === "eleve" && (
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { await onRefresh(); await chargerPropositions(); }} tintColor={C.brand} />}
+            contentContainerStyle={styles.listContent}
+          >
+            {listeEleves.length === 0 && (
+              <Text style={styles.emptyText}>Aucun élève sur ce téléphone. Synchronisez pour récupérer votre liste.</Text>
+            )}
+            {listeEleves.map(e => {
+              const n = evals.filter(ev => ev.eleve_id === e.id).length;
+              const enAttente = propositions.some(p => p.eleve_id === e.id && p.statut === "proposee");
+              return (
+                <TouchableOpacity key={e.id} style={styles.compCard} onPress={() => ouvrirEleve(e.id)} activeOpacity={0.75}>
+                  <View style={{ flex: 1, gap: rs(3) }}>
+                    <Text style={styles.compLabel}>{e.nom}{e.prenom ? ` ${e.prenom}` : ""}</Text>
+                    <Text style={styles.compDate}>
+                      Classe {e.classe} · Lecture : {e.groupe_lecture ?? "—"} · Maths : {e.groupe_maths ?? "—"}
+                    </Text>
+                    <Text style={styles.compTotal}>
+                      {n} observation{n > 1 ? "s" : ""}{enAttente ? " · proposition en attente" : ""}
+                    </Text>
+                  </View>
+                  <Feather name="chevron-right" size={rs(20)} color={C.textMuted} />
+                </TouchableOpacity>
+              );
+            })}
+            <View style={{ height: rs(24) }} />
+          </ScrollView>
+        )}
+
         {/* Erreur */}
         {error && (
           <View style={styles.errorBanner}>
@@ -199,7 +301,7 @@ export default function EvaluationResultatsScreen() {
         )}
 
         {/* État vide */}
-        {!error && evals.length === 0 && (
+        {vue === "competence" && !error && evals.length === 0 && (
           <View style={styles.emptyState}>
             <Feather name="clipboard" size={rs(48)} color={C.textMuted} />
             <Text style={styles.emptyTitle}>Aucune évaluation reçue</Text>
@@ -210,7 +312,7 @@ export default function EvaluationResultatsScreen() {
         )}
 
         {/* Liste par compétence */}
-        {groups.length > 0 && (
+        {vue === "competence" && groups.length > 0 && (
           <ScrollView
             showsVerticalScrollIndicator={false}
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.brand} />}
@@ -266,6 +368,89 @@ export default function EvaluationResultatsScreen() {
       </View>
 
       <ProfileSheet visible={profileOpen} onClose={() => setProfileOpen(false)} />
+
+      {/* ── Modal élève : groupes, historique, proposition (RET07) ── */}
+      <Modal visible={!!eleveSel} animationType="slide" transparent onRequestClose={() => setEleveChoisi(null)}>
+        <View style={styles.overlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setEleveChoisi(null)} />
+          <View style={styles.sheet}>
+            <View style={styles.handle} />
+            <View style={styles.sheetHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sheetTitle}>{eleveSel?.nom}{eleveSel?.prenom ? ` ${eleveSel.prenom}` : ""}</Text>
+                <Text style={styles.sheetSub}>
+                  Classe {eleveSel?.classe} · Lecture : {eleveSel?.groupe_lecture ?? "—"} · Maths : {eleveSel?.groupe_maths ?? "—"}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setEleveChoisi(null)} style={styles.closeBtn}>
+                <Feather name="x" size={rs(20)} color={C.textMuted} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: rs(460) }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+              <Text style={styles.sectionLbl}>Historique des observations</Text>
+              {histoireSel.length === 0 && <Text style={styles.compDate}>Aucune observation pour cet élève.</Text>}
+              {histoireSel.map((ev, i) => {
+                const res = RESULTATS[ev.resultat as Resultat] ?? RESULTATS.en_cours;
+                return (
+                  <View key={`${ev.competence}-${ev.date_eval}-${i}`} style={[styles.eleveRow, styles.eleveBorder]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.eleveName}>{getCompetenceLabel(ev.competence, competencesList)}</Text>
+                      <Text style={styles.eleveClasse}>{formatDate(ev.date_eval)}{ev.superviseur_nom ? ` · ${ev.superviseur_nom}` : ""}</Text>
+                      {ev.commentaire ? <Text style={styles.eleveComment}>{ev.commentaire}</Text> : null}
+                    </View>
+                    <View style={[styles.resultBadge, { backgroundColor: res.bg }]}>
+                      <Text style={[styles.resultBadgeText, { color: res.color }]}>{res.icon}</Text>
+                    </View>
+                  </View>
+                );
+              })}
+
+              {propsSel.length > 0 && <Text style={[styles.sectionLbl, { marginTop: rs(14) }]}>Mes propositions</Text>}
+              {propsSel.map(p => (
+                <View key={p.id} style={[styles.eleveRow, styles.eleveBorder]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.eleveName}>
+                      {p.domaine === "lecture" ? "Lecture" : "Maths"} : {p.ancien_groupe ?? "aucun"} → {p.nouveau_groupe}
+                    </Text>
+                    <Text style={styles.eleveClasse}>{STATUT_PROP[p.statut] ?? p.statut} · {formatDate(p.created_at)}</Text>
+                    {p.motif_refus ? <Text style={styles.eleveComment}>Motif du refus : {p.motif_refus}</Text> : null}
+                  </View>
+                </View>
+              ))}
+
+              {propositionActive && (
+                <View style={{ marginTop: rs(14), gap: rs(8) }}>
+                  <Text style={styles.sectionLbl}>Proposer un changement de groupe</Text>
+                  <Text style={styles.compDate}>
+                    Le groupe actuel reste en place jusqu'à la décision de l'équipe programme. L'historique est conservé.
+                  </Text>
+                  <View style={styles.toggleRow}>
+                    {(["lecture", "maths"] as const).map(d => (
+                      <TouchableOpacity key={d} style={[styles.toggleBtn, propDomaine === d && styles.toggleBtnOn]} onPress={() => setPropDomaine(d)}>
+                        <Text style={[styles.toggleTxt, propDomaine === d && styles.toggleTxtOn]}>
+                          {d === "lecture" ? "Lecture" : "Maths"} ({(d === "lecture" ? eleveSel?.groupe_lecture : eleveSel?.groupe_maths) ?? "aucun"})
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <TextInput style={styles.input} placeholder="Nouveau groupe (ex. G2)" placeholderTextColor={C.textMuted}
+                    value={propGroupe} onChangeText={setPropGroupe} maxLength={30} />
+                  <TextInput style={[styles.input, { minHeight: rs(70), textAlignVertical: "top" }]} multiline
+                    placeholder="Pourquoi ? (ce que l'élève sait faire maintenant)" placeholderTextColor={C.textMuted}
+                    value={propMotif} onChangeText={setPropMotif} maxLength={1000} />
+                  <TouchableOpacity
+                    style={[styles.submitBtn, (propGroupe.trim().length < 1 || propMotif.trim().length < 3 || propEnvoi) && { opacity: 0.5 }]}
+                    disabled={propGroupe.trim().length < 1 || propMotif.trim().length < 3 || propEnvoi}
+                    onPress={envoyerProposition}
+                  >
+                    {propEnvoi ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitTxt}>Envoyer la proposition</Text>}
+                  </TouchableOpacity>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       {/* ── Modal détail compétence ── */}
       <Modal visible={!!detailGroup} animationType="slide" transparent>
@@ -447,4 +632,14 @@ const styles = StyleSheet.create({
 
   supBadge:     { flexDirection: "row", alignItems: "center", gap: rs(5), marginTop: rs(5), backgroundColor: C.primarySoft, borderRadius: rs(8), paddingHorizontal: rs(8), paddingVertical: rs(4), alignSelf: "flex-start" },
   supBadgeText: { fontSize: rf(12), fontWeight: "600", color: C.primary },
+
+  toggleRow:    { flexDirection: "row", gap: rs(8), marginBottom: rs(12) },
+  toggleBtn:    { flex: 1, paddingVertical: rs(9), borderRadius: rs(10), borderWidth: 1, borderColor: C.border, alignItems: "center", backgroundColor: C.surface },
+  toggleBtnOn:  { backgroundColor: C.primarySoft, borderColor: C.primary },
+  toggleTxt:    { fontSize: rf(13), fontWeight: "600", color: C.textMuted },
+  toggleTxtOn:  { color: C.primary },
+  sectionLbl:   { fontSize: rf(13), fontWeight: "800", color: C.text, marginBottom: rs(4) },
+  input:        { borderWidth: 1, borderColor: C.border, borderRadius: rs(10), paddingHorizontal: rs(12), paddingVertical: rs(10), fontSize: rf(14), color: C.text, backgroundColor: C.bg },
+  submitBtn:    { backgroundColor: C.primary, borderRadius: rs(12), paddingVertical: rs(13), alignItems: "center" },
+  submitTxt:    { color: "#fff", fontSize: rf(15), fontWeight: "700" },
 });

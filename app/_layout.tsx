@@ -116,6 +116,8 @@ export default function RootLayout() {
           name="remarques"
           options={{ animation: "slide_from_bottom" }}
         />
+        <Stack.Screen name="aide" options={{ animation: "slide_from_right" }} />
+        <Stack.Screen name="sup-suivi" options={{ animation: "slide_from_right" }} />
       </Stack>
       <AppLockGate />
     </SafeAreaProvider>

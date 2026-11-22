@@ -646,6 +646,11 @@ export default function SupPresencesScreen() {
               )}
             </View>
 
+            {/* RET12 : trois événements distincts — présence du tuteur (ici), présence des élèves (rapport du tuteur), visite du superviseur (onglet Visites). */}
+            <Text style={styles.aidePointage}>
+              Indiquez si chaque tuteur est présent dans sa classe aujourd'hui. Ce n'est pas votre propre visite : celle-ci se note dans l'onglet « Visites ».
+            </Text>
+
             {/* Liste enseignants */}
             <TourTarget id="sup.presences.liste" style={{ flex: 1 }}>
             <ScrollView
@@ -970,6 +975,7 @@ export default function SupPresencesScreen() {
 }
 
 const styles = StyleSheet.create({
+  aidePointage: { fontSize: rf(12.5), color: C.textMuted, paddingHorizontal: rs(16), marginBottom: rs(6), lineHeight: rf(18) },
   root:         { flex: 1, backgroundColor: C.bg },
 
   /* Sélecteur de période */

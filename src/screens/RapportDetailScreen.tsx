@@ -12,7 +12,8 @@ import { fr } from "date-fns/locale";
 
 import { rs, rf } from "../utils/responsive";
 import { C } from "../utils/theme";
-import { getRapportJournalierById, setRapportJournalierStatut } from "../services/db";
+import { getRapportJournalierById, setRapportJournalierStatut, getFailedActions } from "../services/db";
+import { statutRapport, rejetsParRapport, dateCourte } from "../utils/statutRapport";
 import { rapportJournalierApi } from "../services/api";
 import { errorMessage } from "../services/queue";
 import { useStore } from "../store/useStore";
@@ -98,6 +99,9 @@ export default function RapportDetailScreen() {
 
   const synced = item.synced === 1;
   const annule = item.statut === "annule";
+  let rejets = new Map<string, string | null>();
+  try { rejets = rejetsParRapport(getFailedActions()); } catch {}
+  const st = statutRapport(item, rejets);
 
   const annuler = async () => {
     if (!item.server_id) return;
@@ -144,7 +148,7 @@ export default function RapportDetailScreen() {
             color={synced ? C.success : C.warn}
           />
           <Text style={[s.badgeTxt, { color: synced ? C.success : C.warn }]}>
-            {synced ? "Envoyé" : "En cours"}
+            {st.libelle}
           </Text>
         </View>
       </View>
@@ -154,6 +158,34 @@ export default function RapportDetailScreen() {
         contentContainerStyle={s.scroll}
         showsVerticalScrollIndicator={false}
       >
+
+        {/* RET02 : preuve de réception, date d'activité distincte de la date de réception */}
+        <View style={[s.statutBox, { backgroundColor: st.code === "recu" ? C.successSoft : st.code === "a_verifier" ? C.dangerSoft : C.warnSoft }]}>
+          <Text style={[s.statutTitre, { color: st.code === "recu" ? C.success : st.code === "a_verifier" ? C.danger : C.warn }]}>
+            {st.libelle}
+          </Text>
+          <Text style={s.statutMotif}>Activité du {fmtDate(item.date_rapport)}</Text>
+          {!!st.detail && <Text style={s.statutMotif}>{st.detail}</Text>}
+          {st.tardif && <Text style={s.statutMotif}>Envoi tardif : reçu après le jour de l'activité.</Text>}
+          {st.code === "a_verifier" && (
+            <TouchableOpacity onPress={() => router.push("/sync-center" as any)}>
+              <Text style={[s.statutMotif, { color: C.brand, fontWeight: "700" }]}>Ouvrir le centre d'envoi pour relancer →</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* RET05 : retour du superviseur */}
+        {!!item.retour_superviseur && (
+          <View style={[s.statutBox, { backgroundColor: C.brandSoft }]}>
+            <Text style={[s.statutTitre, { color: C.brand }]}>Retour du superviseur</Text>
+            <Text style={[s.statutMotif, { color: C.text }]}>{item.retour_superviseur}</Text>
+            {(item.retour_par || item.retour_le) && (
+              <Text style={s.statutMotif}>
+                {item.retour_par ?? ""}{item.retour_le ? ` · ${dateCourte(item.retour_le)}` : ""}
+              </Text>
+            )}
+          </View>
+        )}
 
         {/* Statut serveur (APP-31) */}
         {(annule || item.statut === "corrige") && (

@@ -25,6 +25,12 @@ import {
 import { Feather } from "@expo/vector-icons";
 import { useStore } from "../../store/useStore";
 import { superviseurApi } from "../../services/api";
+import {
+  getCachedEvalEnseignants, setCachedEvalEnseignants, getCachedEvalDocs, setCachedEvalDocs,
+  getCachedEvalEleves, setCachedEvalEleves,
+} from "../../services/cache";
+import { enqueueAction } from "../../services/db";
+import { lireBrouillon, enregistrerBrouillon, supprimerBrouillon, depuis } from "../../services/brouillons";
 import { trackUsage } from "../../services/usage";
 import { C } from "../../utils/theme";
 import { rf, rs } from "../../utils/responsive";
@@ -108,6 +114,14 @@ function tirerAuSort<T>(liste: T[], n: number): T[] {
 
 const aujourdhui = (): string => new Date().toISOString().slice(0, 10);
 
+/** Évaluation en cours, conservée après fermeture de l'application (RET01, RET04). */
+interface BrouillonEval {
+  view: ViewType; ens: Enseignant; eleves: Eleve[]; tires: Eleve[];
+  presences: [string, boolean][]; results: [string, Resultat][]; docId: string | null; date: string;
+}
+
+const estErreurReseau = (e: any) => !e?.response;
+
 // ── Écran principal ───────────────────────────────────────────────────────────
 
 export default function SupEvaluationScreen() {
@@ -142,6 +156,9 @@ export default function SupEvaluationScreen() {
 
   // ── Chargement ─────────────────────────────────────────────────────────────
 
+  // RET04 : listes et dossiers gardés sur le téléphone — l'évaluation se fait
+  // sans réseau à partir de la dernière synchronisation réussie.
+  const [horsLigneDepuisCache, setHorsLigneDepuisCache] = useState(false);
   const fetchData = useCallback(async () => {
     setError(null);
     try {
@@ -149,12 +166,39 @@ export default function SupEvaluationScreen() {
         superviseurApi.eleves(),
         superviseurApi.evaluationDocs(),
       ]);
-      setEnseignants(ensRes.data?.teachers ?? []);
-      setEvalDocs(docsRes.data ?? []);
+      const ens = ensRes.data?.teachers ?? [];
+      const docs = docsRes.data ?? [];
+      setEnseignants(ens);
+      setEvalDocs(docs);
+      setHorsLigneDepuisCache(false);
+      setCachedEvalEnseignants(ens).catch(() => {});
+      setCachedEvalDocs(docs).catch(() => {});
+      // Élèves de chaque enseignant préchargés : l'évaluation reste possible en classe sans réseau.
+      for (const t of ens as Enseignant[]) {
+        Promise.all(t.classes.map(c => superviseurApi.classeEleves(t.teacher_id, c.classe)))
+          .then(ls => setCachedEvalEleves(t.teacher_id, ls.flatMap(r => r.data ?? [])))
+          .catch(() => {});
+      }
     } catch {
-      setError("Impossible de charger les données. Vérifiez votre connexion.");
+      const [ens, docs] = await Promise.all([getCachedEvalEnseignants<Enseignant>(), getCachedEvalDocs<EvalDoc>()]);
+      if (ens && ens.length) {
+        setEnseignants(ens);
+        setEvalDocs(docs ?? []);
+        setHorsLigneDepuisCache(true);
+      } else {
+        setError("Impossible de charger les données. Connectez-vous une première fois pour préparer l'évaluation hors connexion.");
+      }
     }
   }, []);
+
+  // ── Brouillon : reprise d'une évaluation interrompue ───────────────────────
+  const [brouillon, setBrouillon] = useState<{ b: BrouillonEval; le: string } | null>(null);
+  const brouillonPret = React.useRef(false);
+  useEffect(() => {
+    lireBrouillon<BrouillonEval>("evaluation", user?.id)
+      .then(b => { if (b) setBrouillon({ b: b.donnees, le: b.maj_le }); })
+      .finally(() => { brouillonPret.current = true; });
+  }, [user?.id]);
 
   useEffect(() => { fetchData().finally(() => setLoading(false)); }, [fetchData]);
 
@@ -192,6 +236,7 @@ export default function SupEvaluationScreen() {
 
   const ouvrirEnseignant = async (ens: Enseignant) => {
     setActiveEns(ens);
+    setDateReprise(null);
     setTires([]); setResults(new Map()); setSubmitDone(false);
     setView("eleves");
     setLoadingEleves(true);
@@ -203,9 +248,15 @@ export default function SupEvaluationScreen() {
       const tous = listes.flatMap(r => (r.data ?? []) as Eleve[]);
       tous.sort((a, b) => eleveName(a).localeCompare(eleveName(b)));
       setEleves(tous);
+      setCachedEvalEleves(ens.teacher_id, tous).catch(() => {});
     } catch {
-      setEleves([]);
-      Alert.alert("Erreur", "Impossible de charger les élèves de cet enseignant.");
+      const enCache = await getCachedEvalEleves<Eleve>(ens.teacher_id);
+      if (enCache && enCache.length) {
+        setEleves([...enCache].sort((a, b) => eleveName(a).localeCompare(eleveName(b))));
+      } else {
+        setEleves([]);
+        Alert.alert("Liste indisponible", "Les élèves de cet enseignant n'ont pas encore été téléchargés. Connectez-vous une fois pour les préparer.");
+      }
     } finally {
       setLoadingEleves(false);
     }
@@ -215,6 +266,25 @@ export default function SupEvaluationScreen() {
 
   const lancerTirage = () => {
     if (eleves.length === 0) return;
+    // RET04 : un élève absent n'est jamais remplacé par un nouveau tirage.
+    if (tires.length > 0 && tires.some(e => presences.get(e.id) === false)) {
+      Alert.alert(
+        "Tirage conservé",
+        "Un élève tiré est marqué absent : il reste absent et n'est pas remplacé par un autre élève (règle du protocole). Continuez avec les élèves présents.",
+      );
+      return;
+    }
+    if (tires.length > 0) {
+      Alert.alert("Refaire le tirage ?", "Ne refaites le tirage qu'en cas d'erreur de liste. Les élèves déjà tirés seront remplacés.", [
+        { text: "Annuler", style: "cancel" },
+        { text: "Refaire", style: "destructive", onPress: () => effectuerTirage() },
+      ]);
+      return;
+    }
+    effectuerTirage();
+  };
+
+  const effectuerTirage = () => {
     const choisis = tirerAuSort(eleves, NB_TIRAGE);
     setTires(choisis);
     setPresences(new Map(choisis.map(e => [e.id, true])));
@@ -286,26 +356,79 @@ export default function SupEvaluationScreen() {
       return;
     }
     setSubmitting(true);
+    const dateEval = dateReprise ?? aujourdhui();
+    // Une ligne par élève ET par partie du dossier : la table
+    // `evaluations_eleves` est déjà indexée sur (élève, compétence, date),
+    // les quatre résultats coexistent donc sans conflit (rejeu sans doublon).
+    const evaluations = aEvaluer.flatMap(e =>
+      categoriesActives.map(c => ({
+        eleve_id:   e.id,
+        competence: c.key,
+        resultat:   results.get(cleResultat(e.id, c.key))!,
+        date_eval:  dateEval,
+      })),
+    );
+    const absents = tires.filter(e => presences.get(e.id) === false).map(e => ({ eleve_id: e.id, date_eval: dateEval }));
     try {
-      // Une ligne par élève ET par partie du dossier : la table
-      // `evaluations_eleves` est déjà indexée sur (élève, compétence, date),
-      // les quatre résultats coexistent donc sans conflit.
-      await superviseurApi.submitEvaluations(
-        aEvaluer.flatMap(e =>
-          categoriesActives.map(c => ({
-            eleve_id:   e.id,
-            competence: c.key,
-            resultat:   results.get(cleResultat(e.id, c.key))!,
-            date_eval:  aujourdhui(),
-          })),
-        ),
-      );
+      if (!isOnline) throw { horsLigne: true };
+      await superviseurApi.submitEvaluations(evaluations, absents);
+      setEnvoiRecu(true);
       setSubmitDone(true);
-    } catch {
-      Alert.alert("Erreur", "Impossible d'enregistrer les évaluations. Vérifiez votre connexion.");
+      supprimerBrouillon("evaluation", user?.id).catch(() => {});
+      setBrouillon(null);
+    } catch (e: any) {
+      if (e?.horsLigne || estErreurReseau(e)) {
+        // Hors ligne : file d'attente, envoi automatique au retour du réseau.
+        enqueueAction("SUBMIT_EVALUATIONS", { evaluations, absents });
+        setEnvoiRecu(false);
+        setSubmitDone(true);
+        supprimerBrouillon("evaluation", user?.id).catch(() => {});
+        setBrouillon(null);
+      } else {
+        const detail = e?.response?.data?.detail;
+        Alert.alert("Évaluation refusée", typeof detail === "string" ? detail : (detail?.message ?? "Le serveur n'a pas accepté l'envoi. Vérifiez les résultats saisis."));
+      }
     } finally {
       setSubmitting(false);
     }
+  };
+  const [envoiRecu, setEnvoiRecu] = useState(false);
+  // Date d'une évaluation reprise : celle du jour où elle a été commencée.
+  const [dateReprise, setDateReprise] = useState<string | null>(null);
+
+  // Enregistrement continu de l'évaluation en cours (fermeture forcée, appel, batterie).
+  useEffect(() => {
+    if (!brouillonPret.current || !activeEns || submitDone || view === "enseignants") return;
+    const t = setTimeout(() => {
+      enregistrerBrouillon<BrouillonEval>("evaluation", user?.id, {
+        view, ens: activeEns, eleves, tires, presences: [...presences.entries()], results: [...results.entries()],
+        docId: activeDoc?.id ?? null, date: dateReprise ?? aujourdhui(),
+      }).catch(() => {});
+    }, 500);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, activeEns, eleves, tires, presences, results, activeDoc, submitDone]);
+
+  const reprendre = () => {
+    if (!brouillon) return;
+    const b = brouillon.b;
+    setActiveEns(b.ens); setEleves(b.eleves); setTires(b.tires);
+    setPresences(new Map(b.presences)); setResults(new Map(b.results));
+    const doc = evalDocs.find(d => d.id === b.docId) ?? null;
+    setActiveDoc(doc);
+    setDateReprise(b.date);
+    setSubmitDone(false);
+    setView(doc ? b.view : (b.tires.length ? "tires" : "eleves"));
+  };
+
+  const abandonnerBrouillon = () => {
+    Alert.alert("Abandonner l'évaluation en cours ?", "Les résultats saisis et non envoyés seront perdus.", [
+      { text: "Garder", style: "cancel" },
+      { text: "Abandonner", style: "destructive", onPress: () => {
+          supprimerBrouillon("evaluation", user?.id).catch(() => {});
+          setBrouillon(null);
+        } },
+    ]);
   };
 
   const terminer = () => {
@@ -354,6 +477,26 @@ export default function SupEvaluationScreen() {
             <Text style={st.viewTitle}>Mes enseignants</Text>
             <Text style={st.viewSub}>Choisissez un enseignant pour évaluer ses élèves</Text>
           </View>
+
+          {horsLigneDepuisCache && (
+            <View style={[st.errorBanner, { backgroundColor: C.warnSoft }]}>
+              <Feather name="wifi-off" size={rs(14)} color={C.warn} />
+              <Text style={[st.errorText, { color: C.warn }]}>
+                Hors connexion : listes de la dernière synchronisation. L'évaluation sera envoyée au retour du réseau.
+              </Text>
+            </View>
+          )}
+
+          {brouillon && (
+            <View style={[st.errorBanner, { backgroundColor: C.brandSoft }]}>
+              <Feather name="save" size={rs(14)} color={C.brand} />
+              <Text style={[st.errorText, { color: C.text }]}>
+                Évaluation de {brouillon.b.ens.teacher_name} non terminée (enregistrée {depuis(brouillon.le)}).
+              </Text>
+              <TouchableOpacity onPress={reprendre}><Text style={st.retryText}>Reprendre</Text></TouchableOpacity>
+              <TouchableOpacity onPress={abandonnerBrouillon}><Text style={[st.retryText, { color: C.danger, marginLeft: rs(8) }]}>Abandonner</Text></TouchableOpacity>
+            </View>
+          )}
 
           {error && (
             <View style={st.errorBanner}>
@@ -474,7 +617,7 @@ export default function SupEvaluationScreen() {
             <View style={st.tirageBanner}>
               <Feather name="shuffle" size={rf(15)} color={C.brand} />
               <Text style={st.tirageBannerTxt}>
-                Tirage parmi les {eleves.length} élèves · marquez les absents avant de continuer
+                Tirage parmi les {eleves.length} élèves · marquez les absents : ils sont enregistrés absents, sans remplacement
               </Text>
             </View>
 
@@ -517,7 +660,7 @@ export default function SupEvaluationScreen() {
           <View style={st.navRow}>
             <TouchableOpacity style={st.navBtn} onPress={lancerTirage} activeOpacity={0.8}>
               <Feather name="refresh-cw" size={rs(15)} color={C.brand} />
-              <Text style={st.navBtnText}>Retirer</Text>
+              <Text style={st.navBtnText}>Refaire</Text>
             </TouchableOpacity>
             <TouchableOpacity style={st.mainNavBtn} onPress={ouvrirDossier} activeOpacity={0.85}>
               <Text style={st.mainNavBtnText}>Continuer</Text>
@@ -583,10 +726,13 @@ export default function SupEvaluationScreen() {
           {submitDone ? (
             <View style={[st.center, { gap: rs(16), flex: 1 }]}>
               <Feather name="check-circle" size={rs(56)} color={C.success} />
-              <Text style={st.doneTitle}>Évaluation enregistrée</Text>
+              <Text style={st.doneTitle}>{envoiRecu ? "Évaluation reçue par le serveur" : "Évaluation enregistrée sur le téléphone"}</Text>
               <Text style={st.doneSub}>
-                {aEvaluer.length} élève{aEvaluer.length !== 1 ? "s" : ""} évalué{aEvaluer.length !== 1 ? "s" : ""}.{"\n"}
-                L&apos;enseignant verra les résultats dans son app.
+                {aEvaluer.length} élève{aEvaluer.length !== 1 ? "s" : ""} évalué{aEvaluer.length !== 1 ? "s" : ""}
+                {tires.length > aEvaluer.length ? ` · ${tires.length - aEvaluer.length} absent${tires.length - aEvaluer.length > 1 ? "s" : ""} enregistré${tires.length - aEvaluer.length > 1 ? "s" : ""}` : ""}.{"\n"}
+                {envoiRecu
+                  ? "L'enseignant verra les résultats dans son app."
+                  : "En attente d'envoi : elle part automatiquement dès que le réseau revient (centre d'envoi)."}
               </Text>
               <TouchableOpacity style={st.doneBtn} onPress={terminer} activeOpacity={0.85}>
                 <Text style={st.doneBtnText}>Terminer</Text>

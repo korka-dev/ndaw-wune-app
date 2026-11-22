@@ -20,6 +20,22 @@ const TEACHER_EVALS_KEY   = "ared_teacher_evaluations";
 const SUP_GRILLES_KEY     = "ared_supervisor_grilles_visite";
 const SUP_VISITES_KEY     = "ared_supervisor_visites";
 const SUP_DEMANDES_KEY    = "ared_supervisor_demandes_appui";
+// RET04 : évaluation hors connexion (enseignants, dossiers, élèves par enseignant).
+const SUP_EVAL_ENS_KEY     = "ared_supervisor_eval_enseignants";
+const SUP_EVAL_DOCS_KEY    = "ared_supervisor_eval_docs";
+const SUP_EVAL_CLASSES_KEY = "ared_supervisor_eval_eleves_par_tuteur";
+
+export interface ParametresTerrain {
+  remplacement_validation?: "immediat" | "superviseur";
+  photo_rapport_obligatoire?: boolean;
+  minuteur_prealerte_secondes?: number | null;
+  minuteur_son?: boolean;
+  proposition_groupe_active?: boolean;
+  support_contact?: string | null;
+  systemes_supportes?: string | null;
+  rappels_max_par_jour?: number | null;
+  latest_app_version?: string | null;
+}
 
 export interface SyncPayload {
   synced_at: string;
@@ -54,7 +70,10 @@ export interface SyncPayload {
     classe: string; matiere: string | null;
     titre: string | null;          // titre du segment (ex: "Accueil & rituels")
   }[];
-  eleves?: { id: string; nom: string; prenom: string | null; classe: string; statut_selection?: string | null }[];
+  eleves?: {
+    id: string; nom: string; prenom: string | null; classe: string; statut_selection?: string | null;
+    groupe_lecture?: string | null; groupe_maths?: string | null;   // RET07
+  }[];
   /** Élèves "Remplaçant" (Base NWV 2026 / RCT) des classes du tuteur — réservoir
    *  pour RemplacementSheet, pas affichés dans les listes courantes. */
   remplacants?: { id: string; nom: string; prenom: string | null; classe: string; statut_selection?: string | null }[];
@@ -71,6 +90,8 @@ export interface SyncPayload {
     nb_tests?: number;
     nb_fiches?: number;
   };
+  /** Règles terrain fixées par ARED (lot L7) ; absentes = comportement par défaut. */
+  parametres_terrain?: ParametresTerrain;
   /** Superviseur uniquement — enseignants assignés (payload /app/supervisor/sync). */
   assigned_teachers?: {
     id: string; name: string; phone: string | null; email: string | null;
@@ -117,7 +138,7 @@ export async function getLastSyncDate(): Promise<string | null> {
 }
 
 export async function clearCache(): Promise<void> {
-  await AsyncStorage.multiRemove([SYNC_KEY, SYNC_DATE_KEY, SUP_EVALS_KEY, SUP_ELEVES_KEY, SUP_COMPETENCES_KEY, SUP_DIFFICULTES_KEY, SUP_RAPPORT_QUESTIONS_KEY, SUP_RAPPORT_LIBELLES_KEY, TEACHER_EVALS_KEY, SUP_GRILLES_KEY, SUP_VISITES_KEY, SUP_DEMANDES_KEY]);
+  await AsyncStorage.multiRemove([SYNC_KEY, SYNC_DATE_KEY, SUP_EVALS_KEY, SUP_ELEVES_KEY, SUP_COMPETENCES_KEY, SUP_DIFFICULTES_KEY, SUP_RAPPORT_QUESTIONS_KEY, SUP_RAPPORT_LIBELLES_KEY, TEACHER_EVALS_KEY, SUP_GRILLES_KEY, SUP_VISITES_KEY, SUP_DEMANDES_KEY, SUP_EVAL_ENS_KEY, SUP_EVAL_DOCS_KEY, SUP_EVAL_CLASSES_KEY]);
 }
 
 /** Questions complémentaires (configurées par l'admin) destinées au rapport du superviseur. */
@@ -260,4 +281,27 @@ export async function getCachedDemandes(): Promise<DemandeMobile[] | null> {
 }
 export async function setCachedDemandes(items: DemandeMobile[]): Promise<void> {
   await setEncryptedItem(SUP_DEMANDES_KEY, items);
+}
+
+// ── Évaluation superviseur hors connexion (RET04) ─────────────────────────────
+export async function getCachedEvalEnseignants<T = unknown>(): Promise<T[] | null> {
+  return getEncryptedItem<T[]>(SUP_EVAL_ENS_KEY);
+}
+export async function setCachedEvalEnseignants(items: unknown[]): Promise<void> {
+  await setEncryptedItem(SUP_EVAL_ENS_KEY, items);
+}
+export async function getCachedEvalDocs<T = unknown>(): Promise<T[] | null> {
+  return getEncryptedItem<T[]>(SUP_EVAL_DOCS_KEY);
+}
+export async function setCachedEvalDocs(items: unknown[]): Promise<void> {
+  await setEncryptedItem(SUP_EVAL_DOCS_KEY, items);
+}
+export async function getCachedEvalEleves<T = unknown>(teacherId: string): Promise<T[] | null> {
+  const m = await getEncryptedItem<Record<string, T[]>>(SUP_EVAL_CLASSES_KEY);
+  return m?.[teacherId] ?? null;
+}
+export async function setCachedEvalEleves(teacherId: string, eleves: unknown[]): Promise<void> {
+  const m = (await getEncryptedItem<Record<string, unknown[]>>(SUP_EVAL_CLASSES_KEY)) ?? {};
+  m[teacherId] = eleves;
+  await setEncryptedItem(SUP_EVAL_CLASSES_KEY, m);
 }

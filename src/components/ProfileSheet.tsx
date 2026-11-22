@@ -294,6 +294,21 @@ export default function ProfileSheet({ visible, onClose }: Props) {
                 <Text style={s.menuLabel}>Aide et tutoriels</Text>
                 <Feather name="chevron-right" size={rf(20)} color="#AAA" />
               </TouchableOpacity>
+              {/* RET09/RET10 : aide par écran, signalement, mises à jour */}
+              <TouchableOpacity
+                style={s.menuRow}
+                activeOpacity={0.6}
+                onPress={() => { onClose(); setTimeout(() => router.push("/aide"), 320); }}
+              >
+                <View style={s.menuIconBox}>
+                  <Feather name="life-buoy" size={rf(22)} color={C.brand} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.menuLabel}>Signaler un problème</Text>
+                  <Text style={s.menuSub}>Aide par écran · installation et mises à jour</Text>
+                </View>
+                <Feather name="chevron-right" size={rf(20)} color="#AAA" />
+              </TouchableOpacity>
             </View>
 
             {/* ── Bouton actualiser ── */}

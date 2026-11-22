@@ -5,7 +5,8 @@
  * Stratégie :
  *   1. Récupère la liste des docs depuis le serveur.
  *   2. Vérifie ce qui est déjà présent en local (AsyncStorage + FileSystem).
- *   3. Télécharge uniquement les nouveaux docs manquants.
+ *   3. Télécharge uniquement les nouveaux docs manquants, en Wi-Fi et
+ *      s'ils sont petits (≤ 5 Mo, hors vidéos) — RET11.
  *   4. Nettoie les fichiers locaux dont le doc a été supprimé côté serveur.
  *
  * Idempotent — un document déjà téléchargé et présent sur le disque
@@ -13,11 +14,22 @@
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system/legacy";
+import * as Network from "expo-network";
 import { ressourcesApi } from "./api";
 import { getSecure } from "./secureStorage";
 
 export const RESSOURCES_DOWNLOADS_KEY = "@ressources_offline_v1";
 export const RESSOURCES_DOCS_CACHE_KEY = "@ressources_docs_list_v1";
+
+// RET11 — limiter la charge sur le téléphone : téléchargement automatique
+// seulement en Wi-Fi, des petits documents, jamais des vidéos. Le reste se
+// télécharge à la demande (bouton ↓ de l'écran Ressources).
+const AUTO_MAX_OCTETS = 5 * 1024 * 1024;
+
+export function telechargeableAuto(doc: { file_size?: number; resource_type?: string | null; mime_type?: string }): boolean {
+  if (doc.resource_type === "video" || (doc.mime_type ?? "").startsWith("video/")) return false;
+  return (doc.file_size ?? 0) > 0 && (doc.file_size ?? 0) <= AUTO_MAX_OCTETS;
+}
 
 function buildLocalUri(doc: { id: string; original_filename: string }): string {
   const ext = doc.original_filename.split(".").pop()?.toLowerCase() ?? "bin";
@@ -51,12 +63,15 @@ export async function syncRessourcesOffline(): Promise<void> {
     const updated: Record<string, string> = { ...verified };
     let changed = false;
 
-    // 4. Télécharger les nouveaux docs (pas encore en local)
+    // 4. Télécharger les nouveaux docs (pas encore en local) — Wi-Fi seulement
     const token = await getSecure("access_token");
     if (!token) return;
+    let wifi = false;
+    try { wifi = (await Network.getNetworkStateAsync()).type === Network.NetworkStateType.WIFI; } catch {}
 
     for (const doc of docs) {
       if (updated[doc.id]) continue; // déjà présent → skip
+      if (!wifi || !telechargeableAuto(doc)) continue; // à la demande (RET11)
 
       const uri = buildLocalUri(doc);
       try {

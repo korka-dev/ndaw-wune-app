@@ -27,7 +27,9 @@ import { fr } from "date-fns/locale";
 import { rs, rf } from "../utils/responsive";
 import { C } from "../utils/theme";
 import { useStore } from "../store/useStore";
-import { getRapportsJournalier, RapportJournalierLocal } from "../services/db";
+import { getRapportsJournalier, getFailedActions, RapportJournalierLocal } from "../services/db";
+import { statutRapport, rejetsParRapport, StatutRapport } from "../utils/statutRapport";
+import { lireBrouillon, depuis } from "../services/brouillons";
 import { hydrateRapportsFromServer } from "../services/rapportsHistory";
 import AppHeader from "../components/AppHeader";
 import ProfileSheet from "../components/ProfileSheet";
@@ -81,14 +83,24 @@ function StatCard({
 
 // ── Carte rapport ──────────────────────────────────────────────────────────
 
+const COULEUR_STATUT: Record<StatutRapport["code"], { fg: string; bg: string; icon: React.ComponentProps<typeof Feather>["name"] }> = {
+  recu:       { fg: C.success, bg: C.successSoft, icon: "check-circle" },
+  en_attente: { fg: C.warn,    bg: C.warnSoft,    icon: "clock" },
+  a_verifier: { fg: C.danger,  bg: C.dangerSoft,  icon: "alert-triangle" },
+  corrige:    { fg: C.warn,    bg: C.warnSoft,    icon: "edit-3" },
+  annule:     { fg: C.danger,  bg: C.dangerSoft,  icon: "x-circle" },
+};
+
 function RapportCard({
   item,
+  statut,
   onPress,
 }: {
   item: RapportJournalierLocal;
+  statut: StatutRapport;
   onPress: () => void;
 }) {
-  const synced = item.synced === 1;
+  const coul = COULEUR_STATUT[statut.code];
   return (
     <TouchableOpacity style={s.card} onPress={onPress} activeOpacity={0.75}>
       {/* Date + badge d'état */}
@@ -97,23 +109,23 @@ function RapportCard({
           {fmtDate(item.date_rapport)}
         </Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: rs(6) }}>
-          <View style={[s.badge, synced ? s.badgeOk : s.badgeProgress]}>
-            <Feather
-              name={synced ? "check-circle" : "loader"}
-              size={rf(10)}
-              color={synced ? C.success : C.warn}
-            />
-            <Text style={[s.badgeTxt, { color: synced ? C.success : C.warn }]}>
-              {synced ? "Envoyé" : "En cours"}
-            </Text>
+          <View style={[s.badge, { backgroundColor: coul.bg }]}>
+            <Feather name={coul.icon} size={rf(10)} color={coul.fg} />
+            <Text style={[s.badgeTxt, { color: coul.fg }]}>{statut.libelle}</Text>
           </View>
-          {item.statut === "annule" && (
-            <View style={[s.badge, { backgroundColor: C.dangerSoft }]}>
-              <Text style={[s.badgeTxt, { color: C.danger }]}>Annulé</Text>
+          {!!item.retour_superviseur && (
+            <View style={[s.badge, { backgroundColor: C.brandSoft }]}>
+              <Feather name="message-circle" size={rf(10)} color={C.brand} />
+              <Text style={[s.badgeTxt, { color: C.brand }]}>Retour</Text>
             </View>
           )}
         </View>
       </View>
+      {!!statut.detail && (
+        <Text style={[s.cardMeta, { color: coul.fg, marginBottom: rs(4) }]} numberOfLines={2}>
+          {statut.detail}{statut.tardif ? " · envoi tardif" : ""}
+        </Text>
+      )}
 
       {/* Semaine · Jour */}
       <View style={s.cardRow}>
@@ -148,6 +160,14 @@ export default function RapportsScreen() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [history,     setHistory]     = useState<RapportJournalierLocal[]>([]);
   const [syncing,     setSyncing]     = useState(false);
+  const [rejets,      setRejets]      = useState<Map<string, string | null>>(new Map());
+  const [brouillonLe, setBrouillonLe] = useState<string | null>(null);
+
+  // RET01/RET02 : rapports rejetés (« À vérifier ») et brouillon en cours.
+  const rafraichirEtats = useCallback(() => {
+    try { setRejets(rejetsParRapport(getFailedActions())); } catch {}
+    lireBrouillon("rapport_journalier", user?.id).then(b => setBrouillonLe(b?.maj_le ?? null)).catch(() => {});
+  }, [user?.id]);
 
   // ── Charger TOUS les rapports + auto-sync si nécessaire ───────────────
   const loadAndSync = useCallback(async () => {
@@ -175,7 +195,7 @@ export default function RapportsScreen() {
 
   // Recharger + syncer à chaque fois que l'écran prend le focus
   useFocusEffect(
-    useCallback(() => { loadAndSync(); }, [loadAndSync])
+    useCallback(() => { loadAndSync().finally(rafraichirEtats); }, [loadAndSync, rafraichirEtats])
   );
 
   // ── Sync manuelle déclenchée par le bouton du header ──────────────────
@@ -211,22 +231,23 @@ export default function RapportsScreen() {
   const stats = useMemo(() => {
     const total          = history.length;
     const envoyes        = history.filter(r => r.synced === 1).length;
-    const enCours        = history.filter(r => r.synced === 0).length;
+    const enCours        = history.filter(r => r.synced === 0 && !rejets.has(r.id)).length;
     const dernierRapport = total > 0 ? history[0].date_rapport : null;
     return { total, envoyes, enCours, dernierRapport };
-  }, [history]);
+  }, [history, rejets]);
 
   // ── Vue formulaire ─────────────────────────────────────────────────────
   if (showForm) {
     return (
       <RapportJournalierScreen
-        onBack={() => setShowForm(false)}
+        onBack={() => { setShowForm(false); rafraichirEtats(); }}
         onSuccess={() => {
           try {
             const all = getRapportsJournalier();
             setHistory(all);
           } catch {}
           setShowForm(false);
+          rafraichirEtats();
         }}
       />
     );
@@ -268,16 +289,16 @@ export default function RapportsScreen() {
               <StatCard
                 icon="check-circle"
                 value={stats.envoyes}
-                label="Validés"
+                label="Reçus"
                 color={C.success}
-                sub={stats.envoyes > 0 ? "synchronisés" : undefined}
+                sub={stats.envoyes > 0 ? "par le serveur" : undefined}
               />
               <StatCard
                 icon="clock"
                 value={stats.enCours}
-                label="En attente"
+                label="En attente d'envoi"
                 color={stats.enCours > 0 ? C.warn : C.textMuted}
-                sub={stats.enCours > 0 ? "sync auto" : "aucun"}
+                sub={stats.enCours > 0 ? "envoi automatique" : "aucun"}
               />
             </View>
 
@@ -289,6 +310,16 @@ export default function RapportsScreen() {
             <Text style={s.emptyStatsTxt}>Aucune statistique pour l'instant</Text>
             <Text style={s.emptyStatsSub}>Envoyez votre premier rapport pour voir vos données ici.</Text>
           </View>
+        )}
+
+        {rejets.size > 0 && (
+          <TouchableOpacity style={s.alerteVerif} onPress={() => router.push("/sync-center" as any)} activeOpacity={0.8}>
+            <Feather name="alert-triangle" size={rf(16)} color={C.danger} />
+            <Text style={s.alerteVerifTxt}>
+              {rejets.size} rapport{rejets.size > 1 ? "s" : ""} à vérifier : le serveur ne l'a pas accepté. Voir le motif et relancer.
+            </Text>
+            <Feather name="chevron-right" size={rf(16)} color={C.danger} />
+          </TouchableOpacity>
         )}
 
         {/* ── Bouton Envoyer un rapport ── */}
@@ -303,9 +334,11 @@ export default function RapportsScreen() {
               <Feather name="plus" size={rf(20)} color={C.brand} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={s.sendBtnTitle}>Envoyer un rapport</Text>
+              <Text style={s.sendBtnTitle}>{brouillonLe ? "Reprendre le brouillon" : "Envoyer un rapport"}</Text>
               <Text style={s.sendBtnSub}>
-                {isOnline ? "Envoi immédiat" : "Mode hors-ligne — envoi auto à la reconnexion"}
+                {brouillonLe
+                  ? `Saisie commencée, enregistrée ${depuis(brouillonLe)}`
+                  : isOnline ? "Envoi immédiat" : "Mode hors-ligne — envoi auto à la reconnexion"}
               </Text>
             </View>
             <Feather name="chevron-right" size={rf(20)} color={C.brand} />
@@ -325,6 +358,7 @@ export default function RapportsScreen() {
               <RapportCard
                 key={item.id}
                 item={item}
+                statut={statutRapport(item, rejets)}
                 onPress={() => router.push(`/rapport-detail?id=${item.id}`)}
               />
             ))}
@@ -339,6 +373,8 @@ export default function RapportsScreen() {
 // ── Styles ─────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
+  alerteVerif:    { flexDirection: "row", alignItems: "center", gap: rs(8), backgroundColor: C.dangerSoft, borderRadius: rs(12), padding: rs(12), marginBottom: rs(12) },
+  alerteVerifTxt: { flex: 1, fontSize: rf(13), color: C.danger, fontWeight: "600" },
   root:   { flex: 1, backgroundColor: C.bg },
   scroll: { padding: rs(16), paddingBottom: rs(48) },
 

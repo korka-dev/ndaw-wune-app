@@ -283,6 +283,25 @@ export const superviseurApi = {
   agirDemande: (id: string, body: { statut?: string; commentaire?: string | null }) =>
     api.patch(`/app/supervisor/demandes-appui/${id}`, body),
 
+  // ── Lot L7 : suivi des tuteurs affectés ──────────────────────────────────
+  /** RET13 : fraîcheur des données de chaque tuteur (dernière synchro, rapports récents). */
+  tuteursActivite: () => api.get("/app/supervisor/tuteurs-activite"),
+  /** RET05 : rapports journaliers des tuteurs affectés (sans photos). */
+  rapportsTuteurs: (params?: { teacher_id?: string; date_debut?: string; date_fin?: string; limit?: number }) =>
+    api.get("/app/supervisor/rapports-tuteurs", { params }),
+  /** RET05 : retour écrit du superviseur, visible par le tuteur. */
+  retourRapport: (id: string, texte: string) =>
+    api.put(`/app/supervisor/rapports-tuteurs/${id}/retour`, { texte }),
+  /** RET03 : demandes de remplacement des tuteurs. */
+  remplacementsTuteurs: (statut?: string) =>
+    api.get("/app/supervisor/remplacements", { params: statut ? { statut } : undefined }),
+  deciderRemplacement: (id: string, decision: "valider" | "refuser", motif?: string) =>
+    api.post(`/app/supervisor/remplacements/${id}/decision`, { decision, motif }),
+  /** RET13 : messages des tuteurs adressés au superviseur. */
+  messages: () => api.get("/app/supervisor/messages"),
+  repondreMessage: (id: string, texte: string) =>
+    api.post(`/app/supervisor/messages/${id}/reponse`, { texte }),
+
   /** Enseignants + métadonnées de classes (sans élèves) — chargement initial. */
   eleves: () => api.get("/app/supervisor/eleves"),
 
@@ -304,7 +323,8 @@ export const superviseurApi = {
     resultat:    string;   // "acquis" | "en_cours" | "a_aider"
     date_eval:   string;   // YYYY-MM-DD
     commentaire?: string;
-  }[]) => api.post("/app/supervisor/evaluations", { evaluations }),
+  }[], absents: { eleve_id: string; date_eval: string }[] = []) =>
+    api.post("/app/supervisor/evaluations", { evaluations, absents }),
 
   /** Pointage de présence des enseignants déjà enregistré pour une date (par défaut aujourd'hui). */
   getPresenceCheck: (date_jour?: string) =>
@@ -369,6 +389,13 @@ export const teacherEvalApi = {
   listEvaluations: () => api.get("/app/teacher/evaluations"),
 };
 
+/** RET07 — le tuteur propose un changement de groupe ; l'équipe programme décide. */
+export const propositionsGroupeApi = {
+  mes: () => api.get("/app/propositions-groupe"),
+  proposer: (d: { eleve_id: string; domaine: "lecture" | "maths"; nouveau_groupe: string; motif: string }) =>
+    api.post("/app/propositions-groupe", d),
+};
+
 // ── Logs d'utilisation (fonctionnalités ouvertes) ─────────────────────────────
 export const usageApi = {
   record: (events: { feature: string; at?: string }[]) =>
@@ -377,8 +404,10 @@ export const usageApi = {
 
 // ── Remarques / signalement de problèmes (hors application) ──────────────────
 export const remarquesApi = {
-  submit: (d: { categorie: string; message: string; ecole?: string | null }) =>
-    api.post("/app/remarques", d),
+  submit: (d: {
+    categorie: string; message: string; ecole?: string | null;
+    destinataire?: string; contexte_type?: string; contexte_id?: string;   // RET13
+  }) => api.post("/app/remarques", d),
   list: () => api.get("/app/remarques"),
 };
 
@@ -393,6 +422,8 @@ export const remplacementsApi = {
     nouveau_eleve_id: string;
     motif: string;
   }) => api.post("/app/remplacements", d),
+  /** RET03 : historique des remplacements du tuteur (statut, motif, décision). */
+  historique: () => api.get("/app/remplacements"),
 };
 
 // ── Remplaçants (vivier — vue enseignant) ─────────────────────────────────────

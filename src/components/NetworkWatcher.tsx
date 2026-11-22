@@ -20,7 +20,7 @@ import { AppState, AppStateStatus } from "react-native";
 import * as Network from "expo-network";
 import { router } from "expo-router";
 import { useStore } from "../store/useStore";
-import { scheduleSessionAlerts, updateCachedSegments } from "../services/notifications";
+import { scheduleSessionAlerts, updateCachedSegments, configurerRappels } from "../services/notifications";
 import { syncRessourcesOffline } from "../services/ressources";
 import { onAuthFailure, onPasswordChangeRequired } from "../services/authEvents";
 import { setSecure } from "../services/secureStorage";
@@ -48,6 +48,7 @@ export default function NetworkWatcher() {
       lastSyncAt.current = Date.now();
       // Replanifier les alertes vocales avec le planning frais
       const freshPlanning = useStore.getState().syncData?.planning ?? [];
+      configurerRappels(useStore.getState().syncData?.parametres_terrain?.rappels_max_par_jour);
       updateCachedSegments(freshPlanning);
       scheduleSessionAlerts(freshPlanning).catch(() => {});
       // Téléchargement automatique des ressources en arrière-plan
