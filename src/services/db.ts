@@ -910,3 +910,25 @@ export function clearAllLocalData(): void {
   clearSupervisorTeachersCache();
   clearSupervisorPresenceCache();
 }
+
+// ── Conservation sur le téléphone (rapport V2, APP-14) ───────────────────────
+
+/**
+ * Supprime les saisies DÉJÀ ENVOYÉES plus anciennes que `jours` (durée fixée
+ * par ARED et transmise par le serveur). Ne touche jamais la file d'envoi ni
+ * une saisie non synchronisée. `jours` absent ou nul : aucune purge.
+ */
+export function purgerSaisiesEnvoyees(jours: number | null | undefined): number {
+  if (!jours || jours < 1 || !_localOwner) return 0;
+  const limite = `-${Math.floor(jours)} days`;
+  const db = getDB();
+  const a = db.runSync(
+    `DELETE FROM rapports_journalier WHERE owner_id = ? AND synced = 1 AND date(date_rapport) < date('now', ?)`,
+    [_localOwner, limite],
+  );
+  const b = db.runSync(
+    `DELETE FROM supervisor_presence_local WHERE owner_id = ? AND synced = 1 AND date(date_jour) < date('now', ?)`,
+    [_localOwner, limite],
+  );
+  return (a.changes ?? 0) + (b.changes ?? 0);
+}

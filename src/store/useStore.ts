@@ -3,7 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { authApi } from "../services/api";
 import { setSecure, getSecure, deleteSecure, clearAuthTokens } from "../services/secureStorage";
 import { fetchAndCache, fetchAndCacheSupervisor, getCached, clearCache, SyncPayload } from "../services/cache";
-import { clearSessionLocalData, setLocalOwner } from "../services/db";
+import { clearSessionLocalData, purgerSaisiesEnvoyees, setLocalOwner } from "../services/db";
 import { flushQueue } from "../services/queue";
 import { cancelAllSessionAlerts } from "../services/notifications";
 
@@ -201,6 +201,14 @@ export const useStore = create<AppStore>((set, get) => ({
         }
       } catch (e) {
         console.warn("[Store] Erreur lors du flush de la queue offline :", e);
+      }
+
+      // 3. APP-14 : purge des saisies déjà envoyées au-delà de la durée fixée par ARED.
+      try {
+        const n = purgerSaisiesEnvoyees((get().user as any)?.retention_saisies_jours);
+        if (n > 0) console.log(`[Store] ${n} saisie(s) envoyée(s) supprimée(s) du téléphone (conservation)`);
+      } catch (e) {
+        console.warn("[Store] Purge de conservation impossible :", e);
       }
 
       return;
