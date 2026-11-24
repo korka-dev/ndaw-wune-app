@@ -12,7 +12,7 @@ import { getSecure } from "../../services/secureStorage";
 import { C } from "../../utils/theme";
 import { rf, rs } from "../../utils/responsive";
 import { dateCourte } from "../../utils/statutRapport";
-import { dateLongue, difficultesListe, reponsesLisibles } from "../../utils/inspecteur";
+import { absencesInspecteur, dateLongue, difficultesListe, reponsesLisibles } from "../../utils/inspecteur";
 import { useAndroidBack } from "../../hooks/useAndroidBack";
 import BackButton from "../../components/BackButton";
 import { InspHeader, useInspData, Chargement, EtatMessage, BandeauErreur, Badge, Ligne, insp } from "./InspCommun";
@@ -28,7 +28,7 @@ export default function InspRapportDetailScreen() {
 
   useAndroidBack(useCallback(() => { router.back(); return true; }, [router]));
 
-  const { data: r, loading, refreshing, error, reload } = useInspData<RapportJournalierListItem>(
+  const { data: r, loading, refreshing, error, bandeau, reload } = useInspData<RapportJournalierListItem>(
     rid ? cleRapport(rid) : null,
     async () => (await inspecteurApi.rapport(rid as string)).data,
     "le rapport",
@@ -37,6 +37,7 @@ export default function InspRapportDetailScreen() {
   const diffs = r ? difficultesListe(r.difficultes) : [];
   const reponses = r ? reponsesLisibles(r.reponses_questions) : [];
   const nbPhotos = r?.nb_photos ?? 0;
+  const absences = absencesInspecteur(r?.nb_absences, r?.absents);
 
   return (
     <View style={insp.root}>
@@ -57,7 +58,7 @@ export default function InspRapportDetailScreen() {
           <EtatMessage icon="alert-circle" texte={error ?? "Rapport introuvable."} onRetry={() => reload(true)} />
         ) : (
           <>
-            {!!error && <BandeauErreur texte={error} />}
+            {!!bandeau && <BandeauErreur texte={bandeau} />}
 
             <View style={s.badges}>
               {r.besoin_appui && <Badge texte="Besoin d'appui" couleur={C.danger} fond={C.dangerSoft} />}
@@ -95,8 +96,9 @@ export default function InspRapportDetailScreen() {
 
             <Text style={insp.sectionLabel}>Absences</Text>
             <View style={insp.bloc}>
-              <Ligne label="Nombre" valeur={`${r.nb_absences ?? 0} élève${(r.nb_absences ?? 0) > 1 ? "s" : ""}`} />
-              {!!r.absents && <Ligne label="Noms" valeur={r.absents} />}
+              <Ligne label="Nombre" valeur={absences.nombre} />
+              {/* Noms masqués aux inspecteurs par défaut : mention explicite, jamais de liste vide. */}
+              {!!absences.noms && <Ligne label="Noms" valeur={absences.noms} />}
             </View>
 
             <Text style={insp.sectionLabel}>Difficultés</Text>

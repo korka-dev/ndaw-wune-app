@@ -54,7 +54,7 @@ export default function InspRapportsScreen() {
             <View style={[insp.chips, { marginTop: rs(8) }]}>
               <Chip texte="Besoin d'appui uniquement" actif={besoinAppui} onPress={() => setBesoinAppui((v) => !v)} />
             </View>
-            {!!r.error && r.charge && <View style={{ marginTop: rs(12) }}><BandeauErreur texte={r.error} /></View>}
+            {!!r.bandeau && <View style={{ marginTop: rs(12) }}><BandeauErreur texte={r.bandeau} /></View>}
           </View>
         }
         ListEmptyComponent={

@@ -80,10 +80,24 @@ export function filtrerEcoles<T extends { nom: string; commune?: string | null; 
     [e.nom, e.commune, e.directeur, e.code_ecole].some((c) => norm(c).includes(q)));
 }
 
-// ── Cache mémoire simple (durée de la session de l'application) ──────────────
-const memo = new Map<string, unknown>();
-export const cacheInspecteur = {
-  get: <T>(k: string) => memo.get(k) as T | undefined,
-  set: (k: string, v: unknown) => { memo.set(k, v); },
-  clear: () => memo.clear(),
-};
+/** « Hors ligne — données du 24/11 à 08:05 ». */
+export function bandeauHorsLigne(at: number | undefined): string {
+  if (!at) return "Hors ligne — données enregistrées sur le téléphone";
+  return `Hors ligne — données du ${format(new Date(at), "dd/MM 'à' HH:mm")}`;
+}
+
+/** Erreur réseau (pas de réponse du serveur) : on garde les données en cache. */
+export function estErreurReseau(e: unknown): boolean {
+  return !(e as { response?: unknown } | null)?.response;
+}
+
+/** Nombre d'absents et mention lorsque les noms sont masqués aux inspecteurs.
+ *  Jamais de liste vide trompeuse. */
+export function absencesInspecteur(nb: number | null | undefined, absents: string | null | undefined): { nombre: string; noms: string | null } {
+  const n = Math.max(0, Number(nb) || 0);
+  const nombre = `${n} absent${n > 1 ? "s" : ""}`;
+  if (n === 0) return { nombre, noms: null };
+  const liste = (absents ?? "").trim();
+  if (absents === null || absents === undefined) return { nombre, noms: "Noms non communiqués aux inspecteurs" };
+  return { nombre, noms: liste || "Noms non renseignés" };
+}

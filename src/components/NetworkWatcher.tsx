@@ -25,7 +25,7 @@ import { syncRessourcesOffline } from "../services/ressources";
 import { onAuthFailure, onPasswordChangeRequired } from "../services/authEvents";
 import { setSecure } from "../services/secureStorage";
 import { estInspecteur } from "../utils/roleRoute";
-import { cacheInspecteur } from "../utils/inspecteur";
+import { cacheInspecteur } from "../services/inspecteurCache";
 
 const NETWORK_CHECK_MS = 15_000;   // 15 s — vérification connectivité
 const SYNC_INTERVAL_MS = 30_000;   // 30 s — sync données quand online
@@ -71,7 +71,7 @@ export default function NetworkWatcher() {
     // événement plutôt que de naviguer directement (pas d'accès au router depuis
     // axios). On réagit ici : on vide le store et on renvoie vers l'accueil.
     onAuthFailure(() => {
-      cacheInspecteur.clear();
+      cacheInspecteur.purger().catch(() => {});
       useStore.setState({
         user:               null,
         token:              null,

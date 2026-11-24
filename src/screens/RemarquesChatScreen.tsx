@@ -25,25 +25,9 @@ import BackButton from "../components/BackButton";
 import { C } from "../utils/theme";
 import AppHeader from "../components/AppHeader";
 import ProfileSheet from "../components/ProfileSheet";
+import { categoriesPour, destinatairePour } from "../utils/remarques";
 
-const CATEGORIES: { key: string; label: string; icon: keyof typeof Feather.glyphMap }[] = [
-  { key: "materiel", label: "Manque de matériel", icon: "box" },
-  { key: "local",    label: "Problème de local",  icon: "home" },
-  { key: "eleves",   label: "Problème d'élèves",  icon: "users" },
-  { key: "securite", label: "Sécurité",           icon: "shield" },
-  { key: "pedagogie",   label: "Question pédagogique",          icon: "book-open" },
-  { key: "application", label: "Problème avec l'application",   icon: "smartphone" },
-  { key: "autre",    label: "Autre problème",     icon: "help-circle" },
-];
-
-/** RET13 : la question pédagogique va au superviseur (tuteur), le problème
- *  d'application à l'assistance technique, le reste à l'équipe programme. */
-function destinatairePour(categorie: string | null, role?: string): { code: string; libelle: string } {
-  if (categorie === "pedagogie" && role === "enseignant") return { code: "superviseur", libelle: "votre superviseur" };
-  if (categorie === "application") return { code: "support_technique", libelle: "l'assistance technique" };
-  return { code: "equipe_programme", libelle: "l'équipe Ndaw Wune" };
-}
-
+// Catégories et destinataires selon le rôle (lot L8 : options réduites pour l'inspecteur).
 interface Echange {
   id: string; categorie: string; message: string; statut: string; created_at: string;
   destinataire?: string; reponse?: string | null; reponse_le?: string | null; reponse_par_nom?: string | null;
@@ -60,6 +44,10 @@ export default function RemarquesChatScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, syncData, isOnline, syncOffline } = useStore();
+  // Lot L8 : l'inspecteur n'a pas de file hors ligne ni d'école propre
+  // (le serveur renseigne « IEF <nom> »), et seulement deux catégories.
+  const inspecteur = user?.role === "inspecteur";
+  const CATEGORIES = categoriesPour(user?.role);
 
   const [messages, setMessages] = useState<ChatMsg[]>([
     {
@@ -82,7 +70,7 @@ export default function RemarquesChatScreen() {
   }, [isOnline]);
   const nbReponses = echanges.filter(e => !!e.reponse).length;
 
-  useEffect(() => { trackUsage("remarques").catch(() => {}); }, []);
+  useEffect(() => { if (!inspecteur) trackUsage("remarques").catch(() => {}); }, [inspecteur]);
 
   useEffect(() => {
     // Défilement automatique vers le dernier message
@@ -130,17 +118,26 @@ export default function RemarquesChatScreen() {
     const payload = {
       categorie: categorie!,
       message:   pendingMessage,
-      ecole:     syncData?.school?.name ?? null,
+      ecole:     inspecteur ? null : (syncData?.school?.name ?? null),
       destinataire: dest.code,
       ...(dest.code === "superviseur" && user?.classes?.length ? { contexte_type: "classe", contexte_id: user.classes[0] } : {}),
     };
 
+    let aReessayer = false;
     try {
       if (!isOnline) throw new Error("offline");
       await remarquesApi.submit(payload);
       pushBot(`✅ Votre message a bien été reçu et transmis à ${dest.libelle}. La réponse apparaîtra dans « Mes échanges ».\n\nVous pouvez envoyer un autre message si besoin.`);
       remarquesApi.list().then(r => setEchanges(r.data ?? [])).catch(() => {});
     } catch {
+      if (inspecteur) {
+        // Pas de file hors ligne pour l'inspecteur : rien n'est stocké.
+        pushBot(isOnline
+          ? "⚠️ Votre signalement n'a pas pu être envoyé. Réessayez dans un instant."
+          : "📵 Pas de connexion : votre signalement n'a pas été envoyé. Réessayez une fois connecté.");
+        aReessayer = true;
+        return;
+      }
       // Hors-ligne ou erreur → file d'attente offline (renvoyé automatiquement)
       try {
         enqueueAction("SUBMIT_REMARQUE", payload);
@@ -151,7 +148,7 @@ export default function RemarquesChatScreen() {
       }
     } finally {
       setSending(false);
-      setStep("done");
+      setStep(aReessayer ? "confirm" : "done");
     }
   };
 
@@ -187,7 +184,7 @@ export default function RemarquesChatScreen() {
         onSyncPress={handleManualSync}
         syncing={syncing}
         isOnline={isOnline}
-        sectionLabel="Espace Tuteur"
+        sectionLabel={inspecteur ? "Espace Inspecteur" : "Espace Tuteur"}
       />
 
       {/* En-tête contextuel de l'assistant */}

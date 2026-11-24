@@ -9,7 +9,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { inspecteurApi, InspecteurEcole, InspecteurPersonne } from "../../services/api";
 import { C } from "../../utils/theme";
 import { rf, rs } from "../../utils/responsive";
-import { cacheInspecteur, dateLisible } from "../../utils/inspecteur";
+import { dateLisible } from "../../utils/inspecteur";
+import { cacheInspecteur } from "../../services/inspecteurCache";
 import { useAndroidBack } from "../../hooks/useAndroidBack";
 import BackButton from "../../components/BackButton";
 import { InspHeader, useInspData, Chargement, EtatMessage, BandeauErreur, RapportCarte, Badge, Ligne, insp } from "./InspCommun";
@@ -95,13 +96,13 @@ export default function InspEcoleDetailScreen() {
           <EtatMessage icon="users" texte="Aucun tuteur ni superviseur rattaché à cette école." />
         ) : (
           <View style={insp.bloc}>
-            {!!pers.error && <View style={{ padding: rs(8) }}><BandeauErreur texte={pers.error} /></View>}
+            {!!pers.bandeau && <View style={{ padding: rs(8) }}><BandeauErreur texte={pers.bandeau} /></View>}
             {[...superviseurs, ...tuteurs].map((p) => <Personne key={`${p.role}-${p.id}`} p={p} />)}
           </View>
         )}
 
         <Text style={insp.sectionLabel}>Rapports de l'école{rap.charge ? ` (${rap.total})` : ""}</Text>
-        {!!rap.error && rap.charge && <BandeauErreur texte={rap.error} />}
+        {!!rap.bandeau && <BandeauErreur texte={rap.bandeau} />}
         {rap.loading && !rap.charge ? <Chargement /> : !rap.charge ? (
           <EtatMessage icon="wifi-off" texte={rap.error ?? "Aucune donnée."} onRetry={() => rap.recharger(true)} />
         ) : rap.items.length === 0 ? (

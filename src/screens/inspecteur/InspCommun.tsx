@@ -11,7 +11,8 @@ import ProfileSheet from "../../components/ProfileSheet";
 import { useStore } from "../../store/useStore";
 import { C } from "../../utils/theme";
 import { rf, rs } from "../../utils/responsive";
-import { cacheInspecteur, dateLisible, messageErreurInspecteur } from "../../utils/inspecteur";
+import { bandeauHorsLigne, dateLisible, estErreurReseau, messageErreurInspecteur } from "../../utils/inspecteur";
+import { cacheInspecteur } from "../../services/inspecteurCache";
 import type { RapportJournalierListItem } from "../../services/api";
 
 /** En-tête « Espace Inspecteur » ; le bouton d'actualisation recharge l'écran. */
@@ -33,15 +34,26 @@ export function InspHeader({ onRefresh, refreshing }: { onRefresh?: () => void; 
   );
 }
 
+/** Texte du bandeau quand des données en cache sont montrées : hors ligne
+ *  (avec leur date) ou erreur du serveur. */
+export function texteBandeau(aDesDonnees: boolean, enLigne: boolean, erreur: { texte: string; reseau: boolean } | null, at: number | undefined): string | null {
+  if (!aDesDonnees) return null;
+  if (!enLigne || erreur?.reseau) return bandeauHorsLigne(at);
+  return erreur?.texte ?? null;
+}
+
 /**
- * Charge une ressource avec un cache mémoire : la dernière valeur connue
- * s'affiche tout de suite, puis est rafraîchie depuis le serveur.
+ * Charge une ressource avec le cache de l'espace inspecteur (persistant pour
+ * les données consultables hors ligne) : la dernière valeur connue s'affiche
+ * tout de suite, puis est rafraîchie depuis le serveur.
  */
 export function useInspData<T>(cle: string | null, charger: () => Promise<T>, quoi: string) {
+  const enLigne = useStore((st) => st.isOnline);
   const [data, setData] = useState<T | undefined>(() => (cle ? cacheInspecteur.get<T>(cle) : undefined));
+  const [at, setAt] = useState<number | undefined>(() => (cle ? cacheInspecteur.dateDe(cle) : undefined));
   const [loading, setLoading] = useState(data === undefined);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [err, setErr] = useState<{ texte: string; reseau: boolean } | null>(null);
   const chargerRef = useRef(charger);
   chargerRef.current = charger;
 
@@ -52,9 +64,10 @@ export function useInspData<T>(cle: string | null, charger: () => Promise<T>, qu
       const v = await chargerRef.current();
       cacheInspecteur.set(cle, v);
       setData(v);
-      setError(null);
+      setAt(cacheInspecteur.dateDe(cle));
+      setErr(null);
     } catch (e) {
-      setError(messageErreurInspecteur(e, quoi));
+      setErr({ texte: messageErreurInspecteur(e, quoi), reseau: estErreurReseau(e) });
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -63,13 +76,23 @@ export function useInspData<T>(cle: string | null, charger: () => Promise<T>, qu
 
   useEffect(() => {
     if (!cle) return;
-    const c = cacheInspecteur.get<T>(cle);
-    setData(c);
-    setLoading(c === undefined);
-    reload();
+    let actif = true;
+    cacheInspecteur.attendre().then(() => {
+      if (!actif) return;
+      const c = cacheInspecteur.get<T>(cle);
+      setData(c);
+      setAt(cacheInspecteur.dateDe(cle));
+      setLoading(c === undefined);
+      reload();
+    });
+    return () => { actif = false; };
   }, [cle, reload]);
 
-  return { data, loading, refreshing, error, reload };
+  // Retour du réseau : on rafraîchit.
+  useEffect(() => { if (enLigne && err?.reseau) reload(); }, [enLigne]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const bandeau = texteBandeau(data !== undefined, enLigne, err, at);
+  return { data, loading, refreshing, error: err?.texte ?? null, bandeau, reload };
 }
 
 export function Chargement() {
@@ -95,7 +118,7 @@ export function EtatMessage({ icon, texte, onRetry }: { icon: keyof typeof Feath
   );
 }
 
-/** Bandeau discret quand des données en mémoire sont montrées malgré une erreur. */
+/** Bandeau discret quand des données en cache sont montrées (hors ligne / erreur). */
 export function BandeauErreur({ texte }: { texte: string }) {
   return (
     <View style={s.bandeau}>

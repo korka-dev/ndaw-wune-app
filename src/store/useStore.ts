@@ -7,9 +7,16 @@ import { clearSessionLocalData, purgerSaisiesEnvoyees, setLocalOwner } from "../
 import { flushQueue } from "../services/queue";
 import { cancelAllSessionAlerts } from "../services/notifications";
 import { estInspecteur } from "../utils/roleRoute";
-import { cacheInspecteur } from "../utils/inspecteur";
+import { cacheInspecteur } from "../services/inspecteurCache";
 
 const ACTIVE_SEANCE_KEY = "active_seance";
+
+/** Lot L8 : profil inspecteur reçu de /auth/me → cache du compte (un autre
+ *  compte précédent est purgé par ouvrir()). */
+async function memoriserProfilInspecteur(me: { id: unknown }): Promise<void> {
+  await cacheInspecteur.ouvrir(String(me.id));
+  cacheInspecteur.set("profil", me);
+}
 
 interface ActiveSeance {
   id:         string;
@@ -83,7 +90,23 @@ export const useStore = create<AppStore>((set, get) => ({
       // jamais un cache tuteur/superviseur pour lui.
       const inspecteur = estInspecteur(storedRole);
       const cached = inspecteur ? null : cachedRaw;
-      if (cached) {
+      if (inspecteur) {
+        // Profil et données de l'IEF depuis le cache persistant du compte,
+        // puis rafraîchissement si le réseau répond.
+        const owner = await cacheInspecteur.dernierProprietaire();
+        if (owner) {
+          await cacheInspecteur.ouvrir(owner);
+          const profil = cacheInspecteur.get<SyncPayload["profile"]>("profil");
+          if (profil) set({ user: profil });
+        }
+        try {
+          const { data: me } = await authApi.me();
+          await memoriserProfilInspecteur(me);
+          set({ user: me });
+        } catch {
+          console.warn("[Store] Inspecteur : profil hors ligne (cache)");
+        }
+      } else if (cached) {
         set({ syncData: cached, user: cached.profile, lastSync: cached.synced_at });
         console.log("[Store] Hydraté depuis le cache local");
       } else {
@@ -135,6 +158,8 @@ export const useStore = create<AppStore>((set, get) => ({
             const cached = await getCached();
             if (cached?.profile?.id && String(cached.profile.id) !== String(me.id)) await clearCache();
           } catch {}
+          if (estInspecteur(me.role)) await memoriserProfilInspecteur(me);
+          else await cacheInspecteur.purger(); // jamais de données IEF pour un autre rôle
           set({ user: me });
           await setSecure("user_role", me.role);
         } catch (meErr) {
@@ -173,7 +198,7 @@ export const useStore = create<AppStore>((set, get) => ({
     // Le mapping IDs offline → IDs serveur est conservé : il sert à réconcilier
     // les séances encore en attente d'envoi (identifiants aléatoires, sans risque).
     await AsyncStorage.removeItem(ACTIVE_SEANCE_KEY).catch(() => {});
-    cacheInspecteur.clear();        // Lot L8 : cache mémoire de l'espace inspecteur
+    await cacheInspecteur.purger(); // Lot L8 : cache (mémoire + téléphone) de l'espace inspecteur
     set({
       user: null,
       token: null,
@@ -194,6 +219,7 @@ export const useStore = create<AppStore>((set, get) => ({
       if (estInspecteur(role)) {
         try {
           const { data: me } = await authApi.me();
+          await memoriserProfilInspecteur(me);
           set({ user: me, lastSync: new Date().toISOString() });
         } catch (e) {
           console.warn("[Store] Profil inspecteur non rafraîchi :", e);

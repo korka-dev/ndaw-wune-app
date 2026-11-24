@@ -322,6 +322,40 @@ export default function ProfileSheet({ visible, onClose }: Props) {
 
             )}
 
+            {/* ── Aide et signalement de l'inspecteur (lot L8) ── */}
+            {isInspecteur && (
+            <View style={s.menuCard}>
+              <TouchableOpacity
+                style={[s.menuRow, s.menuBorder]}
+                activeOpacity={0.6}
+                onPress={() => { onClose(); setTimeout(() => router.push("/aide-inspecteur"), 320); }}
+              >
+                <View style={s.menuIconBox}>
+                  <Feather name="help-circle" size={rf(22)} color={C.brand} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.menuLabel}>Aide</Text>
+                  <Text style={s.menuSub}>Espace inspecteur · qui contacter</Text>
+                </View>
+                <Feather name="chevron-right" size={rf(20)} color="#AAA" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={s.menuRow}
+                activeOpacity={0.6}
+                onPress={() => { onClose(); setTimeout(() => router.push("/remarques"), 320); }}
+              >
+                <View style={s.menuIconBox}>
+                  <Feather name="life-buoy" size={rf(22)} color={C.brand} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.menuLabel}>Signaler un problème</Text>
+                  <Text style={s.menuSub}>Équipe programme · assistance technique</Text>
+                </View>
+                <Feather name="chevron-right" size={rf(20)} color="#AAA" />
+              </TouchableOpacity>
+            </View>
+            )}
+
             {/* ── Bouton actualiser ── */}
             <TouchableOpacity
               style={s.refreshBtn}

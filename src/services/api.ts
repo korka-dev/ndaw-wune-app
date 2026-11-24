@@ -462,6 +462,9 @@ export interface InspecteurResume {
   rapports_7_jours: number;
   besoins_appui_7_jours: number;
   dernier_rapport: string | null;
+  /** API 5ed6beb : noms des absents visibles par les inspecteurs (false par défaut). */
+  noms_absents_visibles?: boolean;
+  support_contact?: string | null;
 }
 
 export interface InspecteurEcole {

@@ -25,7 +25,7 @@ function Tuile({ icon, valeur, libelle, alerte }: { icon: keyof typeof Feather.g
 export default function InspAccueilScreen() {
   const router = useRouter();
   const user = useStore((st) => st.user);
-  const { data, loading, refreshing, error, reload } = useInspData<InspecteurResume>(
+  const { data, loading, refreshing, error, bandeau, reload } = useInspData<InspecteurResume>(
     "resume", async () => (await inspecteurApi.resume()).data, "le résumé de l'IEF");
 
   const ief = data?.ief ?? user?.ief ?? null;
@@ -44,7 +44,7 @@ export default function InspAccueilScreen() {
           <EtatMessage icon="wifi-off" texte={error ?? "Aucune donnée."} onRetry={() => reload(true)} />
         ) : (
           <>
-            {!!error && <View style={{ marginTop: rs(12) }}><BandeauErreur texte={error} /></View>}
+            {!!bandeau && <View style={{ marginTop: rs(12) }}><BandeauErreur texte={bandeau} /></View>}
             {!ief && (
               <View style={{ marginTop: rs(12) }}>
                 <BandeauErreur texte="Aucune IEF n'est rattachée à votre compte. Contactez l'administrateur ARED." />

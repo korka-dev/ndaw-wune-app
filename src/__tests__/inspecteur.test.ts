@@ -1,6 +1,6 @@
 import { routeAccueilPourRole, estInspecteur, ROUTE_INSPECTEUR } from "../utils/roleRoute";
 import {
-  messageErreurInspecteur, difficultesListe, reponsesLisibles, dateDebutPeriode, filtrerEcoles, cacheInspecteur,
+  messageErreurInspecteur, difficultesListe, reponsesLisibles, dateDebutPeriode, filtrerEcoles, absencesInspecteur, bandeauHorsLigne,
 } from "../utils/inspecteur";
 
 describe("routage par rôle (lot L8)", () => {
@@ -55,10 +55,15 @@ describe("utilitaires de l'espace inspecteur", () => {
     expect(filtrerEcoles(e, "  ")).toHaveLength(2);
   });
 
-  it("cache mémoire vidé à la déconnexion", () => {
-    cacheInspecteur.set("resume", { ief: "Thiès" });
-    expect(cacheInspecteur.get("resume")).toEqual({ ief: "Thiès" });
-    cacheInspecteur.clear();
-    expect(cacheInspecteur.get("resume")).toBeUndefined();
+  it("absents : nombre, et mention quand les noms sont masqués", () => {
+    expect(absencesInspecteur(3, null)).toEqual({ nombre: "3 absents", noms: "Noms non communiqués aux inspecteurs" });
+    expect(absencesInspecteur(1, "Awa Diop")).toEqual({ nombre: "1 absent", noms: "Awa Diop" });
+    expect(absencesInspecteur(0, null)).toEqual({ nombre: "0 absent", noms: null });
+    // jamais de liste vide trompeuse
+    expect(absencesInspecteur(2, "  ").noms).toBe("Noms non renseignés");
+  });
+
+  it("bandeau hors ligne daté", () => {
+    expect(bandeauHorsLigne(new Date(2026, 10, 24, 8, 5).getTime())).toBe("Hors ligne — données du 24/11 à 08:05");
   });
 });

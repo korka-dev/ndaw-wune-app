@@ -14,7 +14,7 @@ import { InspHeader, useInspData, Chargement, EtatMessage, BandeauErreur, Badge,
 export default function InspEcolesScreen() {
   const router = useRouter();
   const [recherche, setRecherche] = useState("");
-  const { data, loading, refreshing, error, reload } = useInspData<InspecteurEcole[]>(
+  const { data, loading, refreshing, error, bandeau, reload } = useInspData<InspecteurEcole[]>(
     "ecoles", async () => (await inspecteurApi.ecoles()).data, "les écoles");
 
   const liste = useMemo(() => filtrerEcoles(data ?? [], recherche), [data, recherche]);
@@ -50,7 +50,7 @@ export default function InspEcolesScreen() {
                 </TouchableOpacity>
               )}
             </View>
-            {!!error && !!data && <BandeauErreur texte={error} />}
+            {!!bandeau && <BandeauErreur texte={bandeau} />}
           </View>
         }
         ListEmptyComponent={
