@@ -24,6 +24,8 @@ import { scheduleSessionAlerts, updateCachedSegments, configurerRappels } from "
 import { syncRessourcesOffline } from "../services/ressources";
 import { onAuthFailure, onPasswordChangeRequired } from "../services/authEvents";
 import { setSecure } from "../services/secureStorage";
+import { estInspecteur } from "../utils/roleRoute";
+import { cacheInspecteur } from "../utils/inspecteur";
 
 const NETWORK_CHECK_MS = 15_000;   // 15 s — vérification connectivité
 const SYNC_INTERVAL_MS = 30_000;   // 30 s — sync données quand online
@@ -46,6 +48,9 @@ export default function NetworkWatcher() {
     try {
       await syncOffline(true);
       lastSyncAt.current = Date.now();
+      // Lot L8 : l'inspecteur n'a ni planning, ni rappel de séance, ni ressource
+      // tuteur à télécharger — rien d'autre à faire que le profil (syncOffline).
+      if (estInspecteur(useStore.getState().user?.role)) return;
       // Replanifier les alertes vocales avec le planning frais
       const freshPlanning = useStore.getState().syncData?.planning ?? [];
       configurerRappels(useStore.getState().syncData?.parametres_terrain?.rappels_max_par_jour);
@@ -66,6 +71,7 @@ export default function NetworkWatcher() {
     // événement plutôt que de naviguer directement (pas d'accès au router depuis
     // axios). On réagit ici : on vide le store et on renvoie vers l'accueil.
     onAuthFailure(() => {
+      cacheInspecteur.clear();
       useStore.setState({
         user:               null,
         token:              null,

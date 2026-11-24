@@ -59,6 +59,8 @@ export default function ProfileSheet({ visible, onClose }: Props) {
   if (!user) return null;
 
   const isEnseignant = user.role === "enseignant";
+  // Lot L8 : inspecteur d'IEF, consultation seule (ni saisie, ni file d'envoi).
+  const isInspecteur = user.role === "inspecteur";
 
   const ini      = initials(user.name);
   const school   = syncData?.school;
@@ -140,7 +142,10 @@ export default function ProfileSheet({ visible, onClose }: Props) {
     ]);
   };
 
-  const infoRows: { icon: keyof typeof Feather.glyphMap; label: string; value: string }[] = [
+  const infoRows: { icon: keyof typeof Feather.glyphMap; label: string; value: string }[] = isInspecteur ? [
+    { icon: "map-pin",   label: "IEF",     value: user.ief ?? "—" },
+    { icon: "briefcase", label: "Rôle",    value: "Inspecteur (consultation)" },
+  ] : [
     { icon: "home",      label: "École",   value: school?.name ? `${school.name}${schoolLieu ? ` · ${schoolLieu}` : ""}` : "—" },
     ...(isEnseignant ? [{ icon: "book-open" as const, label: "Classe", value: classe }] : []),
     { icon: "globe",     label: "Langue d'enseignement", value: cap(school?.langue) },
@@ -190,7 +195,7 @@ export default function ProfileSheet({ visible, onClose }: Props) {
               <View style={{ flex: 1 }}>
                 <Text style={s.userName}>{user.name}</Text>
                 <Text style={s.userMeta}>
-                  {school?.name ?? "—"}{isEnseignant && classe !== "—" ? ` · ${classe}` : ""}
+                  {isInspecteur ? `IEF ${user.ief ?? "—"}` : (school?.name ?? "—")}{isEnseignant && classe !== "—" ? ` · ${classe}` : ""}
                 </Text>
                 <Text style={s.userPhone}>{phone}</Text>
               </View>
@@ -259,7 +264,8 @@ export default function ProfileSheet({ visible, onClose }: Props) {
               </View>
             )}
 
-            {/* ── Centre de synchronisation ── */}
+            {/* ── Centre de synchronisation (rien à envoyer pour un inspecteur) ── */}
+            {!isInspecteur && (
             <View style={s.menuCard}>
               <TouchableOpacity
                 style={s.menuRow}
@@ -281,7 +287,10 @@ export default function ProfileSheet({ visible, onClose }: Props) {
               </TouchableOpacity>
             </View>
 
-            {/* ── Aide ── */}
+            )}
+
+            {/* ── Aide (guide et signalement propres aux tuteurs / superviseurs) ── */}
+            {!isInspecteur && (
             <View style={s.menuCard}>
               <TouchableOpacity
                 style={s.menuRow}
@@ -310,6 +319,8 @@ export default function ProfileSheet({ visible, onClose }: Props) {
                 <Feather name="chevron-right" size={rf(20)} color="#AAA" />
               </TouchableOpacity>
             </View>
+
+            )}
 
             {/* ── Bouton actualiser ── */}
             <TouchableOpacity

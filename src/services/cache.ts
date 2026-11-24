@@ -49,6 +49,7 @@ export interface SyncPayload {
     app_access?: string;                    // "full" | "timer_only" | "no_timer" (accès effectif calculé par le serveur)
     minuteur_visible?: boolean;             // APP-33 : décidé par le serveur (protocole de recherche)
     acces_source?: string | null;           // "protocole" | "exception" | "reglage" | "non_assigne"
+    ief?: string | null;                    // Lot L8 : IEF de l'inspecteur
     retention_saisies_jours?: number | null; // APP-14 : conservation des saisies envoyées (null = pas de purge)
   };
   school: {

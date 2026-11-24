@@ -100,6 +100,7 @@ export default function RootLayout() {
         <Stack.Screen name="change-password" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="(supervisor-tabs)" />
+        <Stack.Screen name="(inspecteur-tabs)" />
         <Stack.Screen
           name="today-summary"
           options={{ animation: "slide_from_right" }}

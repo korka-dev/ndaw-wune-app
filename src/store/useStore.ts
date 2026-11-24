@@ -6,6 +6,8 @@ import { fetchAndCache, fetchAndCacheSupervisor, getCached, clearCache, SyncPayl
 import { clearSessionLocalData, purgerSaisiesEnvoyees, setLocalOwner } from "../services/db";
 import { flushQueue } from "../services/queue";
 import { cancelAllSessionAlerts } from "../services/notifications";
+import { estInspecteur } from "../utils/roleRoute";
+import { cacheInspecteur } from "../utils/inspecteur";
 
 const ACTIVE_SEANCE_KEY = "active_seance";
 
@@ -72,10 +74,15 @@ export const useStore = create<AppStore>((set, get) => ({
   hydrateFromCache: async (token: string) => {
     set({ token });
     try {
-      const [cached, activeSeanceRaw] = await Promise.all([
+      const [cachedRaw, activeSeanceRaw, storedRole] = await Promise.all([
         getCached(),
         AsyncStorage.getItem(ACTIVE_SEANCE_KEY),
+        getSecure("user_role").catch(() => null),
       ]);
+      // Lot L8 : l'inspecteur n'a ni cache de sync ni séance — on ne réutilise
+      // jamais un cache tuteur/superviseur pour lui.
+      const inspecteur = estInspecteur(storedRole);
+      const cached = inspecteur ? null : cachedRaw;
       if (cached) {
         set({ syncData: cached, user: cached.profile, lastSync: cached.synced_at });
         console.log("[Store] Hydraté depuis le cache local");
@@ -95,7 +102,7 @@ export const useStore = create<AppStore>((set, get) => ({
           console.warn("[Store] Impossible de récupérer le profil au démarrage");
         }
       }
-      if (activeSeanceRaw) {
+      if (activeSeanceRaw && !inspecteur) {
         try {
           const activeSeance = JSON.parse(activeSeanceRaw);
           set({ activeSeance });
@@ -166,6 +173,7 @@ export const useStore = create<AppStore>((set, get) => ({
     // Le mapping IDs offline → IDs serveur est conservé : il sert à réconcilier
     // les séances encore en attente d'envoi (identifiants aléatoires, sans risque).
     await AsyncStorage.removeItem(ACTIVE_SEANCE_KEY).catch(() => {});
+    cacheInspecteur.clear();        // Lot L8 : cache mémoire de l'espace inspecteur
     set({
       user: null,
       token: null,
@@ -179,8 +187,21 @@ export const useStore = create<AppStore>((set, get) => ({
     if (online) {
       // 1. Rafraîchir les données depuis le serveur — chaque rôle a sa sync :
       //    enseignant → /app/sync ; superviseur → /app/supervisor/sync.
+      const role = get().user?.role ?? (await getSecure("user_role").catch(() => null));
+
+      // Lot L8 : l'inspecteur consulte en lecture seule. Pas de /app/sync (403),
+      // pas de file hors ligne, pas de purge : seul le profil est rafraîchi.
+      if (estInspecteur(role)) {
+        try {
+          const { data: me } = await authApi.me();
+          set({ user: me, lastSync: new Date().toISOString() });
+        } catch (e) {
+          console.warn("[Store] Profil inspecteur non rafraîchi :", e);
+        }
+        return;
+      }
+
       try {
-        const role = get().user?.role ?? (await getSecure("user_role").catch(() => null));
         const payload = role === "superviseur"
           ? await fetchAndCacheSupervisor()
           : await fetchAndCache();
@@ -214,7 +235,9 @@ export const useStore = create<AppStore>((set, get) => ({
       return;
     }
 
-    // Hors-ligne : charger depuis le cache local
+    // Hors-ligne : charger depuis le cache local (jamais pour un inspecteur)
+    const role = get().user?.role ?? (await getSecure("user_role").catch(() => null));
+    if (estInspecteur(role)) return;
     const cached = await getCached();
     if (cached) {
       set({ syncData: cached, user: cached.profile });

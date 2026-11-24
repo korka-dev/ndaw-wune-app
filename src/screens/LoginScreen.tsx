@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
+import { routeAccueilPourRole } from "../utils/roleRoute";
 import { useStore } from "../store/useStore";
 import { useRouter } from "expo-router";
 import { rs, rf } from "../utils/responsive";
@@ -59,11 +60,7 @@ export default function LoginScreen() {
         router.replace("/change-password");
       } else {
         const role = useStore.getState().user?.role;
-        if (role === "superviseur") {
-          router.replace("/(supervisor-tabs)/presences");
-        } else {
-          router.replace("/(tabs)/home");
-        }
+        router.replace(routeAccueilPourRole(role) as any);
       }
     } catch (e: any) {
       // Pas de réponse = problème réseau (serveur injoignable)

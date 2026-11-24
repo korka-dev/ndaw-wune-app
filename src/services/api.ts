@@ -452,3 +452,94 @@ export const ressourcesApi = {
   getDownloadToken: (id: string) =>
     api.post<{ token: string; expires_in: number }>(`/app/ressources/${id}/download-token`),
 };
+
+// ── Inspecteur d'IEF (lot L8, lecture seule) ──────────────────────────────────
+export interface InspecteurResume {
+  ief: string | null;
+  nb_ecoles: number;
+  nb_tuteurs: number;
+  nb_superviseurs: number;
+  rapports_7_jours: number;
+  besoins_appui_7_jours: number;
+  dernier_rapport: string | null;
+}
+
+export interface InspecteurEcole {
+  id: string;
+  nom: string;
+  commune: string | null;
+  code_ecole: number | string | null;
+  directeur: string | null;
+  nb_tuteurs: number;
+  nb_superviseurs: number;
+  rapports_7_jours: number;
+  besoins_appui_7_jours: number;
+  dernier_rapport: string | null;
+}
+
+export interface InspecteurPersonne {
+  id: string;
+  nom: string;
+  role: "tuteur" | "superviseur";
+  telephone: string | null;
+  classes: string[];
+  dernier_rapport: string | null;
+  rapports_7_jours: number;
+}
+
+/** Même forme que les éléments de GET /app/rapports/journalier. */
+export interface RapportJournalierListItem {
+  id: string;
+  date_rapport: string;
+  ief: string | null;
+  commune: string | null;
+  ecole: string | null;
+  superviseur: string | null;
+  nom_tuteur: string | null;
+  nb_absences: number;
+  absents: string | null;
+  semaine: number | null;
+  jour_cours: number | null;
+  difficultes: string[] | string | null;
+  autres_difficultes: string | null;
+  description_difficultes: string | null;
+  directeur_venu: boolean;
+  besoin_appui: boolean;
+  domaines_appui: string | null;
+  has_observations: boolean;
+  commentaires: string | null;
+  reponses_questions?: Record<string, unknown> | unknown[] | null;
+  statut?: string | null;
+  version?: number | null;
+  statut_motif?: string | null;
+  nb_photos?: number | null;
+  submitted_at?: string | null;
+  created_at?: string | null;
+  retour_superviseur?: string | null;
+  retour_le?: string | null;
+  retour_par?: string | null;
+}
+
+export interface InspecteurRapportsFiltres {
+  skip?: number;
+  limit?: number;
+  ecole_id?: string;
+  auteur_id?: string;
+  date_debut?: string;
+  date_fin?: string;
+  besoin_appui?: boolean;
+  inclure_annules?: boolean;
+}
+
+export const inspecteurApi = {
+  resume: () => api.get<InspecteurResume>("/app/inspecteur/resume"),
+  ecoles: () => api.get<InspecteurEcole[]>("/app/inspecteur/ecoles"),
+  personnes: (ecoleId: string) =>
+    api.get<InspecteurPersonne[]>(`/app/inspecteur/ecoles/${ecoleId}/personnes`),
+  rapports: (filtres: InspecteurRapportsFiltres = {}) =>
+    api.get<{ total: number; skip: number; limit: number; items: RapportJournalierListItem[] }>(
+      "/app/inspecteur/rapports", { params: filtres }),
+  rapport: (id: string) => api.get<RapportJournalierListItem>(`/app/inspecteur/rapports/${id}`),
+  /** URL d'une photo (chargée avec le jeton dans les en-têtes, comme APP-37). */
+  photoUrl: (id: string, index: number) => `${API_URL}/app/inspecteur/rapports/${id}/photo/${index}`,
+};

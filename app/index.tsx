@@ -3,6 +3,7 @@ import { getSecure } from "../src/services/secureStorage";
 import { useEffect, useState } from "react";
 import LoadingScreen from "../src/components/LoadingScreen";
 import { useStore } from "../src/store/useStore";
+import { routeAccueilPourRole } from "../src/utils/roleRoute";
 
 export default function Index() {
   const [ready,    setReady]    = useState(false);
@@ -41,8 +42,6 @@ export default function Index() {
   // APP-08 : mot de passe temporaire pas encore changé → aucun accès aux écrans.
   if (mustChange) return <Redirect href="/change-password" />;
 
-  // Redirect based on role
-  if (role === "superviseur") return <Redirect href="/(supervisor-tabs)/presences" />;
-
-  return <Redirect href="/(tabs)/home" />;
+  // Redirect based on role (tuteur, superviseur, inspecteur — lot L8)
+  return <Redirect href={routeAccueilPourRole(role) as any} />;
 }
