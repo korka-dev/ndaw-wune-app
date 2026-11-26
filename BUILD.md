@@ -1,4 +1,4 @@
-# Build & déploiement — ARED NdawWune Mobile
+# Build & déploiement — NdawWune Mobile
 
 ## Prérequis
 

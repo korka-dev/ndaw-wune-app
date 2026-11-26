@@ -60,6 +60,7 @@ export interface SyncPayload {
     director: string | null;
     director_phone?: string | null;
     langue?: string | null;
+    fls?: boolean | null;                   // Lot L9/L10 : école avec (true) / sans (false) FLS, null = non renseigné
   } | null;
   active_session: {
     id: string; name: string; date_debut: string; date_fin: string;

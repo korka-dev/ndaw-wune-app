@@ -24,6 +24,7 @@ import { useStore } from "../store/useStore";
 import { countUnsentForOwner, getFailedActions } from "../services/db";
 import { openAppGuide } from "./AppGuide";
 import { C } from "../utils/theme";
+import { libelleFls } from "../utils/fls";
 import { rs, rf } from "../utils/responsive";
 
 interface Props {
@@ -149,6 +150,8 @@ export default function ProfileSheet({ visible, onClose }: Props) {
     { icon: "home",      label: "École",   value: school?.name ? `${school.name}${schoolLieu ? ` · ${schoolLieu}` : ""}` : "—" },
     ...(isEnseignant ? [{ icon: "book-open" as const, label: "Classe", value: classe }] : []),
     { icon: "globe",     label: "Langue d'enseignement", value: cap(school?.langue) },
+    // Lot L10 : l'école fait-elle partie des écoles avec FLS (français langue seconde) ?
+    { icon: "flag",      label: "Français langue seconde", value: libelleFls(school?.fls) },
   ];
 
   return (

@@ -1,5 +1,5 @@
 /**
- * Base de données SQLite locale — ARED NdawWune
+ * Base de données SQLite locale — NdawWune
  *
  * Tables :
  *   offline_queue   — file d'attente des actions à synchroniser

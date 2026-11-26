@@ -43,7 +43,7 @@ export default function LoadingScreen() {
       </View>
 
       {/* Pied de page discret */}
-      <Text style={styles.footer}>ARED NdawWune</Text>
+      <Text style={styles.footer}>NdawWune</Text>
     </Animated.View>
   );
 }
