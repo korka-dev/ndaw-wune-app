@@ -1,0 +1,17 @@
+{
+  "name": "NdawWune",
+  "short_name": "NdawWune",
+  "description": "Application des tuteurs, superviseurs et inspecteurs du programme ARED Ndaw Wune.",
+  "lang": "fr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FAF7F1",
+  "theme_color": "#8B6F1F",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

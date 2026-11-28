@@ -267,3 +267,6 @@ node_modules
 
 expo-env.d.ts
 # @end expo-cli
+
+# Version web (PWA, lot L12)
+dist-web

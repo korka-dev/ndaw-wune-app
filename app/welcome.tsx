@@ -64,6 +64,8 @@ export default function WelcomeScreen() {
    *   • ET permission pas encore accordée
    */
   async function checkAndPromptPermission() {
+    // Version web (PWA) : pas de rappels vocaux téléphone verrouillé — on ne promet rien.
+    if (Platform.OS === "web") return;
     const alreadyAsked = await AsyncStorage.getItem(NOTIF_PERM_KEY);
     if (alreadyAsked) return; // Déjà traité — ne plus afficher
 

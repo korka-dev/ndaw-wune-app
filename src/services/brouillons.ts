@@ -12,6 +12,7 @@
  */
 import * as FileSystem from "expo-file-system/legacy";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { base64DepuisDataUri, estWeb } from "../utils/web";
 import { getEncryptedItem, setEncryptedItem } from "./cryptoStorage";
 
 export type TypeBrouillon = "rapport_journalier" | "rapport_superviseur" | "evaluation";
@@ -58,6 +59,7 @@ export async function brouillonsDuCompte(owner: string | null | undefined): Prom
 
 /** Recopie une photo choisie dans le dossier privé du brouillon (l'original peut être effacé du cache). */
 export async function conserverPhoto(type: TypeBrouillon, owner: string, uri: string): Promise<string> {
+  if (estWeb) return uri;   // navigateur : la photo est déjà une image data: autonome
   const dossier = `${DOSSIER_PHOTOS}${type}_${owner}/`;
   try {
     await FileSystem.makeDirectoryAsync(dossier, { intermediates: true }).catch(() => {});
@@ -71,6 +73,9 @@ export async function conserverPhoto(type: TypeBrouillon, owner: string, uri: st
 
 /** Relit une photo du brouillon ; null si le fichier a disparu. */
 export async function relirePhoto(uri: string): Promise<{ uri: string; base64: string } | null> {
+  const enLigne = base64DepuisDataUri(uri);
+  if (enLigne) return { uri, base64: enLigne };
+  if (estWeb) return null;
   try {
     const info = await FileSystem.getInfoAsync(uri);
     if (!info.exists) return null;

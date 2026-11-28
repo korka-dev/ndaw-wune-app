@@ -44,6 +44,7 @@ import ProfileSheet from "../components/ProfileSheet";
 import TourTarget from "../components/TourTarget";
 import { ressourcesApi, syncApi } from "../services/api";
 import { getSecure } from "../services/secureStorage";
+import { estWeb, telechargerDansNavigateur } from "../utils/web";
 import { useStore } from "../store/useStore";
 
 // ── Constantes ─────────────────────────────────────────────────────────────────
@@ -430,6 +431,19 @@ export default function RessourcesScreen() {
       Alert.alert("Hors-ligne", "Connectez-vous pour télécharger ce document.");
       return;
     }
+    if (estWeb) {
+      // Navigateur : le fichier va dans les téléchargements du téléphone.
+      setDownloading(doc.id);
+      try {
+        const token = await getSecure("access_token").catch(() => null);
+        await telechargerDansNavigateur(ressourcesApi.downloadUrl(doc.id), token, doc.original_filename);
+      } catch {
+        Alert.alert("Erreur", "Téléchargement impossible. Vérifiez votre connexion.");
+      } finally {
+        setDownloading(null);
+      }
+      return;
+    }
     setDownloading(doc.id);
     setProgress(prev => ({ ...prev, [doc.id]: 0 }));
     const localUri = persistentUri(doc);
@@ -555,6 +569,12 @@ export default function RessourcesScreen() {
     const localUri = downloads[doc.id];
     const cat = getCategory(doc.mime_type, doc.original_filename);
 
+    // Navigateur : hors PDF, le fichier est simplement téléchargé.
+    if (estWeb && cat !== "pdf") {
+      await handleDownload(doc);
+      return;
+    }
+
     // Word / Excel / CSV → app externe
     if (cat === "word" || cat === "excel" || cat === "csv") {
       if (localUri) {
@@ -593,7 +613,7 @@ export default function RessourcesScreen() {
       authHeader: `Bearer ${token}`,
     });
     setActiveDoc(doc);
-  }, [downloads, handleOpenExternal]);
+  }, [downloads, handleOpenExternal, handleDownload]);
 
   const closeViewer = useCallback(() => {
     setActiveDoc(null);

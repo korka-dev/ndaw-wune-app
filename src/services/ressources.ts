@@ -17,6 +17,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Network from "expo-network";
 import { ressourcesApi } from "./api";
 import { getSecure } from "./secureStorage";
+import { estWeb } from "../utils/web";
 
 export const RESSOURCES_DOWNLOADS_KEY = "@ressources_offline_v1";
 export const RESSOURCES_DOCS_CACHE_KEY = "@ressources_docs_list_v1";
@@ -37,6 +38,7 @@ function buildLocalUri(doc: { id: string; original_filename: string }): string {
 }
 
 export async function syncRessourcesOffline(): Promise<void> {
+  if (estWeb) return;   // navigateur : pas de copie hors ligne des fichiers (ouverture en ligne)
   try {
     // 1. Liste serveur (métadonnées uniquement — léger)
     const { data: docs } = await ressourcesApi.list();

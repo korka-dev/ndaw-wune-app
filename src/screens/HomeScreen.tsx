@@ -1218,8 +1218,9 @@ export default function HomeScreen() {
       <ProfileSheet visible={showProfile} onClose={() => setShowProfile(false)} />
 
       {/* ── Configuration notifications (1ère ouverture) ── */}
+      {/* Version web (PWA) : réglages propres au téléphone, sans objet dans le navigateur. */}
       <NotificationSetupModal
-        visible={showNotifSetup}
+        visible={showNotifSetup && Platform.OS !== "web"}
         onClose={() => setShowNotifSetup(false)}
       />
 

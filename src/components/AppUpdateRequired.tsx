@@ -9,7 +9,7 @@
  * peut continuer à travailler hors ligne en attendant.
  */
 import { useCallback, useEffect, useState } from "react";
-import { View, Text, Modal, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
+import { View, Text, Modal, TouchableOpacity, StyleSheet, ActivityIndicator, Platform } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Updates from "expo-updates";
 import { C } from "../utils/theme";
@@ -48,6 +48,12 @@ export default function AppUpdateRequired() {
 
   const tryUpdate = async () => {
     setMessage(null);
+    // Version web (PWA) : la nouvelle version est déjà en ligne, il suffit de recharger.
+    if (Platform.OS === "web") {
+      try { (await navigator.serviceWorker?.getRegistration())?.update(); } catch { /* sans service worker */ }
+      window.location.reload();
+      return;
+    }
     if (!Updates.isEnabled) {
       setMessage("Installez la nouvelle version depuis le lien fourni par votre coordonnateur.");
       return;

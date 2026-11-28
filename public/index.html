@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover" />
+    <title>NdawWune</title>
+    <!-- PWA (lot L12) : installable sur l'écran d'accueil -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#8B6F1F" />
+    <meta name="description" content="Application des tuteurs, superviseurs et inspecteurs du programme ARED Ndaw Wune." />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="NdawWune" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <style id="expo-reset">
+      html, body { height: 100%; background: #FAF7F1; }
+      body { overflow: hidden; overscroll-behavior: none; }
+      #root { display: flex; height: 100%; flex: 1; }
+    </style>
+  </head>
+
+  <body>
+    <noscript>Activez JavaScript pour utiliser NdawWune.</noscript>
+    <div id="root"></div>
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", function () {
+          navigator.serviceWorker.register("/sw.js").catch(function () {});
+        });
+      }
+    </script>
+  </body>
+</html>
