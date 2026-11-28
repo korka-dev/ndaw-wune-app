@@ -18,6 +18,7 @@ import { rf, rs } from "../../utils/responsive";
 import AppHeader from "../../components/AppHeader";
 import ProfileSheet from "../../components/ProfileSheet";
 import TourTarget from "../../components/TourTarget";
+import { entreesPointage, jourCoursServeur, messageErreurPointage } from "../../utils/pointage";
 
 interface Prof {
   id:        string;
@@ -101,6 +102,7 @@ export default function SupPresencesScreen() {
   const [error,       setError]       = useState<string | null>(null);
   const [validated,   setValidated]   = useState(false);
   const [validating,  setValidating]  = useState(false);
+  const validatingRef = useRef(false);   // verrou synchrone : un seul envoi à la fois
   const [locked,      setLocked]      = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
 
@@ -201,8 +203,19 @@ export default function SupPresencesScreen() {
           });
         }
 
+        // Pointages faits sur le téléphone mais pas encore soumis : un
+        // rechargement (réseau qui revient, actualisation) ne doit pas les effacer.
+        const brouillon = new Map<string, { present: boolean; motif: string | null }>();
+        try {
+          for (const r of getSupervisorPresenceForDate(dateJour)) {
+            if (r.synced === 0 && r.present !== null) {
+              brouillon.set(r.teacher_id, { present: r.present === 1, motif: r.motif });
+            }
+          }
+        } catch { /* cache local indisponible */ }
+
         const builtProfs = rawTeachers.map(t => {
-          const s = saved.get(t.id);
+          const s = brouillon.get(t.id) ?? saved.get(t.id);
           return {
             id:        t.id,
             nom:       t.name,
@@ -223,12 +236,13 @@ export default function SupPresencesScreen() {
             teacher_cls: p.classe,
             present:     p.present,
             motif:       p.motif,
-            synced:      saved.has(p.id) ? 1 : 0,
+            synced:      brouillon.has(p.id) || !saved.has(p.id) ? 0 : 1,
           });
         }
 
         setProfs(builtProfs);
-        setLocked(saved.size > 0);
+        // Verrouillé si déjà soumis et sans modification en attente.
+        setLocked(saved.size > 0 && brouillon.size === 0);
       } catch {
         setError("Impossible de charger les enseignants. Passage en mode hors-ligne.");
         loadFromLocalCache(dateJour);
@@ -297,28 +311,28 @@ export default function SupPresencesScreen() {
   };
 
   /* ── Actions de marquage — mise à jour UI + cache local immédiat ── */
+  /** Marque un tuteur (écran + cache local). L'écriture SQLite se fait hors
+      du setState : dans un updater React elle pouvait s'exécuter deux fois. */
+  const marquer = (prof: Prof, present: boolean, motif: string | null) => {
+    setProfs(list => list.map(p => (p.id === prof.id ? { ...p, present, motif } : p)));
+    setError(null);
+    try {
+      upsertSupervisorPresence({
+        date_jour: todayIso(), teacher_id: prof.id,
+        teacher_nom: prof.nom, teacher_cls: prof.classe,
+        present, motif, synced: 0,
+      });
+    } catch { /* le cache local est un confort : l'écran reste juste */ }
+  };
+
   const markPresent = (id: string) => {
-    if (locked) return;
-    const dateJour = todayIso();
-    setProfs(list => {
-      const updated = list.map(p =>
-        p.id === id ? { ...p, present: true as const, motif: null } : p
-      );
-      // Persister immédiatement dans SQLite
-      const prof = updated.find(p => p.id === id);
-      if (prof) {
-        upsertSupervisorPresence({
-          date_jour: dateJour, teacher_id: prof.id,
-          teacher_nom: prof.nom, teacher_cls: prof.classe,
-          present: true, motif: null, synced: 0,
-        });
-      }
-      return updated;
-    });
+    if (locked || validatingRef.current) return;
+    const prof = profs.find(p => p.id === id);
+    if (prof) marquer(prof, true, null);
   };
 
   const openMotifModal = (prof: Prof) => {
-    if (locked) return;
+    if (locked || validatingRef.current) return;
     setMotifTarget(prof);
     setMotifChoice(null);
     setMotifCustom("");
@@ -340,48 +354,30 @@ export default function SupPresencesScreen() {
     if (!motifTarget) return;
     const motif = motifChoice === "__custom" ? motifCustom.trim() : (motifChoice ?? "Non justifié");
     if (!motif) return;
-    const dateJour = todayIso();
-    const id = motifTarget.id;
-    setProfs(list => {
-      const updated = list.map(p =>
-        p.id === id ? { ...p, present: false as const, motif } : p
-      );
-      const prof = updated.find(p => p.id === id);
-      if (prof) {
-        upsertSupervisorPresence({
-          date_jour: dateJour, teacher_id: prof.id,
-          teacher_nom: prof.nom, teacher_cls: prof.classe,
-          present: false, motif, synced: 0,
-        });
-      }
-      return updated;
-    });
+    marquer(motifTarget, false, motif);
     closeMotifModal();
   };
 
   /* ── Validation ── */
+  /* Envoi uniquement sur action du superviseur (bouton « Soumettre »). L'ancien
+     envoi automatique, relancé après chaque échec, faisait clignoter l'écran. */
   const handleValidate = async () => {
-    setValidating(true);
+    if (validatingRef.current) return;
     const dateJour = todayIso();
-
-    // Construire les entrées avec boolean explicite (pas de cast TypeScript)
-    const entries = profs
-      .filter(p => p.present !== null)
-      .map(p => ({
-        teacher_id: p.id,
-        present:    p.present === true,   // boolean explicite — jamais null/undefined
-        motif:      p.present === true ? null : (p.motif ?? null),
-      }));
+    const entries = entreesPointage(profs);
 
     if (entries.length === 0) {
-      setError("Marquez au moins un enseignant avant de valider.");
-      setValidating(false);
+      setError("Marquez au moins un enseignant avant de soumettre.");
       return;
     }
+    validatingRef.current = true;
+    setValidating(true);
+    setError(null);
 
-    const periodePayload = { semaine: periode?.semaine ?? null, jour_cours: periode?.jour ?? null };
+    const periodePayload = { semaine: periode?.semaine ?? null, jour_cours: jourCoursServeur(periode?.jour) };
+    const enregistrerHorsLigne = !isOnline;
 
-    if (isOnline) {
+    if (!enregistrerHorsLigne) {
       try {
         await superviseurApi.submitPresenceCheck(dateJour, entries, periodePayload);
         // Marquer comme synchronisé dans le cache local
@@ -399,31 +395,49 @@ export default function SupPresencesScreen() {
         setValidated(true);
         setLocked(true);
         setTimeout(() => setValidated(false), 2500);
-      } catch {
-        setError("Impossible d'enregistrer les présences. Réessayez ou soumettez hors-ligne.");
+      } catch (e) {
+        const message = messageErreurPointage(e);
+        if (message) {
+          // Refus du serveur : on reste sur la liste, les choix sont conservés.
+          setError(message);
+          validatingRef.current = false;
+          setValidating(false);
+          return;
+        }
+        // Pas de réseau : mise en file d'attente comme hors ligne.
+        enqueueHorsLigne(dateJour, entries, periodePayload);
       }
     } else {
-      // Hors-ligne : mettre en file d'attente
-      enqueueAction("SUBMIT_PRESENCE_CHECK", { date_jour: dateJour, entries, ...periodePayload });
-      // Marquer localement comme "soumis hors-ligne" (synced reste 0 jusqu'au flush)
-      for (const e of entries) {
-        upsertSupervisorPresence({
-          date_jour:   dateJour,
-          teacher_id:  e.teacher_id,
-          teacher_nom: profs.find(p => p.id === e.teacher_id)?.nom ?? "",
-          teacher_cls: profs.find(p => p.id === e.teacher_id)?.classe ?? "",
-          present:     e.present,
-          motif:       e.motif,
-          synced:      0,
-        });
-      }
-      setValidated(true);
-      setLocked(true);
-      setError("Pointage enregistré hors-ligne — sera synchronisé à la reconnexion.");
-      setTimeout(() => setValidated(false), 2500);
+      enqueueHorsLigne(dateJour, entries, periodePayload);
     }
 
+    validatingRef.current = false;
     setValidating(false);
+  };
+
+  const enqueueHorsLigne = (
+    dateJour: string,
+    entries: ReturnType<typeof entreesPointage>,
+    periodePayload: { semaine: number | null; jour_cours: number | null },
+  ) => {
+    // Hors-ligne : mettre en file d'attente
+    enqueueAction("SUBMIT_PRESENCE_CHECK", { date_jour: dateJour, entries, ...periodePayload });
+    // Marquer localement comme "soumis hors-ligne" (synced reste 0 jusqu'au flush)
+    for (const e of entries) {
+      upsertSupervisorPresence({
+        date_jour:   dateJour,
+        teacher_id:  e.teacher_id,
+        teacher_nom: profs.find(p => p.id === e.teacher_id)?.nom ?? "",
+        teacher_cls: profs.find(p => p.id === e.teacher_id)?.classe ?? "",
+        present:     e.present,
+        motif:       e.motif,
+        synced:      0,
+      });
+    }
+    setValidated(true);
+    setLocked(true);
+    setError("Pointage enregistré hors-ligne — sera synchronisé à la reconnexion.");
+    setTimeout(() => setValidated(false), 2500);
   };
 
   /* ── Stats ── */
@@ -431,15 +445,6 @@ export default function SupPresencesScreen() {
   const absentsCount  = profs.filter(p => p.present === false).length;
   const defined       = profs.filter(p => p.present !== null).length;
 
-  /* ── Auto-validation : dès que tous les enseignants du jour sont pointés,
-     on soumet automatiquement et on bascule vers l'écran récapitulatif,
-     sans action manuelle supplémentaire. ── */
-  useEffect(() => {
-    if (!loading && !locked && !validating && profs.length > 0 && defined === profs.length) {
-      handleValidate();
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [defined, profs.length, locked, validating, loading]);
 
   /* Enseignants dont le rapport manque ou date de plus de 2 jours.
      Même seuil que l'alerte affichée sur chaque carte : au-delà de 2 jours
@@ -617,10 +622,17 @@ export default function SupPresencesScreen() {
                 <Text style={styles.doneSub}>{todayCapital}</Text>
               </View>
             </View>
-            <TouchableOpacity onPress={() => setRecapOpen(true)} activeOpacity={0.7} style={styles.doneBtn}>
-              <Text style={styles.doneBtnTxt}>Voir plus</Text>
-              <Feather name="chevron-right" size={rf(14)} color={C.brand} />
-            </TouchableOpacity>
+            <View style={styles.doneActions}>
+              <TouchableOpacity onPress={() => setRecapOpen(true)} activeOpacity={0.7} style={styles.doneBtn}>
+                <Text style={styles.doneBtnTxt}>Voir plus</Text>
+                <Feather name="chevron-right" size={rf(14)} color={C.brand} />
+              </TouchableOpacity>
+              {/* Corriger un pointage : la nouvelle soumission remplace l'ancienne (même jour). */}
+              <TouchableOpacity onPress={() => { setLocked(false); setError(null); }} activeOpacity={0.7} style={styles.doneBtn}>
+                <Feather name="edit-2" size={rf(13)} color={C.brand} />
+                <Text style={styles.doneBtnTxt}>Modifier le pointage</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ) : (
           /* ── État non validé : liste + bouton ── */
@@ -746,7 +758,7 @@ export default function SupPresencesScreen() {
                       style={{ marginRight: rs(8) }}
                     />
                     <Text style={[styles.validateText, defined === 0 && styles.validateTextDisabled]}>
-                      {isOnline ? "Valider" : "Enregistrer hors-ligne"}
+                      {isOnline ? "Soumettre le pointage" : "Enregistrer hors-ligne"}
                       {defined > 0 ? ` (${defined}/${profs.length})` : ""}
                     </Text>
                   </>
@@ -1178,6 +1190,7 @@ const styles = StyleSheet.create({
   doneSub:      { fontSize: rf(13), color: C.textMuted, fontWeight: "500", marginTop: rs(2) },
   doneBtn:      { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: rs(6), paddingVertical: rs(12), borderRadius: rs(12), backgroundColor: C.surface },
   doneBtnTxt:   { fontSize: rf(14), fontWeight: "700", color: C.brand },
+  doneActions:  { gap: rs(8) },
 
   /* Recap modal */
   recapSheet:     { backgroundColor: C.surface, borderTopLeftRadius: rs(24), borderTopRightRadius: rs(24), paddingHorizontal: rs(20), paddingTop: rs(12), maxHeight: "85%" },
