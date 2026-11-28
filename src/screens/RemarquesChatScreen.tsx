@@ -184,7 +184,7 @@ export default function RemarquesChatScreen() {
         onSyncPress={handleManualSync}
         syncing={syncing}
         isOnline={isOnline}
-        sectionLabel={inspecteur ? "Espace Inspecteur" : "Espace Tuteur"}
+        sectionLabel={inspecteur ? "Espace Inspecteur" : user?.role === "superviseur" ? "Espace Superviseur" : "Espace Tuteur"}
       />
 
       {/* En-tête contextuel de l'assistant */}
