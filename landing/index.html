@@ -5,6 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NDAW WUNE - Télécharger l'application</title>
 <link rel="icon" href="/logo.png">
+<script>
+// Détection du téléphone AVANT l'affichage : seule l'option qui le concerne
+// apparaît (Android → APK, iPhone/iPad → version web). Ordinateur ou
+// détection impossible : les deux options.
+(function () {
+  var ua = navigator.userAgent || "";
+  var ios = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  var android = /Android/i.test(ua);
+  document.documentElement.className = ios ? "ios" : android ? "android" : "";
+})();
+</script>
 <style>
 *{box-sizing:border-box}
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:3rem 1rem;position:relative;overflow-x:hidden;background:#F0E6CA;color:#1F1A10;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
@@ -32,8 +43,9 @@ ol{text-align:left;margin:1.1rem 0 0;padding:0;list-style:none;counter-reset:eta
 ol li{counter-increment:etape;display:flex;gap:.7rem;align-items:flex-start;font-size:.88rem;line-height:1.45;margin-bottom:.7rem}
 ol li::before{content:counter(etape);flex:none;width:1.5rem;height:1.5rem;border-radius:50%;background:#F0E6CA;color:#6E561A;font-weight:700;font-size:.8rem;display:flex;align-items:center;justify-content:center}
 .ico{display:inline-block;vertical-align:-3px}
-.autre{display:inline-block;margin-top:1rem;font-size:.82rem;color:#8B6F1F}
-[hidden]{display:none!important}
+html.ios #android,html.android #iphone{display:none}
+html.ios .label,html.android .label{display:none}
+html.ios .section+.section,html.android .section+.section{margin-top:0;padding-top:0;border-top:0}
 </style>
 </head>
 <body>
@@ -47,7 +59,7 @@ ol li::before{content:counter(etape);flex:none;width:1.5rem;height:1.5rem;border
 
     <!-- Android : l'application à installer (APK) -->
     <section class="section" id="android">
-      <p class="label" id="android-label">Téléphone Android</p>
+      <p class="label">Téléphone Android</p>
       <a class="btn" href="/ndawwune.apk" download>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0l-5-5m5 5l5-5M5 21h14"/></svg>
         Télécharger l'application (Android)
@@ -57,7 +69,7 @@ ol li::before{content:counter(etape);flex:none;width:1.5rem;height:1.5rem;border
 
     <!-- iPhone / iPad : la version web, ajoutée à l'écran d'accueil -->
     <section class="section" id="iphone">
-      <p class="label" id="iphone-label">iPhone et iPad</p>
+      <p class="label">iPhone et iPad</p>
       <a class="btn" id="ouvrir" href="https://app.ndawwune.ared-edu.org/">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7M10 14L21 3M19 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h5"/></svg>
         Ouvrir NDAW WUNE
@@ -71,33 +83,7 @@ ol li::before{content:counter(etape);flex:none;width:1.5rem;height:1.5rem;border
         <li><span>Ouvrez NDAW WUNE depuis son icône et connectez-vous avec vos identifiants habituels.</span></li>
       </ol>
     </section>
-
-    <a class="autre" id="autre" href="#" hidden></a>
   </div>
 </main>
-<script>
-// Affiche d'abord la bonne option selon le téléphone ; l'autre reste accessible.
-// Sans JavaScript, les deux options restent visibles.
-(function () {
-  var ua = navigator.userAgent || "";
-  var ios = /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
-  var android = /Android/i.test(ua);
-  if (!ios && !android) return; // ordinateur : les deux options
-  var garder = document.getElementById(ios ? "iphone" : "android");
-  var masquer = document.getElementById(ios ? "android" : "iphone");
-  var autre = document.getElementById("autre");
-  masquer.hidden = true;
-  garder.querySelector(".label").hidden = true;
-  autre.textContent = ios ? "Vous êtes sur Android ? Télécharger l'application" : "Vous êtes sur iPhone ? Voir la version iPhone";
-  autre.hidden = false;
-  autre.addEventListener("click", function (e) {
-    e.preventDefault();
-    masquer.hidden = false;
-    garder.querySelector(".label").hidden = false;
-    masquer.querySelector(".label").hidden = false;
-    autre.hidden = true;
-  });
-})();
-</script>
 </body>
 </html>

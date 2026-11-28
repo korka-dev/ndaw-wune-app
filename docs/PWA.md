@@ -45,7 +45,8 @@ détecte le téléphone :
   étapes pour l'ajouter à l'écran d'accueil ;
 - **ordinateur** (ou sans JavaScript) : les deux options.
 
-Un lien en bas permet toujours d'afficher l'autre option.
+Sur un téléphone, seule l'option qui le concerne est affichée (détection faite
+avant l'affichage, sans clignotement).
 
 Mise en place sur le VPS (après `git pull` dans `/opt/ndawwune/app`) :
 
