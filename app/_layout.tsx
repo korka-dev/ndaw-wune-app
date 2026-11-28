@@ -7,6 +7,7 @@ import NetworkWatcher from "../src/components/NetworkWatcher";
 import UpdateModal from "../src/components/UpdateModal";
 import AppUpdateRequired from "../src/components/AppUpdateRequired";
 import AppLockGate from "../src/components/AppLockGate";
+import AlerteWebHote from "../src/components/AlerteWeb";
 import { initDB } from "../src/services/db";
 import {
   setupNotifications,
@@ -122,6 +123,7 @@ export default function RootLayout() {
         <Stack.Screen name="sup-suivi" options={{ animation: "slide_from_right" }} />
       </Stack>
       <AppLockGate />
+      <AlerteWebHote />
     </SafeAreaProvider>
   );
 }
