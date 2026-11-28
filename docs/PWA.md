@@ -26,7 +26,7 @@ Tuteurs, superviseurs et inspecteurs retrouvent leur espace.
 
    ```bash
    git clone https://github.com/korka-dev/ndaw-wune-app.git /opt/ndawwune/app
-   cd /opt/ndawwune/app && git checkout lot-L12-pwa
+   cd /opt/ndawwune/app && git checkout lot-L13-role-superviseur
    bash deploy_pwa.sh
    ```
 
@@ -34,6 +34,32 @@ Tuteurs, superviseurs et inspecteurs retrouvent leur espace.
    serveur), la publie dans `/var/www/ndawwune-app` et configure Caddy
    (`/etc/caddy/sites/ndawwune-app.caddy`). Mises à jour : relancer
    `bash deploy_pwa.sh`.
+
+## Un seul lien pour tous : https://ndawwune.ared-edu.org/
+
+La page `landing/index.html` remplace la page de téléchargement actuelle. Elle
+détecte le téléphone :
+
+- **Android** : bouton « Télécharger l'application (Android) » → `/ndawwune.apk` ;
+- **iPhone / iPad** : bouton « Ouvrir NDAW WUNE » → la version web, avec les
+  étapes pour l'ajouter à l'écran d'accueil ;
+- **ordinateur** (ou sans JavaScript) : les deux options.
+
+Un lien en bas permet toujours d'afficher l'autre option.
+
+Mise en place sur le VPS (après `git pull` dans `/opt/ndawwune/app`) :
+
+```bash
+# Dossier servi par Caddy pour ndawwune.ared-edu.org (ligne « root »)
+grep -rn -A4 "^ndawwune.ared-edu.org" /etc/caddy/Caddyfile /etc/caddy/sites/
+# Copie de sauvegarde, puis nouvelle page (remplacer <DOSSIER> par ce « root »)
+cp <DOSSIER>/index.html <DOSSIER>/index.html.avant-iphone
+cp /opt/ndawwune/app/landing/index.html <DOSSIER>/index.html
+```
+
+Nouvel APK : le copier sous `<DOSSIER>/ndawwune.apk`. Le lien ne change pas,
+il peut donc servir de `APP_DOWNLOAD_URL` dans le `.env` de l'API
+(`https://ndawwune.ared-edu.org/ndawwune.apk`).
 
 ## Installer sur le téléphone
 
