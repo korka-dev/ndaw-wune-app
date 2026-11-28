@@ -9,6 +9,7 @@ import { estErreurReseau, messageErreurInspecteur } from "../../utils/inspecteur
 import { cacheInspecteur } from "../../services/inspecteurCache";
 import { useStore } from "../../store/useStore";
 import { texteBandeau } from "./InspCommun";
+import { useRafraichissementAuto } from "../../hooks/useRafraichissementAuto";
 
 export const TAILLE_PAGE = 20;
 
@@ -73,6 +74,8 @@ export function useRapportsIef(filtres: Omit<InspecteurRapportsFiltres, "skip" |
   }, [cle, recharger]);
 
   useEffect(() => { if (enLigne && err?.reseau) recharger(); }, [enLigne]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Retour sur l'écran ou dans l'app : liste rafraîchie (lot L13).
+  useRafraichissementAuto(() => recharger());
 
   const chargerPlus = useCallback(async () => {
     if (loadingMore || items.length >= total) return;

@@ -2,7 +2,7 @@
   "expo": {
     "name": "NdawWune",
     "slug": "ared-ndawune",
-    "version": "1.4.1",
+    "version": "1.5.0",
     "orientation": "portrait",
     "icon": "./assets/ared-icon.png",
     "userInterfaceStyle": "light",
@@ -12,7 +12,7 @@
         "backgroundColor": "#FFFFFF"
       },
       "package": "sn.aroka.ared.ndawune",
-      "versionCode": 141,
+      "versionCode": 150,
       "allowBackup": false,
       "permissions": [
         "android.permission.RECORD_AUDIO",
@@ -60,7 +60,7 @@
       [
         "expo-sqlite",
         {
-          "enableFTS": true,
+          "enableFTS": false,
           "useSQLCipher": true
         }
       ],
@@ -86,7 +86,15 @@
       ],
       "expo-audio",
       "expo-status-bar",
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "buildArchs": ["armeabi-v7a", "arm64-v8a"]
+          }
+        }
+      ]
     ],
     "scheme": "ared-ndawune",
     "runtimeVersion": {

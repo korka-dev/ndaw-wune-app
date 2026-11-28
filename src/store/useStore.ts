@@ -2,7 +2,7 @@ import { create } from "zustand";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { authApi } from "../services/api";
 import { setSecure, getSecure, deleteSecure, clearAuthTokens } from "../services/secureStorage";
-import { fetchAndCache, fetchAndCacheSupervisor, getCached, clearCache, SyncPayload } from "../services/cache";
+import { fetchAndCache, fetchAndCacheSupervisor, getCached, clearCache, SyncPayload, derniereSyncInchangee } from "../services/cache";
 import { clearSessionLocalData, purgerSaisiesEnvoyees, setLocalOwner } from "../services/db";
 import { flushQueue } from "../services/queue";
 import { cancelAllSessionAlerts } from "../services/notifications";
@@ -255,7 +255,9 @@ export const useStore = create<AppStore>((set, get) => ({
         // Le profil de la sync superviseur garde l'espace superviseur (un ancien
         // compte coordonnateur y est rangé, cf. roleEspace).
         const profile = role === "superviseur" ? { ...payload.profile, role: "superviseur" } : payload.profile;
-        set({ syncData: payload, user: profile as any, lastSync: payload.synced_at });
+        // 304 (rien de changé) : on ne remplace pas syncData, les écrans ne se redessinent pas.
+        if (derniereSyncInchangee && get().syncData) set({ lastSync: new Date().toISOString() });
+        else set({ syncData: payload, user: profile as any, lastSync: payload.synced_at });
       } catch {
         // Réseau défaillant → fallback cache local.
         // On ne sort PAS ici : si l'appareil est en ligne, la queue doit quand

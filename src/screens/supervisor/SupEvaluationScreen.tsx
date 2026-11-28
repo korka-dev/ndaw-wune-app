@@ -39,6 +39,7 @@ import BackButton from "../../components/BackButton";
 import ProfileSheet from "../../components/ProfileSheet";
 import TourTarget from "../../components/TourTarget";
 import { useAndroidBack } from "../../hooks/useAndroidBack";
+import { useRafraichissementAuto } from "../../hooks/useRafraichissementAuto";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -201,6 +202,8 @@ export default function SupEvaluationScreen() {
   }, [user?.id]);
 
   useEffect(() => { fetchData().finally(() => setLoading(false)); }, [fetchData]);
+  // Retour sur l'écran ou dans l'app : changements du tableau de bord récupérés (lot L13).
+  useRafraichissementAuto(() => fetchData());
 
   const onRefresh = async () => {
     setRefreshing(true);

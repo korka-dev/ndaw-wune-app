@@ -7,7 +7,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
   Alert, Modal, TextInput, ActivityIndicator,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform, AppState,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather } from "@expo/vector-icons";
@@ -229,11 +229,15 @@ export default function HomeScreen() {
 
   // ── Horloge : force un re-rendu périodique pour réévaluer l'heure courante
   //    (ex: déblocage du bouton "Démarrer" 5 minutes avant le créneau) ──
+  //    Seulement quand l'accueil est affiché et l'app au premier plan (batterie).
   const [, setClockTick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setClockTick(t => t + 1), 30_000);
+  useFocusEffect(useCallback(() => {
+    setClockTick(t => t + 1);
+    const id = setInterval(() => {
+      if (AppState.currentState === "active") setClockTick(t => t + 1);
+    }, 30_000);
     return () => clearInterval(id);
-  }, []);
+  }, []));
 
   /* ── Chronomètre / Timer Manuel de l'activité en cours ── */
   const TIMER_STATE_KEY = "timer_pause_state";
@@ -295,6 +299,9 @@ export default function HomeScreen() {
     if (!activeSeance || isPaused) return;
     const start = new Date(activeSeance.started_at).getTime();
     const update = () => {
+      // Calculé depuis l'heure réelle : rien n'est perdu à sauter les mises à
+      // jour quand l'app est en arrière-plan (pas de rendu inutile).
+      if (AppState.currentState === "background") return;
       const sec = Math.floor((Date.now() - start - totalPausedMs) / 1000);
       setElapsed(Math.max(0, sec));
     };

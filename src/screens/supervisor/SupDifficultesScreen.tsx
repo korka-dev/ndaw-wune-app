@@ -14,6 +14,7 @@ import { rf, rs } from "../../utils/responsive";
 import AppHeader from "../../components/AppHeader";
 import ProfileSheet from "../../components/ProfileSheet";
 import BackButton from "../../components/BackButton";
+import { useRafraichissementAuto } from "../../hooks/useRafraichissementAuto";
 
 // ── Composant ─────────────────────────────────────────────────────────────────
 
@@ -50,6 +51,8 @@ export default function SupDifficultesScreen() {
   useEffect(() => {
     fetchDifficultes().finally(() => setLoading(false));
   }, [fetchDifficultes]);
+  // Retour sur l'écran ou dans l'app : changements du tableau de bord récupérés (lot L13).
+  useRafraichissementAuto(() => fetchDifficultes());
 
   const onRefresh = async () => {
     setRefreshing(true);

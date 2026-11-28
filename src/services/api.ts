@@ -164,7 +164,7 @@ export const authApi = {
 // ── Synchronisation offline ───────────────────────────────────────────────────
 export const versionApi = {
   /** Politique de version publiée par l'API (publique). */
-  policy: () => api.get<{ min_version: string | null; latest_version: string | null }>("/app-version"),
+  policy: () => api.get<{ min_version: string | null; latest_version: string | null; download_url?: string | null }>("/app-version"),
 };
 
 export const syncApi = {

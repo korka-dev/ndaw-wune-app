@@ -8,14 +8,14 @@
  * ni pénalisée, elle repartira automatiquement après la mise à jour. Le tuteur
  * peut continuer à travailler hors ligne en attendant.
  */
-import { useCallback, useEffect, useState } from "react";
-import { View, Text, Modal, TouchableOpacity, StyleSheet, ActivityIndicator, Platform } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { View, Text, Modal, TouchableOpacity, StyleSheet, ActivityIndicator, Platform, AppState, Linking } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Updates from "expo-updates";
 import { C } from "../utils/theme";
 import { rs, rf } from "../utils/responsive";
 import { onUpdateRequired, UpdateRequiredPayload } from "../services/authEvents";
-import { APP_VERSION, isOutdated } from "../services/appVersion";
+import { APP_VERSION, etatMiseAJour, INTERVALLE_VERIF_VERSION_MS } from "../services/appVersion";
 import { versionApi } from "../services/api";
 import { countUnsentForOwner } from "../services/db";
 
@@ -35,16 +35,32 @@ export default function AppUpdateRequired() {
   // 426 reçu par n'importe quel appel API
   useEffect(() => onUpdateRequired(show), [show]);
 
-  // Vérification proactive au lancement (silencieuse hors ligne)
-  useEffect(() => {
+  // Vérification au lancement PUIS à chaque retour dans l'app (au plus toutes
+  // les 30 min, la réponse fait quelques octets) : une nouvelle version publiée
+  // est proposée dès l'ouverture, une version trop ancienne est bloquée.
+  const derniereVerif = useRef(0);
+  const verifier = useCallback((force = false) => {
+    const maintenant = Date.now();
+    if (!force && maintenant - derniereVerif.current < INTERVALLE_VERIF_VERSION_MS) return;
+    derniereVerif.current = maintenant;
     versionApi.policy()
       .then(({ data }) => {
-        if (data?.min_version && isOutdated(APP_VERSION, data.min_version)) {
-          show({ minVersion: data.min_version, latestVersion: data.latest_version });
+        const etat = etatMiseAJour(APP_VERSION, data);
+        if (etat) {
+          show({ minVersion: data.min_version, latestVersion: data.latest_version,
+                 mode: etat, downloadUrl: data.download_url ?? null });
         }
       })
-      .catch(() => {});
+      .catch(() => {}); // hors ligne : silencieux
   }, [show]);
+
+  useEffect(() => {
+    verifier(true);
+    const sub = AppState.addEventListener("change", (etat) => { if (etat === "active") verifier(); });
+    return () => sub.remove();
+  }, [verifier]);
+
+  const disponible = info?.mode === "disponible";
 
   const tryUpdate = async () => {
     setMessage(null);
@@ -54,19 +70,23 @@ export default function AppUpdateRequired() {
       window.location.reload();
       return;
     }
-    if (!Updates.isEnabled) {
-      setMessage("Installez la nouvelle version depuis le lien fourni par votre coordonnateur.");
-      return;
-    }
     setChecking(true);
     try {
-      const res = await Updates.checkForUpdateAsync();
-      if (res.isAvailable) {
-        await Updates.fetchUpdateAsync();
-        await Updates.reloadAsync();
+      // 1. Mise à jour « à chaud » (EAS Update) si elle existe : rien à réinstaller.
+      if (Updates.isEnabled) {
+        const res = await Updates.checkForUpdateAsync();
+        if (res.isAvailable) {
+          await Updates.fetchUpdateAsync();
+          await Updates.reloadAsync();
+          return;
+        }
+      }
+      // 2. Sinon, nouvel APK : lien publié par le serveur.
+      if (info?.downloadUrl) {
+        await Linking.openURL(info.downloadUrl);
         return;
       }
-      setMessage("Aucune mise à jour automatique disponible. Installez la nouvelle version depuis le lien fourni par votre coordonnateur.");
+      setMessage("Installez la nouvelle version depuis le lien fourni par votre coordonnateur.");
     } catch {
       setMessage("Vérification impossible (réseau ?). Réessayez quand vous avez du réseau.");
     } finally {
@@ -83,10 +103,11 @@ export default function AppUpdateRequired() {
           <View style={s.iconWrap}>
             <Feather name="alert-triangle" size={rf(26)} color={C.brand} />
           </View>
-          <Text style={s.title}>Mise à jour obligatoire</Text>
+          <Text style={s.title}>{disponible ? "Nouvelle version disponible" : "Mise à jour obligatoire"}</Text>
           <Text style={s.msg}>
-            Cette version ({APP_VERSION}) n&apos;est plus acceptée par le serveur
-            {info.minVersion ? ` (minimum ${info.minVersion})` : ""}.
+            {disponible
+              ? `La version ${info.latestVersion} est disponible (vous avez la ${APP_VERSION}). Installez-la pour profiter des dernières corrections.`
+              : `Cette version (${APP_VERSION}) n'est plus acceptée par le serveur${info.minVersion ? ` (minimum ${info.minVersion})` : ""}.`}
             {"\n"}
             {unsent > 0
               ? `Vos ${unsent} saisie(s) non envoyée(s) sont conservées sur le téléphone et partiront après la mise à jour.`
@@ -106,7 +127,7 @@ export default function AppUpdateRequired() {
           </TouchableOpacity>
 
           <TouchableOpacity style={s.laterBtn} onPress={() => setHidden(true)} disabled={checking} activeOpacity={0.7}>
-            <Text style={s.laterTxt}>Continuer hors ligne</Text>
+            <Text style={s.laterTxt}>{disponible ? "Plus tard" : "Continuer hors ligne"}</Text>
           </TouchableOpacity>
         </View>
       </View>

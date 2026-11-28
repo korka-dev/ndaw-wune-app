@@ -42,3 +42,14 @@ describe("Classement des erreurs API", () => {
     expect(isPasswordChangeRequiredError(err(403, "Accès refusé"))).toBe(false);
   });
 });
+
+describe("Mise à jour proposée à l'ouverture", () => {
+  const { etatMiseAJour } = require("../services/appVersion");
+  test("obligatoire sous le minimum, disponible sous la dernière version", () => {
+    expect(etatMiseAJour("1.3.0", { min_version: "1.4.1", latest_version: "1.4.1" })).toBe("obligatoire");
+    expect(etatMiseAJour("1.4.1", { min_version: "1.4.0", latest_version: "1.5.0" })).toBe("disponible");
+    expect(etatMiseAJour("1.5.0", { min_version: "1.4.0", latest_version: "1.5.0" })).toBeNull();
+    expect(etatMiseAJour("1.4.1", { min_version: null, latest_version: null })).toBeNull();
+    expect(etatMiseAJour("1.4.1", null)).toBeNull();
+  });
+});

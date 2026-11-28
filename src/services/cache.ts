@@ -5,11 +5,55 @@
  * contient de vraies données d'élèves et d'enseignants.
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { syncApi, superviseurApi } from "./api";
+import { api } from "./api";
 import { getEncryptedItem, setEncryptedItem } from "./cryptoStorage";
 
 const SYNC_KEY      = "ared_sync_payload";
 const SYNC_DATE_KEY = "ared_sync_date";
+const SYNC_ETAG_KEY = "ared_sync_etag";
+
+/** Vrai si la dernière synchronisation a répondu 304 (contenu inchangé). */
+export let derniereSyncInchangee = false;
+
+/**
+ * Télécharge la synchronisation en envoyant l'ETag du cache : si rien n'a changé
+ * le serveur répond 304 sans corps, et le cache local est réutilisé tel quel
+ * (ni téléchargement complet, ni rechiffrement, ni réécriture).
+ */
+async function telechargerSync(url: string): Promise<SyncPayload> {
+  const etag = await AsyncStorage.getItem(SYNC_ETAG_KEY).catch(() => null);
+  if (etag) {
+    const res = await api.get(url, { headers: { "If-None-Match": etag }, validateStatus: (st) => st === 200 || st === 304 });
+    if (res.status === 304) {
+      const cached = await getCached().catch(() => null);
+      if (cached) {
+        derniereSyncInchangee = true;
+        return cached;
+      }
+    } else {
+      return enregistrerSync(res.data, res.headers?.etag);
+    }
+  }
+  const res = await api.get(url);
+  return enregistrerSync(res.data, res.headers?.etag);
+}
+
+async function enregistrerSync(data: SyncPayload, etag: string | undefined): Promise<SyncPayload> {
+  derniereSyncInchangee = false;
+  // Écriture du cache best-effort : un échec de chiffrement/stockage ne doit
+  // JAMAIS empêcher l'app d'utiliser les données fraîchement téléchargées
+  // (sinon l'UI reste vide alors que le serveur a répondu correctement).
+  try {
+    await setEncryptedItem(SYNC_KEY, data);
+    await AsyncStorage.setItem(SYNC_DATE_KEY, new Date().toISOString());
+    if (etag) await AsyncStorage.setItem(SYNC_ETAG_KEY, etag);
+    else await AsyncStorage.removeItem(SYNC_ETAG_KEY);
+  } catch (e) {
+    await AsyncStorage.removeItem(SYNC_ETAG_KEY).catch(() => {});
+    console.warn("[Cache] Écriture du cache offline échouée (données servies quand même) :", e);
+  }
+  return data;
+}
 const SUP_EVALS_KEY  = "ared_supervisor_evaluations";
 const SUP_ELEVES_KEY = "ared_supervisor_eleves";
 const SUP_COMPETENCES_KEY = "ared_evaluation_competences";
@@ -102,17 +146,7 @@ export interface SyncPayload {
 }
 
 export async function fetchAndCache(): Promise<SyncPayload> {
-  const { data } = await syncApi.sync();
-  // Écriture du cache best-effort : un échec de chiffrement/stockage ne doit
-  // JAMAIS empêcher l'app d'utiliser les données fraîchement téléchargées
-  // (sinon l'UI reste vide alors que le serveur a répondu correctement).
-  try {
-    await setEncryptedItem(SYNC_KEY, data);
-    await AsyncStorage.setItem(SYNC_DATE_KEY, new Date().toISOString());
-  } catch (e) {
-    console.warn("[Cache] Écriture du cache offline échouée (données servies quand même) :", e);
-  }
-  return data as SyncPayload;
+  return telechargerSync("/app/sync");
 }
 
 /**
@@ -121,14 +155,7 @@ export async function fetchAndCache(): Promise<SyncPayload> {
  * Le payload partage la même forme générale (profile, school, synced_at…).
  */
 export async function fetchAndCacheSupervisor(): Promise<SyncPayload> {
-  const { data } = await superviseurApi.sync();
-  try {
-    await setEncryptedItem(SYNC_KEY, data);
-    await AsyncStorage.setItem(SYNC_DATE_KEY, new Date().toISOString());
-  } catch (e) {
-    console.warn("[Cache] Écriture du cache superviseur échouée (données servies quand même) :", e);
-  }
-  return data as SyncPayload;
+  return telechargerSync("/app/supervisor/sync");
 }
 
 export async function getCached(): Promise<SyncPayload | null> {
@@ -140,7 +167,7 @@ export async function getLastSyncDate(): Promise<string | null> {
 }
 
 export async function clearCache(): Promise<void> {
-  await AsyncStorage.multiRemove([SYNC_KEY, SYNC_DATE_KEY, SUP_EVALS_KEY, SUP_ELEVES_KEY, SUP_COMPETENCES_KEY, SUP_DIFFICULTES_KEY, SUP_RAPPORT_QUESTIONS_KEY, SUP_RAPPORT_LIBELLES_KEY, TEACHER_EVALS_KEY, SUP_GRILLES_KEY, SUP_VISITES_KEY, SUP_DEMANDES_KEY, SUP_EVAL_ENS_KEY, SUP_EVAL_DOCS_KEY, SUP_EVAL_CLASSES_KEY]);
+  await AsyncStorage.multiRemove([SYNC_KEY, SYNC_DATE_KEY, SYNC_ETAG_KEY, SUP_EVALS_KEY, SUP_ELEVES_KEY, SUP_COMPETENCES_KEY, SUP_DIFFICULTES_KEY, SUP_RAPPORT_QUESTIONS_KEY, SUP_RAPPORT_LIBELLES_KEY, TEACHER_EVALS_KEY, SUP_GRILLES_KEY, SUP_VISITES_KEY, SUP_DEMANDES_KEY, SUP_EVAL_ENS_KEY, SUP_EVAL_DOCS_KEY, SUP_EVAL_CLASSES_KEY]);
 }
 
 /** Questions complémentaires (configurées par l'admin) destinées au rapport du superviseur. */

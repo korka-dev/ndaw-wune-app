@@ -14,6 +14,7 @@ import { rf, rs } from "../../utils/responsive";
 import { bandeauHorsLigne, dateLisible, estErreurReseau, messageErreurInspecteur } from "../../utils/inspecteur";
 import { cacheInspecteur } from "../../services/inspecteurCache";
 import type { RapportJournalierListItem } from "../../services/api";
+import { useRafraichissementAuto } from "../../hooks/useRafraichissementAuto";
 
 /** En-tête « Espace Inspecteur » ; le bouton d'actualisation recharge l'écran. */
 export function InspHeader({ onRefresh, refreshing }: { onRefresh?: () => void; refreshing?: boolean }) {
@@ -90,6 +91,8 @@ export function useInspData<T>(cle: string | null, charger: () => Promise<T>, qu
 
   // Retour du réseau : on rafraîchit.
   useEffect(() => { if (enLigne && err?.reseau) reload(); }, [enLigne]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Retour sur l'écran ou dans l'app : données de l'IEF rafraîchies (lot L13).
+  useRafraichissementAuto(() => reload());
 
   const bandeau = texteBandeau(data !== undefined, enLigne, err, at);
   return { data, loading, refreshing, error: err?.texte ?? null, bandeau, reload };

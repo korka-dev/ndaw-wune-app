@@ -33,8 +33,12 @@ export default function UpdateModal() {
   const [restarting, setRestarting] = useState(false);
 
   /* ── Vérification à l'entrée dans l'app ──────────────────────────────── */
+  // Au plus une vérification toutes les 30 min au retour dans l'app (données mobiles).
+  const derniereVerif = useRef(0);
   const check = useCallback(() => {
     if (!Updates.isEnabled) return;
+    if (Date.now() - derniereVerif.current < 30 * 60 * 1000) return;
+    derniereVerif.current = Date.now();
     Updates.checkForUpdateAsync().catch(() => {
       /* silencieux : hors-ligne, ou serveur injoignable */
     });

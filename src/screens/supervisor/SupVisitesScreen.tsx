@@ -29,6 +29,7 @@ import { C } from "../../utils/theme";
 import { rf, rs } from "../../utils/responsive";
 import AppHeader from "../../components/AppHeader";
 import ProfileSheet from "../../components/ProfileSheet";
+import { useRafraichissementAuto } from "../../hooks/useRafraichissementAuto";
 
 type Onglet = "nouvelle" | "visites" | "appui";
 type Reponse = { valeur?: number | null; disponible?: boolean | null; texte?: string; non_applicable?: boolean };
@@ -135,6 +136,8 @@ export default function SupVisitesScreen() {
   }, [isOnline]);
 
   useEffect(() => { charger().finally(() => setChargement(false)); }, [charger]);
+  // Retour sur l'écran ou dans l'app : changements du tableau de bord récupérés (lot L13).
+  useRafraichissementAuto(() => charger());
 
   const reinitialiser = () => {
     setTeacherId(null); setClasse(""); setHeure(""); setDuree(""); setReponses({});

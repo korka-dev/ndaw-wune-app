@@ -48,3 +48,21 @@ export function isPasswordChangeRequiredError(err: unknown): boolean {
   const r = (err as { response?: { status?: number; data?: { detail?: unknown } } })?.response;
   return r?.status === 403 && r?.data?.detail === "PASSWORD_CHANGE_REQUIRED";
 }
+
+/** Délai minimal entre deux vérifications de version au retour dans l'app (données mobiles). */
+export const INTERVALLE_VERIF_VERSION_MS = 30 * 60 * 1000;
+
+/**
+ * État de mise à jour selon la politique publiée par l'API (/app-version) :
+ * « obligatoire » sous la version minimale, « disponible » sous la dernière
+ * version publiée, sinon null.
+ */
+export function etatMiseAJour(
+  current: string | null | undefined,
+  policy: { min_version?: string | null; latest_version?: string | null } | null | undefined,
+): "obligatoire" | "disponible" | null {
+  if (!policy) return null;
+  if (policy.min_version && isOutdated(current, policy.min_version)) return "obligatoire";
+  if (policy.latest_version && isOutdated(current, policy.latest_version)) return "disponible";
+  return null;
+}

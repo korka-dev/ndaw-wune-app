@@ -32,6 +32,10 @@ export function dispatchPasswordChangeRequired(): void {
 export interface UpdateRequiredPayload {
   minVersion:    string | null;
   latestVersion: string | null;
+  /** « disponible » : nouvelle version proposée (on peut continuer) ; défaut : obligatoire. */
+  mode?:         "obligatoire" | "disponible";
+  /** Lien de téléchargement de l'APK publié par l'API (APP_DOWNLOAD_URL). */
+  downloadUrl?:  string | null;
 }
 
 const _updateListeners = new Set<(info: UpdateRequiredPayload) => void>();

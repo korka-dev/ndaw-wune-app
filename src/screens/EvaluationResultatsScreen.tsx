@@ -18,6 +18,7 @@ import { C } from "../utils/theme";
 import { rf, rs } from "../utils/responsive";
 import AppHeader from "../components/AppHeader";
 import ProfileSheet from "../components/ProfileSheet";
+import { useRafraichissementAuto } from "../hooks/useRafraichissementAuto";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -185,6 +186,8 @@ export default function EvaluationResultatsScreen() {
 
     fetchEvaluations().finally(() => setLoading(false));
   }, [fetchEvaluations]);
+  // Retour sur l'écran ou dans l'app : changements du tableau de bord récupérés (lot L13).
+  useRafraichissementAuto(() => fetchEvaluations());
 
   const onRefresh = async () => {
     setRefreshing(true);

@@ -23,6 +23,7 @@ import { C } from "../../utils/theme";
 import { rf, rs } from "../../utils/responsive";
 import BackButton from "../../components/BackButton";
 import { dateCourte } from "../../utils/statutRapport";
+import { useRafraichissementAuto } from "../../hooks/useRafraichissementAuto";
 
 type Onglet = "tuteurs" | "rapports" | "valider" | "messages";
 
@@ -70,6 +71,8 @@ export default function SupSuiviTuteursScreen() {
   }, [isOnline]);
 
   useEffect(() => { charger(); }, [charger]);
+  // Retour sur l'écran ou dans l'app : changements du tableau de bord récupérés (lot L13).
+  useRafraichissementAuto(() => charger());
 
   const enAttente = rempl.filter(r => r.statut === "en_attente");
   const nonLus = messages.filter(m => m.statut !== "traite");

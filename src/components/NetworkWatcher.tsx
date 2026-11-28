@@ -2,13 +2,13 @@
  * Composant invisible — surveille la connectivité réseau et synchronise
  * les données en temps quasi-réel.
  *
- * Stratégie :
- *   • Vérification réseau toutes les 15 s (détection offline/online rapide).
- *   • Synchronisation complète toutes les 30 s quand l'app est en ligne
- *     (planning, profil, session active). Le serveur répond depuis son cache
- *     Redis en < 5 ms si rien n'a changé → très léger.
+ * Stratégie (économie de batterie et de données) :
+ *   • Rien ne tourne quand l'app est en arrière-plan : minuteries arrêtées.
+ *   • Au premier plan : vérification réseau toutes les 30 s, synchronisation
+ *     toutes les 5 min. Si rien n'a changé, le serveur répond 304 (sans corps).
+ *   • Sync immédiate au retour dans l'app (dernière sync > 1 min) : les
+ *     modifications faites dans le tableau de bord arrivent dès l'ouverture.
  *   • Sync immédiate au retour en ligne (flush queue + fetch fresh data).
- *   • Sync immédiate quand l'app revient au premier plan (AppState "active").
  *   • Protection anti-doublon : une seule sync à la fois (isSyncing).
  *
  * Compatible Android 5+ (API 21) et iOS 13+.
@@ -27,8 +27,10 @@ import { setSecure } from "../services/secureStorage";
 import { estInspecteur } from "../utils/roleRoute";
 import { cacheInspecteur } from "../services/inspecteurCache";
 
-const NETWORK_CHECK_MS = 15_000;   // 15 s — vérification connectivité
-const SYNC_INTERVAL_MS = 30_000;   // 30 s — sync données quand online
+const NETWORK_CHECK_MS   = 30_000;      // 30 s — vérification connectivité (premier plan)
+const SYNC_INTERVAL_MS   = 5 * 60_000;  // 5 min — sync périodique (premier plan)
+const SYNC_AU_RETOUR_MS  = 60_000;      // retour dans l'app : sync si la dernière date de plus d'1 min
+const RESSOURCES_MS      = 60 * 60_000; // téléchargement auto des ressources : au plus 1 fois par heure
 
 export default function NetworkWatcher() {
   const { setIsOnline, syncOffline } = useStore();
@@ -36,6 +38,7 @@ export default function NetworkWatcher() {
   const lastOnline  = useRef<boolean>(true);
   const isSyncing   = useRef<boolean>(false);   // anti-doublon
   const lastSyncAt  = useRef<number>(0);         // timestamp de la dernière sync
+  const lastRessources = useRef<number>(0);      // dernier passage du téléchargement auto
 
   // ── Sync protégée contre les appels simultanés ─────────────────────────────
   const doSync = async (reason: string) => {
@@ -56,8 +59,11 @@ export default function NetworkWatcher() {
       configurerRappels(useStore.getState().syncData?.parametres_terrain?.rappels_max_par_jour);
       updateCachedSegments(freshPlanning);
       scheduleSessionAlerts(freshPlanning).catch(() => {});
-      // Téléchargement automatique des ressources en arrière-plan
-      syncRessourcesOffline().catch(() => {});
+      // Téléchargement automatique des ressources (Wi-Fi) : au plus 1 fois par heure.
+      if (Date.now() - lastRessources.current > RESSOURCES_MS) {
+        lastRessources.current = Date.now();
+        syncRessourcesOffline().catch(() => {});
+      }
     } catch (e) {
       console.warn("[Sync] Erreur :", e);
     } finally {
@@ -89,20 +95,7 @@ export default function NetworkWatcher() {
       router.replace("/change-password");
     });
 
-    // ── 1. AppState — sync quand l'app revient au premier plan ────────────────
-    const appStateSub = AppState.addEventListener(
-      "change",
-      (state: AppStateStatus) => {
-        if (state === "active") {
-          // Sync seulement si la dernière remonte à plus de 30 s
-          if (Date.now() - lastSyncAt.current > SYNC_INTERVAL_MS) {
-            doSync("retour premier plan");
-          }
-        }
-      }
-    );
-
-    // ── 2. Vérification réseau toutes les 15 s ────────────────────────────────
+    // ── 1. Vérification réseau ───────────────────────────────────────────────
     const checkNetwork = async () => {
       try {
         const state = await Network.getNetworkStateAsync();
@@ -112,7 +105,8 @@ export default function NetworkWatcher() {
 
         const wasOffline = !lastOnline.current;
         lastOnline.current = online;
-        setIsOnline(online);
+        // Pas de mise à jour du store si rien ne change (évite de redessiner les écrans).
+        if (useStore.getState().isOnline !== online) setIsOnline(online);
 
         if (online && wasOffline) {
           // Retour en ligne : doSync fait lui-même le flush + fetch dans syncOffline
@@ -124,8 +118,32 @@ export default function NetworkWatcher() {
       }
     };
 
-    // ── 3. Sync périodique toutes les 30 s quand en ligne ────────────────────
-    const periodicSync = () => doSync("polling 30 s");
+    // ── 2. Minuteries actives seulement au premier plan ──────────────────────
+    let netTimer: ReturnType<typeof setInterval> | null = null;
+    let syncTimer: ReturnType<typeof setInterval> | null = null;
+    const demarrer = () => {
+      if (!netTimer)  netTimer  = setInterval(checkNetwork, NETWORK_CHECK_MS);
+      if (!syncTimer) syncTimer = setInterval(() => doSync("périodique 5 min"), SYNC_INTERVAL_MS);
+    };
+    const arreter = () => {
+      if (netTimer)  { clearInterval(netTimer);  netTimer = null; }
+      if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
+    };
+
+    // ── 3. AppState — reprise au premier plan, pause en arrière-plan ─────────
+    const appStateSub = AppState.addEventListener(
+      "change",
+      (state: AppStateStatus) => {
+        if (state === "active") {
+          demarrer();
+          checkNetwork().then(() => {
+            if (Date.now() - lastSyncAt.current > SYNC_AU_RETOUR_MS) doSync("retour premier plan");
+          });
+        } else if (state === "background") {
+          arreter();
+        }
+      }
+    );
 
     // Démarrage : vérification réseau immédiate + sync si déjà en ligne au cold start
     checkNetwork().then(() => {
@@ -133,12 +151,10 @@ export default function NetworkWatcher() {
       // la sync sur "retour en ligne" n'est pas déclenchée. On la force ici.
       if (lastOnline.current) doSync("démarrage à froid");
     });
-    const netTimer  = setInterval(checkNetwork,  NETWORK_CHECK_MS);
-    const syncTimer = setInterval(periodicSync,   SYNC_INTERVAL_MS);
+    if (AppState.currentState !== "background") demarrer();
 
     return () => {
-      clearInterval(netTimer);
-      clearInterval(syncTimer);
+      arreter();
       appStateSub.remove();
       onAuthFailure(null);
       onPasswordChangeRequired(null);  // évite la fuite si NetworkWatcher démonte (ex: logout)

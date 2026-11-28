@@ -26,6 +26,7 @@ import { C } from "../utils/theme";
 import AppHeader from "../components/AppHeader";
 import ProfileSheet from "../components/ProfileSheet";
 import { categoriesPour, destinatairePour } from "../utils/remarques";
+import { useRafraichissementAuto } from "../hooks/useRafraichissementAuto";
 
 // Catégories et destinataires selon le rôle (lot L8 : options réduites pour l'inspecteur).
 interface Echange {
@@ -68,6 +69,8 @@ export default function RemarquesChatScreen() {
     if (!isOnline) return;
     remarquesApi.list().then(r => setEchanges(r.data ?? [])).catch(() => {});
   }, [isOnline]);
+  // Réponses de l'équipe ARED : récupérées au retour sur l'écran ou dans l'app (lot L13).
+  useRafraichissementAuto(() => remarquesApi.list().then(r => setEchanges(r.data ?? [])));
   const nbReponses = echanges.filter(e => !!e.reponse).length;
 
   useEffect(() => { if (!inspecteur) trackUsage("remarques").catch(() => {}); }, [inspecteur]);

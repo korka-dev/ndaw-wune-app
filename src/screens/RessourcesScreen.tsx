@@ -46,6 +46,7 @@ import { ressourcesApi, syncApi } from "../services/api";
 import { getSecure } from "../services/secureStorage";
 import { estWeb, telechargerDansNavigateur } from "../utils/web";
 import { useStore } from "../store/useStore";
+import { useRafraichissementAuto } from "../hooks/useRafraichissementAuto";
 
 // ── Constantes ─────────────────────────────────────────────────────────────────
 
@@ -407,6 +408,8 @@ export default function RessourcesScreen() {
   }, []);
 
   useEffect(() => { fetchDocs(); }, [fetchDocs]);
+  // Retour sur l'écran ou dans l'app : changements du tableau de bord récupérés (lot L13).
+  useRafraichissementAuto(() => fetchDocs(true));
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);

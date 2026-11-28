@@ -29,6 +29,7 @@ import {
   lireBrouillon, enregistrerBrouillon, supprimerBrouillon,
   conserverPhoto, relirePhoto, depuis,
 } from "../services/brouillons";
+import { compresserPhoto } from "../utils/photo";
 
 /** Contenu enregistré dans le brouillon (RET01) — les photos par chemin seulement. */
 interface BrouillonRapport {
@@ -314,14 +315,15 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.55, base64: true, allowsEditing: false, exif: false,
+      // Pas de base64 ici : la photo est d'abord réduite (compresserPhoto).
+      quality: 1, base64: false, allowsEditing: false, exif: false,
       allowsMultipleSelection: true, selectionLimit: remaining,
     });
     if (!result.canceled && result.assets.length > 0) {
-      const picked = await Promise.all(result.assets.slice(0, remaining).map(async a => ({
-        uri: ownerId ? await conserverPhoto("rapport_journalier", ownerId, a.uri) : a.uri,
-        base64: a.base64 ?? null,
-      })));
+      const picked = await Promise.all(result.assets.slice(0, remaining).map(async a => {
+        const p = await compresserPhoto(a);
+        return { uri: ownerId ? await conserverPhoto("rapport_journalier", ownerId, p.uri) : p.uri, base64: p.base64 };
+      }));
       setPhotos(prev => [...prev, ...picked].slice(0, MAX_PHOTOS));
     }
   }, [photos.length, ownerId]);
@@ -336,12 +338,12 @@ export default function RapportJournalierScreen({ onBack, onSuccess }: Props) {
     }
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.55, base64: true, allowsEditing: false, exif: false,
+      quality: 1, base64: false, allowsEditing: false, exif: false,
     });
     if (!result.canceled && result.assets.length > 0) {
-      const asset = result.assets[0];
-      const uri = ownerId ? await conserverPhoto("rapport_journalier", ownerId, asset.uri) : asset.uri;
-      setPhotos(prev => [...prev, { uri, base64: asset.base64 ?? null }].slice(0, MAX_PHOTOS));
+      const p = await compresserPhoto(result.assets[0]);
+      const uri = ownerId ? await conserverPhoto("rapport_journalier", ownerId, p.uri) : p.uri;
+      setPhotos(prev => [...prev, { uri, base64: p.base64 }].slice(0, MAX_PHOTOS));
     }
   }, [photos.length, ownerId]);
 
