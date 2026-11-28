@@ -35,13 +35,18 @@ téléchargement reste à la racine (https://ndawwune.ared-edu.org/).
    Le script :
    - construit la version web dans Docker (Node inutile sur le serveur), avec
      le préfixe `/app` (`EXPO_WEB_BASE_URL`, puis `scripts/prefixe-web.mjs`) ;
-   - la publie dans `/var/www/ndawwune-app` ;
+   - la publie dans `/var/www/ndawwune-pwa` (jamais `/var/www/ndawwune-app`,
+     qui contient la page de téléchargement et l'APK) ;
    - copie la route `Caddyfile.app` dans `/etc/caddy/ndawwune-app.route` et
      ajoute `import /etc/caddy/ndawwune-app.route` dans le bloc du site
      `ndawwune.ared-edu.org` (sauvegarde `.avant-app`) ; si la configuration
      est invalide, le site est remis comme avant et Caddy n'est pas rechargé.
 
    Mises à jour : relancer `bash deploy_pwa.sh`.
+
+   Le bloc du site est décrit dans `Caddyfile.site` (installé dans
+   `/etc/caddy/sites/ndawwune-site.caddy`) : page et APK à la racine,
+   `import` de la route `/app`, compression.
 
 ## Installer sur le téléphone
 

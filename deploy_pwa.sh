@@ -31,7 +31,9 @@ SITE_DOMAIN="${SITE_DOMAIN:-ndawwune.ared-edu.org}"
 BASE_PATH="/$(echo "${BASE_PATH:-/app}" | sed 's#^/*##; s#/*$##')"
 ROUTE_FILE="/etc/caddy/ndawwune-app.route"
 API_URL="${API_URL:-https://api.ndawwune.ared-edu.org/api/v1}"
-WEB_ROOT="/var/www/ndawwune-app"
+# Dossier de la version web. Surtout pas /var/www/ndawwune-app : c'est celui de
+# la page de téléchargement (index.html, logo, ndawwune.apk).
+WEB_ROOT="/var/www/ndawwune-pwa"
 SUDO=""; [ "$(id -u)" -ne 0 ] && SUDO="sudo"
 
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -73,9 +75,6 @@ success "Fichiers publiés dans $WEB_ROOT."
 if command -v caddy >/dev/null; then
   $SUDO cp Caddyfile.app "$ROUTE_FILE"
   $SUDO sed -i "s#/app#${BASE_PATH}#g" "$ROUTE_FILE"
-  # Ancienne variante sur un sous-domaine (app.…) : plus utilisée.
-  $SUDO rm -f /etc/caddy/sites/ndawwune-app.caddy
-
   # Fichier qui contient le bloc du site (ex. « ndawwune.ared-edu.org { »).
   DOM_RE="$(echo "$SITE_DOMAIN" | sed 's/\./\\./g')"
   SITE_FILE=$($SUDO grep -lE "^[[:space:]]*([^#{]*[ ,/])?${DOM_RE}(:[0-9]+)?[[:space:]]*(,[^{]*)?\{[[:space:]]*$" \

@@ -1,0 +1,29 @@
+# ==============================================================================
+#  NDAW WUNE — Site https://ndawwune.ared-edu.org/ (référence)
+#
+#  À installer dans /etc/caddy/sites/ndawwune-site.caddy.
+#  - Racine : page de téléchargement + APK, dans /var/www/ndawwune-app.
+#  - /app/  : version web de l'application (route importée, fichiers dans
+#             /var/www/ndawwune-pwa, déployés par deploy_pwa.sh).
+# ==============================================================================
+
+ndawwune.ared-edu.org {
+    import /etc/caddy/ndawwune-app.route
+
+    root * /var/www/ndawwune-app
+    encode zstd gzip
+
+    header {
+        Referrer-Policy           "strict-origin-when-cross-origin"
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options    "nosniff"
+        X-Frame-Options           "SAMEORIGIN"
+        -Server
+    }
+
+    @apk path *.apk
+    header @apk Content-Type "application/vnd.android.package-archive"
+    header @apk Content-Disposition "attachment; filename=ndawwune.apk"
+
+    file_server
+}

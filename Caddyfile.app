@@ -5,14 +5,15 @@
 #  deploy_pwa.sh copie ce fichier dans /etc/caddy/ndawwune-app.route et ajoute
 #      import /etc/caddy/ndawwune-app.route
 #  DANS le bloc du site ndawwune.ared-edu.org (la page de téléchargement reste
-#  à la racine). Fichiers servis depuis /var/www/ndawwune-app.
+#  à la racine). Fichiers servis depuis /var/www/ndawwune-pwa (JAMAIS
+#  /var/www/ndawwune-app : c'est le dossier de la page de téléchargement et de
+#  l'APK). La compression (encode) est faite par le bloc du site.
 # ==============================================================================
 
 redir /app /app/ 308
 
 handle_path /app/* {
-    root * /var/www/ndawwune-app
-    encode zstd gzip
+    root * /var/www/ndawwune-pwa
 
     header {
         # Base locale (SQLite WebAssembly) : la page doit être isolée.
