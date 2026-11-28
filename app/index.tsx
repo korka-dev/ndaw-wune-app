@@ -3,7 +3,7 @@ import { getSecure } from "../src/services/secureStorage";
 import { useEffect, useState } from "react";
 import LoadingScreen from "../src/components/LoadingScreen";
 import { useStore } from "../src/store/useStore";
-import { routeAccueilPourRole } from "../src/utils/roleRoute";
+import { routeAccueilPourRole, roleEspace } from "../src/utils/roleRoute";
 
 export default function Index() {
   const [ready,    setReady]    = useState(false);
@@ -26,7 +26,9 @@ export default function Index() {
       }
 
       setHasToken(!!token);
-      setRole(storedRole);
+      // Rôle d'espace : celui du profil rechargé s'il existe, sinon le rôle mémorisé
+      // (un ancien compte coordonnateur est rangé chez les superviseurs).
+      setRole(useStore.getState().user?.role ?? roleEspace({ role: storedRole }) ?? storedRole);
       setMustChange(mustChangeFlag === "1");
       setReady(true);
     }

@@ -6,13 +6,18 @@ import { fetchAndCache, fetchAndCacheSupervisor, getCached, clearCache, SyncPayl
 import { clearSessionLocalData, purgerSaisiesEnvoyees, setLocalOwner } from "../services/db";
 import { flushQueue } from "../services/queue";
 import { cancelAllSessionAlerts } from "../services/notifications";
-import { estInspecteur } from "../utils/roleRoute";
+import { estInspecteur, roleEspace } from "../utils/roleRoute";
 import { cacheInspecteur } from "../services/inspecteurCache";
 
 const ACTIVE_SEANCE_KEY = "active_seance";
 
 /** Lot L8 : profil inspecteur reçu de /auth/me → cache du compte (un autre
  *  compte précédent est purgé par ouvrir()). */
+/** Profil mis en cache par une sync : son rôle devient le rôle d'espace (cf. roleEspace). */
+function profilEspace<T extends { role?: string | null }>(profile: T): T {
+  return { ...profile, role: roleEspace(profile as any) ?? profile.role } as T;
+}
+
 async function memoriserProfilInspecteur(me: { id: unknown }): Promise<void> {
   await cacheInspecteur.ouvrir(String(me.id));
   cacheInspecteur.set("profil", me);
@@ -107,7 +112,7 @@ export const useStore = create<AppStore>((set, get) => ({
           console.warn("[Store] Inspecteur : profil hors ligne (cache)");
         }
       } else if (cached) {
-        set({ syncData: cached, user: cached.profile, lastSync: cached.synced_at });
+        set({ syncData: cached, user: profilEspace(cached.profile), lastSync: cached.synced_at });
         console.log("[Store] Hydraté depuis le cache local");
       } else {
         // Pas de cache enseignant (ex : superviseur) — on récupère le profil
@@ -119,7 +124,9 @@ export const useStore = create<AppStore>((set, get) => ({
             const cached = await getCached();
             if (cached?.profile?.id && String(cached.profile.id) !== String(me.id)) await clearCache();
           } catch {}
-          set({ user: me });
+          const role = roleEspace(me) ?? me.role;
+          set({ user: { ...me, role } });
+          await setSecure("user_role", role).catch(() => {});
           console.log("[Store] Profil récupéré via /auth/me (pas de cache)");
         } catch {
           console.warn("[Store] Impossible de récupérer le profil au démarrage");
@@ -151,27 +158,41 @@ export const useStore = create<AppStore>((set, get) => ({
       set({ token: data.access_token, loading: false, mustChangePassword: mustChange });
 
       if (!mustChange) {
-        try {
-          const { data: me } = await authApi.me();
-          // APP-20 : le cache hors ligne d'un autre compte n'est jamais montré.
-          try {
-            const cached = await getCached();
-            if (cached?.profile?.id && String(cached.profile.id) !== String(me.id)) await clearCache();
-          } catch {}
-          if (estInspecteur(me.role)) await memoriserProfilInspecteur(me);
-          else await cacheInspecteur.purger(); // jamais de données IEF pour un autre rôle
-          set({ user: me });
-          await setSecure("user_role", me.role);
-        } catch (meErr) {
-          // L'appel /me a échoué : l'utilisateur est authentifié mais sans profil.
-          // On log l'erreur et on laisse l'app continuer — l'écran home gèrera le cas.
-          console.warn("[Store] Impossible de charger le profil après login :", meErr);
+        // Le profil (et donc l'espace : tuteur, superviseur, inspecteur) est
+        // indispensable : sans lui l'app ouvrait l'espace tuteur par défaut.
+        // Un second essai couvre un réseau instable juste après la connexion.
+        let me: any = null;
+        let meErr: unknown = null;
+        for (let essai = 0; essai < 2 && !me; essai++) {
+          try { me = (await authApi.me()).data; } catch (e) { meErr = e; }
         }
+        if (!me) {
+          await clearAuthTokens().catch(() => {});
+          set({ token: null });
+          throw meErr ?? new Error("Profil indisponible");
+        }
+        const role = roleEspace(me);
+        if (!role) {
+          // Compte du seul tableau de bord (administrateur, évaluateur).
+          await clearAuthTokens().catch(() => {});
+          set({ token: null });
+          throw Object.assign(new Error("Compte du tableau de bord"), {
+            response: { data: { detail: "Ce compte sert au tableau de bord et n'a pas d'espace dans l'application. Contactez l'administrateur." } },
+          });
+        }
+        const profil = { ...me, role };
+        // APP-20 : le cache hors ligne d'un autre compte n'est jamais montré.
+        try {
+          const cached = await getCached();
+          if (cached?.profile?.id && String(cached.profile.id) !== String(me.id)) await clearCache();
+        } catch {}
+        if (estInspecteur(role)) await memoriserProfilInspecteur(profil);
+        else await cacheInspecteur.purger(); // jamais de données IEF pour un autre rôle
+        set({ user: profil });
+        await setSecure("user_role", role);
 
         // syncOffline route lui-même vers la bonne sync (enseignant ou superviseur)
-        if (get().user?.role) {
-          await get().syncOffline(true);
-        }
+        await get().syncOffline(true);
       }
 
       return { mustChangePassword: mustChange };
@@ -231,13 +252,16 @@ export const useStore = create<AppStore>((set, get) => ({
         const payload = role === "superviseur"
           ? await fetchAndCacheSupervisor()
           : await fetchAndCache();
-        set({ syncData: payload, user: payload.profile, lastSync: payload.synced_at });
+        // Le profil de la sync superviseur garde l'espace superviseur (un ancien
+        // compte coordonnateur y est rangé, cf. roleEspace).
+        const profile = role === "superviseur" ? { ...payload.profile, role: "superviseur" } : payload.profile;
+        set({ syncData: payload, user: profile as any, lastSync: payload.synced_at });
       } catch {
         // Réseau défaillant → fallback cache local.
         // On ne sort PAS ici : si l'appareil est en ligne, la queue doit quand
         // même être vidée (flushQueue détecte lui-même les vraies erreurs réseau).
         const cached = await getCached();
-        if (cached) set({ syncData: cached, user: cached.profile });
+        if (cached) set({ syncData: cached, user: profilEspace(cached.profile) });
       }
 
       // 2. Vider la queue offline — toute la logique est dans queue.ts (source unique)
@@ -266,7 +290,7 @@ export const useStore = create<AppStore>((set, get) => ({
     if (estInspecteur(role)) return;
     const cached = await getCached();
     if (cached) {
-      set({ syncData: cached, user: cached.profile });
+      set({ syncData: cached, user: profilEspace(cached.profile) });
     }
   },
 }));

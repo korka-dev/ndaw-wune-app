@@ -44,11 +44,17 @@ export default function ChangePasswordScreen() {
       // invalidés au changement de mot de passe (APP-08).
       await clearAuthTokens();
       await clearCache();
-      Alert.alert(
-        "Mot de passe modifié",
-        "Votre mot de passe a été mis à jour. Veuillez vous reconnecter.",
-        [{ text: "Se connecter", onPress: () => router.replace("/login") }],
-      );
+      if (Platform.OS === "web") {
+        // Sur la version web, Alert.alert n'affiche rien : on irait nulle part.
+        window.alert("Votre mot de passe a été mis à jour. Veuillez vous reconnecter.");
+        router.replace("/login");
+      } else {
+        Alert.alert(
+          "Mot de passe modifié",
+          "Votre mot de passe a été mis à jour. Veuillez vous reconnecter.",
+          [{ text: "Se connecter", onPress: () => router.replace("/login") }],
+        );
+      }
     } catch (err: any) {
       Alert.alert("Erreur", err?.response?.data?.detail ?? "Une erreur est survenue.");
     } finally {

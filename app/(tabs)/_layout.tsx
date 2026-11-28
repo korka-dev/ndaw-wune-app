@@ -1,4 +1,4 @@
-import { Tabs } from "expo-router";
+import { Redirect, Tabs } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Platform, View } from "react-native";
@@ -7,6 +7,7 @@ import { rf, rs } from "../../src/utils/responsive";
 import AppGuide from "../../src/components/AppGuide";
 import { useAndroidBack } from "../../src/hooks/useAndroidBack";
 import { useStore } from "../../src/store/useStore";
+import { routeAccueilPourRole } from "../../src/utils/roleRoute";
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
@@ -19,6 +20,12 @@ export default function TabsLayout() {
   const user = useStore(state => state.user);
   // Accès restreint : le tuteur "timer_only" ne voit que l'accueil (planning + timer)
   const timerOnly = (user as any)?.app_access === "timer_only";
+
+  // Garde : un superviseur ou un inspecteur n'a rien à faire dans l'espace tuteur
+  // (rôle mémorisé périmé, ancien compte coordonnateur…) → son propre espace.
+  if (user?.role === "superviseur" || user?.role === "inspecteur") {
+    return <Redirect href={routeAccueilPourRole(user.role) as any} />;
+  }
 
   // Hauteur de la tab bar : safe area bottom + contenu de la bar
   const TAB_BAR_HEIGHT = rs(58) + insets.bottom;
