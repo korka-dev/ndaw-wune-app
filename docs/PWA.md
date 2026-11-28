@@ -18,11 +18,13 @@ Tuteurs, superviseurs et inspecteurs retrouvent leur espace.
 
 ## Mise en production
 
-1. DNS : enregistrement A de `app.ndawwune.ared-edu.org` vers le VPS.
-2. API : ajouter `https://app.ndawwune.ared-edu.org` à `CORS_ORIGINS` dans le
-   `.env` de l'API (séparé par une virgule), puis redéployer l'API
-   (la version qui envoie `Cross-Origin-Resource-Policy` est nécessaire).
-3. Sur le VPS :
+La version web est servie sur le domaine existant, sous
+**https://ndawwune.ared-edu.org/app/** : aucun nouveau DNS. La page de
+téléchargement reste à la racine (https://ndawwune.ared-edu.org/).
+
+1. API : ajouter `https://ndawwune.ared-edu.org` à `CORS_ORIGINS` dans le
+   `.env` de l'API (séparé par une virgule), puis redéployer l'API.
+2. Sur le VPS :
 
    ```bash
    git clone https://github.com/korka-dev/ndaw-wune-app.git /opt/ndawwune/app
@@ -30,41 +32,20 @@ Tuteurs, superviseurs et inspecteurs retrouvent leur espace.
    bash deploy_pwa.sh
    ```
 
-   Le script construit la version web dans Docker (Node inutile sur le
-   serveur), la publie dans `/var/www/ndawwune-app` et configure Caddy
-   (`/etc/caddy/sites/ndawwune-app.caddy`). Mises à jour : relancer
-   `bash deploy_pwa.sh`.
+   Le script :
+   - construit la version web dans Docker (Node inutile sur le serveur), avec
+     le préfixe `/app` (`EXPO_WEB_BASE_URL`, puis `scripts/prefixe-web.mjs`) ;
+   - la publie dans `/var/www/ndawwune-app` ;
+   - copie la route `Caddyfile.app` dans `/etc/caddy/ndawwune-app.route` et
+     ajoute `import /etc/caddy/ndawwune-app.route` dans le bloc du site
+     `ndawwune.ared-edu.org` (sauvegarde `.avant-app`) ; si la configuration
+     est invalide, le site est remis comme avant et Caddy n'est pas rechargé.
 
-## Un seul lien pour tous : https://ndawwune.ared-edu.org/
-
-La page `landing/index.html` remplace la page de téléchargement actuelle. Elle
-détecte le téléphone :
-
-- **Android** : bouton « Télécharger l'application (Android) » → `/ndawwune.apk` ;
-- **iPhone / iPad** : bouton « Ouvrir NDAW WUNE » → la version web, avec les
-  étapes pour l'ajouter à l'écran d'accueil ;
-- **ordinateur** (ou sans JavaScript) : les deux options.
-
-Sur un téléphone, seule l'option qui le concerne est affichée (détection faite
-avant l'affichage, sans clignotement).
-
-Mise en place sur le VPS (après `git pull` dans `/opt/ndawwune/app`) :
-
-```bash
-# Dossier servi par Caddy pour ndawwune.ared-edu.org (ligne « root »)
-grep -rn -A4 "^ndawwune.ared-edu.org" /etc/caddy/Caddyfile /etc/caddy/sites/
-# Copie de sauvegarde, puis nouvelle page (remplacer <DOSSIER> par ce « root »)
-cp <DOSSIER>/index.html <DOSSIER>/index.html.avant-iphone
-cp /opt/ndawwune/app/landing/index.html <DOSSIER>/index.html
-```
-
-Nouvel APK : le copier sous `<DOSSIER>/ndawwune.apk`. Le lien ne change pas,
-il peut donc servir de `APP_DOWNLOAD_URL` dans le `.env` de l'API
-(`https://ndawwune.ared-edu.org/ndawwune.apk`).
+   Mises à jour : relancer `bash deploy_pwa.sh`.
 
 ## Installer sur le téléphone
 
-- **Android (Chrome)** : ouvrir `https://app.ndawwune.ared-edu.org` → menu ⋮ →
+- **Android (Chrome)** : ouvrir `https://ndawwune.ared-edu.org/app/` → menu ⋮ →
   « Ajouter à l'écran d'accueil » (ou « Installer l'application »).
 - **iPhone (Safari)** : ouvrir le lien → bouton Partager → « Sur l'écran d'accueil ».
 

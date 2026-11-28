@@ -1,14 +1,16 @@
 # ==============================================================================
-#  NDAW WUNE — Config Caddy pour la version web de l'application (PWA, lot L12)
+#  NDAW WUNE — Route Caddy de la version web de l'application (PWA)
 #
-#  Installé par deploy_pwa.sh dans /etc/caddy/sites/ndawwune-app.caddy (le
-#  domaine suit APP_DOMAIN). Fichiers statiques servis depuis
-#  /var/www/ndawwune-app (résultat de `expo export --platform web`).
-#
-#  Créer d'abord l'enregistrement DNS (A/AAAA) du domaine vers ce VPS.
+#  Servie sous https://ndawwune.ared-edu.org/app/ : pas de nouveau DNS.
+#  deploy_pwa.sh copie ce fichier dans /etc/caddy/ndawwune-app.route et ajoute
+#      import /etc/caddy/ndawwune-app.route
+#  DANS le bloc du site ndawwune.ared-edu.org (la page de téléchargement reste
+#  à la racine). Fichiers servis depuis /var/www/ndawwune-app.
 # ==============================================================================
 
-app.ndawwune.ared-edu.org {
+redir /app /app/ 308
+
+handle_path /app/* {
     root * /var/www/ndawwune-app
     encode zstd gzip
 
@@ -18,10 +20,7 @@ app.ndawwune.ared-edu.org {
         Cross-Origin-Embedder-Policy "require-corp"
         Cross-Origin-Resource-Policy "same-origin"
         X-Content-Type-Options       "nosniff"
-        Referrer-Policy              "strict-origin-when-cross-origin"
-        Strict-Transport-Security    "max-age=31536000"
         Permissions-Policy           "geolocation=(), microphone=()"
-        -Server
     }
 
     # Fichiers de l'app : noms hashés → cache 1 an.

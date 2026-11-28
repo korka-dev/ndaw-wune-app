@@ -7,12 +7,17 @@
 #    cd /opt/ndawwune/app && git checkout <branche>
 #    sudo bash deploy_pwa.sh
 #
+#  La version web est servie sous https://$SITE_DOMAIN$BASE_PATH/ (défaut :
+#  https://ndawwune.ared-edu.org/app/) : aucun nouveau DNS, la page de
+#  téléchargement reste à la racine du site.
+#
 #  Variables (facultatives) :
-#    APP_DOMAIN  domaine de la PWA      (défaut : app.ndawwune.ared-edu.org)
-#    API_URL     URL de l'API           (défaut : https://api.ndawwune.ared-edu.org/api/v1)
+#    SITE_DOMAIN domaine du site existant (défaut : ndawwune.ared-edu.org)
+#    BASE_PATH   sous-chemin de l'app     (défaut : /app)
+#    API_URL     URL de l'API             (défaut : https://api.ndawwune.ared-edu.org/api/v1)
 #
 #  Le même script sert aux mises à jour (git pull + reconstruction).
-#  Côté API, ajouter https://$APP_DOMAIN à CORS_ORIGINS (.env) puis redéployer.
+#  Côté API, ajouter https://$SITE_DOMAIN à CORS_ORIGINS (.env) puis redéployer.
 # ==============================================================================
 set -euo pipefail
 
@@ -22,7 +27,9 @@ success() { echo -e "${GREEN}✅  $*${NC}"; }
 warn()    { echo -e "${YELLOW}⚠️   $*${NC}"; }
 error()   { echo -e "${RED}❌  $*${NC}"; exit 1; }
 
-APP_DOMAIN="${APP_DOMAIN:-app.ndawwune.ared-edu.org}"
+SITE_DOMAIN="${SITE_DOMAIN:-ndawwune.ared-edu.org}"
+BASE_PATH="/$(echo "${BASE_PATH:-/app}" | sed 's#^/*##; s#/*$##')"
+ROUTE_FILE="/etc/caddy/ndawwune-app.route"
 API_URL="${API_URL:-https://api.ndawwune.ared-edu.org/api/v1}"
 WEB_ROOT="/var/www/ndawwune-app"
 SUDO=""; [ "$(id -u)" -ne 0 ] && SUDO="sudo"
@@ -44,12 +51,13 @@ log "Construction de la version web (API : $API_URL)…"
 rm -rf dist-web
 docker run --rm \
   -v "$PWD":/app -v ndawwune-app-node-modules:/app/node_modules -w /app \
-  -e EXPO_PUBLIC_API_URL="$API_URL" -e CI=1 -e EXPO_NO_TELEMETRY=1 \
-  node:24-slim sh -c "npm ci --no-audit --no-fund --loglevel=error && npx expo export --platform web --output-dir dist-web"
+  -e EXPO_PUBLIC_API_URL="$API_URL" -e EXPO_WEB_BASE_URL="$BASE_PATH" -e CI=1 -e EXPO_NO_TELEMETRY=1 \
+  node:24-slim sh -c "npm ci --no-audit --no-fund --loglevel=error && npx expo export --platform web --output-dir dist-web && node scripts/prefixe-web.mjs '$BASE_PATH' dist-web"
 
 [ -f dist-web/index.html ] && [ -f dist-web/sw.js ] && [ -f dist-web/manifest.webmanifest ] \
   || error "Construction incomplète (index.html, sw.js ou manifest.webmanifest manquant)."
 grep -rqF "$API_URL" dist-web/_expo/static/js/web/ || error "L'URL de l'API n'apparaît pas dans le code construit."
+grep -qF "src=\"${BASE_PATH}/_expo/" dist-web/index.html || error "Le code n'est pas préfixé par ${BASE_PATH}."
 success "Version web construite ($(du -sh dist-web | cut -f1))."
 
 # ── 3. Publication (remplacement d'un bloc) ───────────────────────────────────
@@ -61,23 +69,38 @@ $SUDO mv "${WEB_ROOT}.new" "$WEB_ROOT"
 $SUDO chmod -R a+rX "$WEB_ROOT"
 success "Fichiers publiés dans $WEB_ROOT."
 
-# ── 4. Caddy ──────────────────────────────────────────────────────────────────
+# ── 4. Caddy : route ${BASE_PATH} dans le site existant ───────────────────────
 if command -v caddy >/dev/null; then
-  $SUDO mkdir -p /etc/caddy/sites
-  grep -q "import /etc/caddy/sites/\*.caddy" /etc/caddy/Caddyfile 2>/dev/null \
-    || echo -e "\nimport /etc/caddy/sites/*.caddy" | $SUDO tee -a /etc/caddy/Caddyfile >/dev/null
-  sed "s/^app\.ndawwune\.ared-edu\.org {/${APP_DOMAIN} {/" Caddyfile.app | $SUDO tee /etc/caddy/sites/ndawwune-app.caddy >/dev/null
+  $SUDO cp Caddyfile.app "$ROUTE_FILE"
+  $SUDO sed -i "s#/app#${BASE_PATH}#g" "$ROUTE_FILE"
+  # Ancienne variante sur un sous-domaine (app.…) : plus utilisée.
+  $SUDO rm -f /etc/caddy/sites/ndawwune-app.caddy
+
+  # Fichier qui contient le bloc du site (ex. « ndawwune.ared-edu.org { »).
+  DOM_RE="$(echo "$SITE_DOMAIN" | sed 's/\./\\./g')"
+  SITE_FILE=$($SUDO grep -lE "^[[:space:]]*([^#{]*[ ,/])?${DOM_RE}(:[0-9]+)?[[:space:]]*(,[^{]*)?\{[[:space:]]*$" \
+              /etc/caddy/Caddyfile /etc/caddy/sites/*.caddy 2>/dev/null | head -1 || true)
+  [ -n "$SITE_FILE" ] || error "Bloc du site ${SITE_DOMAIN} introuvable dans /etc/caddy : ajoutez-y à la main la ligne « import ${ROUTE_FILE} »."
+
+  if ! $SUDO grep -qF "import ${ROUTE_FILE}" "$SITE_FILE"; then
+    $SUDO cp "$SITE_FILE" "${SITE_FILE}.avant-app"
+    $SUDO awk -v re="^[[:space:]]*([^#{]*[ ,/])?${DOM_RE}(:[0-9]+)?[[:space:]]*(,[^{]*)?\\{[[:space:]]*$" -v imp="    import ${ROUTE_FILE}" \
+      '{ print } !fait && $0 ~ re { print imp; fait = 1 }' "${SITE_FILE}.avant-app" | $SUDO tee "$SITE_FILE" >/dev/null
+    success "Route ${BASE_PATH} ajoutée au site ${SITE_DOMAIN} (${SITE_FILE}, sauvegarde .avant-app)."
+  fi
+
   if $SUDO caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; then
     $SUDO systemctl reload caddy
-    success "Caddy : https://${APP_DOMAIN}"
+    success "Caddy : https://${SITE_DOMAIN}${BASE_PATH}/"
   else
     $SUDO caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile || true
-    error "Configuration Caddy invalide : Caddy non rechargé."
+    [ -f "${SITE_FILE}.avant-app" ] && $SUDO cp "${SITE_FILE}.avant-app" "$SITE_FILE"
+    error "Configuration Caddy invalide : site remis comme avant, Caddy non rechargé."
   fi
 else
   warn "Caddy introuvable : fichiers publiés mais site non exposé."
 fi
 
 echo
-warn "Côté API : CORS_ORIGINS (.env) doit contenir https://${APP_DOMAIN}, puis redéployer l'API."
-success "Terminé. Ouvrez https://${APP_DOMAIN} sur le téléphone → menu ⋮ → « Ajouter à l'écran d'accueil »."
+warn "Côté API : CORS_ORIGINS (.env) doit contenir https://${SITE_DOMAIN}, puis redéployer l'API."
+success "Terminé. Lien à partager : https://${SITE_DOMAIN}/ (iPhone → bouton « Ouvrir NDAW WUNE »)."
