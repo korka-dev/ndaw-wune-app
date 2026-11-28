@@ -184,14 +184,18 @@ export default function SupPresencesScreen() {
           return;
         }
 
-        // Persister la liste des enseignants pour usage hors-ligne
-        upsertSupervisorTeachers(
-          rawTeachers.map(t => ({
-            id:  t.id,
-            nom: t.name,
-            cls: (t.classes ?? [])[0] ?? "—",
-          })),
-        );
+        // Persister la liste des enseignants pour usage hors-ligne. Un échec du
+        // cache local (base du navigateur indisponible sur iPhone, par ex.) ne
+        // doit pas masquer la liste reçue du serveur.
+        try {
+          upsertSupervisorTeachers(
+            rawTeachers.map(t => ({
+              id:  t.id,
+              nom: t.name,
+              cls: (t.classes ?? [])[0] ?? "—",
+            })),
+          );
+        } catch (e) { console.warn("[Presences] cache enseignants indisponible", e); }
 
         // Pointage déjà enregistré côté serveur pour aujourd'hui
         const saved = new Map<string, { present: boolean; motif: string | null }>();
@@ -227,29 +231,33 @@ export default function SupPresencesScreen() {
           };
         });
 
-        // Synchroniser le cache local avec les données serveur
-        for (const p of builtProfs) {
-          upsertSupervisorPresence({
-            date_jour:   dateJour,
-            teacher_id:  p.id,
-            teacher_nom: p.nom,
-            teacher_cls: p.classe,
-            present:     p.present,
-            motif:       p.motif,
-            synced:      brouillon.has(p.id) || !saved.has(p.id) ? 0 : 1,
-          });
-        }
+        // Synchroniser le cache local avec les données serveur (sans bloquer
+        // l'affichage si le cache local échoue).
+        try {
+          for (const p of builtProfs) {
+            upsertSupervisorPresence({
+              date_jour:   dateJour,
+              teacher_id:  p.id,
+              teacher_nom: p.nom,
+              teacher_cls: p.classe,
+              present:     p.present,
+              motif:       p.motif,
+              synced:      brouillon.has(p.id) || !saved.has(p.id) ? 0 : 1,
+            });
+          }
+        } catch (e) { console.warn("[Presences] cache pointage indisponible", e); }
 
         setProfs(builtProfs);
         // Verrouillé si déjà soumis et sans modification en attente.
         setLocked(saved.size > 0 && brouillon.size === 0);
-      } catch {
-        setError("Impossible de charger les enseignants. Passage en mode hors-ligne.");
-        loadFromLocalCache(dateJour);
+      } catch (err: any) {
+        const code = err?.response?.status;
+        setError(`Impossible de charger les enseignants${code ? ` (erreur ${code})` : ""}. Passage en mode hors-ligne.`);
+        try { loadFromLocalCache(dateJour); } catch { /* cache local indisponible */ }
       }
     } else {
       // Hors-ligne : lecture depuis SQLite
-      loadFromLocalCache(dateJour);
+      try { loadFromLocalCache(dateJour); } catch { /* cache local indisponible */ }
     }
   }, [isOnline]);
 
